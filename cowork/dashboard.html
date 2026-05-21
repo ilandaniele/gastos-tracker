@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Dashboard de Gastos</title>
+<style>
+:root { color-scheme: light; --bg:#fafafa; --fg:#1a1a1a; --muted:#666; --border:#e5e5e5; --accent:#0f766e; --warn:#dc2626; --card:#fff; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 16px; }
+h1 { margin: 0 0 12px; font-size: 22px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); font-size: 14px; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.panel { display: none; }
+.panel.active { display: block; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.kpi-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi-val { font-size: 22px; font-weight: 700; margin-top: 4px; }
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+.chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.chart-card h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.chart-wrap { position: relative; height: 280px; }
+.flip-container { perspective: 1400px; min-height: 360px; position: relative; }
+.flip-inner { position: relative; width: 100%; height: 360px; transform-style: preserve-3d; transition: transform 0.7s; }
+.flip-container.flipped .flip-inner { transform: rotateY(180deg); }
+.flip-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: pointer; }
+.flip-back { transform: rotateY(180deg); }
+.flip-hint { position: absolute; top: 10px; right: 14px; font-size: 10px; color: var(--muted); pointer-events: none; }
+.flip-hint::before { content: "↻ "; }
+form { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-width: 560px; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; font-weight: 500; }
+input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit; background: white; color: var(--fg); }
+button { background: var(--accent); color: white; border: none; padding: 10px 16px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; margin-right: 8px; }
+button:hover { opacity: 0.9; }
+button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.suggestion { font-size: 12px; color: var(--accent); margin-top: 4px; min-height: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--card); border-radius: 8px; overflow: hidden; }
+th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: #f5f5f5; font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+tbody tr:hover { background: #fafafa; }
+.loader { color: var(--muted); padding: 32px; text-align: center; }
+.err { color: var(--warn); padding: 10px; background: #fef2f2; border-radius: 6px; margin-top: 8px; font-size: 13px; }
+.ok { color: #15803d; padding: 10px; background: #f0fdf4; border-radius: 6px; margin-top: 8px; font-size: 13px; }
+.filter-bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-bar input, .filter-bar select { max-width: 240px; }
+.muted { color: var(--muted); font-size: 12px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+</head>
+<body>
+<h1>Dashboard de Gastos</h1>
+<div class="tabs">
+  <div class="tab active" data-tab="dash">Dashboard</div>
+  <div class="tab" data-tab="add">Agregar gasto</div>
+  <div class="tab" data-tab="raw">Datos</div>
+  <div class="tab" data-tab="help">Chat / Ayuda</div>
+  <div class="tab" data-tab="tests">Tests</div>
+</div>
+
+<div class="panel active" id="dash">
+  <div id="loading" class="loader">Cargando datos de Google Sheets...</div>
+  <div id="dashContent" style="display:none">
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#0c4a6e">
+      <strong>FX charts:</strong> 1 USD = <strong id="fxRate">39.87</strong> UYU · 1 USD ≈ <strong>1400</strong> ARS · <span style="color:#075985">Anclado <span id="fxDate">11 May 2026</span></span>
+      <br><span style="font-size:11px;color:#075985">Cada gasto agregado consulta BCU al momento del submit (escribe cotización en columna G del Sheet).</span>
+    </div>
+    <div class="filter-bar" style="margin-bottom:12px">
+      <label style="margin:0;display:flex;align-items:center;gap:8px;font-size:13px"><span>Mes:</span>
+        <select id="filterMonth" style="max-width:260px"></select>
+      </label>
+      <label style="margin:0;display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="includeFixed" checked> Incluir gastos fijos</label>
+      <label style="margin:0;display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="usdView"> Vista USD total (convierte todo)</label>
+    </div>
+    <div class="kpi-grid" id="kpis"></div>
+    <div class="chart-grid">
+      <div class="flip-container" id="flipMoneda" onclick="this.classList.toggle('flipped')">
+        <div class="flip-inner">
+          <div class="flip-face flip-front">
+            <h3>Por moneda (USD equiv)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCurrencyUSD"></canvas></div>
+          </div>
+          <div class="flip-face flip-back">
+            <h3>Por moneda (UYU equiv)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCurrencyUYU"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="flip-container" id="flipMedio" onclick="this.classList.toggle('flipped')">
+        <div class="flip-inner">
+          <div class="flip-face flip-front">
+            <h3>Por medio de pago (UYU)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCardUYU"></canvas></div>
+          </div>
+          <div class="flip-face flip-back">
+            <h3>Por medio de pago (USD)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCardUSD"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="flip-container" id="flipCat" onclick="this.classList.toggle('flipped')">
+        <div class="flip-inner">
+          <div class="flip-face flip-front">
+            <h3>Por categoría (UYU)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCatUYU"></canvas></div>
+          </div>
+          <div class="flip-face flip-back">
+            <h3>Por categoría (USD)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chCatUSD"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="flip-container" id="flipTop" onclick="this.classList.toggle('flipped')">
+        <div class="flip-inner">
+          <div class="flip-face flip-front">
+            <h3>Top 15 ítems (UYU)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chTopUYU"></canvas></div>
+          </div>
+          <div class="flip-face flip-back">
+            <h3>Top 15 ítems (USD)</h3><div class="flip-hint">click</div>
+            <div class="chart-wrap"><canvas id="chTopUSD"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-card"><h3>Gasto efectivo ARS</h3><div class="chart-wrap"><canvas id="chARS"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="add">
+  <form id="expenseForm">
+    <label>Ítem / Lugar</label>
+    <input id="item" required placeholder="Ej: Disco, Cabify, Claude...">
+    <div class="suggestion" id="catSuggestion"></div>
+    <div class="row">
+      <div>
+        <label>Monto</label>
+        <input id="amount" type="number" step="0.01" required>
+      </div>
+      <div>
+        <label>Moneda</label>
+        <select id="currency" required>
+          <option value="UYU">UYU</option>
+          <option value="USD">USD</option>
+          <option value="ARS">ARS</option>
+        </select>
+      </div>
+    </div>
+    <label>Medio de pago</label>
+    <select id="card" required>
+      <option value="Débito UYU">Débito UYU</option>
+      <option value="Débito USD">Débito USD</option>
+      <option value="Crédito OCA">Crédito OCA</option>
+      <option value="Crédito Itaú UYU">Crédito Itaú UYU</option>
+      <option value="Crédito Itaú USD">Crédito Itaú USD</option>
+      <option value="Prex">Prex</option>
+      <option value="Efectivo">Efectivo</option>
+      <option value="Transferencia">Transferencia</option>
+    </select>
+    <label>Categoría</label>
+    <select id="category" required>
+      <option>Transporte</option>
+      <option>Comida</option>
+      <option>Bebida/Bar</option>
+      <option>Salud</option>
+      <option>Suscripciones</option>
+      <option>Entretenimiento</option>
+      <option>Hogar</option>
+      <option>Limpieza</option>
+      <option>Ropa</option>
+      <option>Regalos</option>
+      <option>Gimnasio</option>
+      <option>Servicios</option>
+      <option>Otros</option>
+    </select>
+    <div class="row">
+      <div>
+        <label>Fecha</label>
+        <input id="date" type="date" required>
+      </div>
+      <div>
+        <label>Cotización (USD/ARS, opcional)</label>
+        <input id="rate" type="number" step="0.01">
+      </div>
+    </div>
+    <label>Notas</label>
+    <textarea id="notes" rows="2"></textarea>
+    <button type="submit">Guardar gasto</button>
+    <button type="button" class="secondary" id="aiSuggestBtn">Sugerir categoría con IA</button>
+    <div id="formMsg"></div>
+  </form>
+  <p class="muted" style="max-width:560px;margin-top:12px">Al guardar, se envía un mensaje al chat. Claude usará Chrome MCP para escribir la fila en tu Sheet (tab del mes actual, columna correcta).</p>
+</div>
+
+<div class="panel" id="help">
+  <div style="max-width:720px">
+    <h2 style="font-size:18px;margin:0 0 12px">Agregar gastos desde el chat</h2>
+    <p class="muted" style="margin-bottom:16px">Escribí directamente en el chat. Yo parseo, consulto BCU para la fecha del gasto, y escribo en tu Sheet.</p>
+
+    <h3 style="font-size:14px;margin:16px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lenguaje natural</h3>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:13px;line-height:1.8">
+      agregame 52 OCA bus<br>
+      anota Claude 10 USD Itaú USD<br>
+      gasté 240 en disco con débito UYU<br>
+      registra cabify 350 Itaú UYU<br>
+      agregame 120 dólares Sandra
+    </div>
+    <p class="muted" style="margin-top:8px;font-size:12px">Si falta algún campo (medio de pago, moneda, categoría), te pregunto antes de escribir.</p>
+
+    <h3 style="font-size:14px;margin:24px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Atajos (shortcuts)</h3>
+    <table style="font-size:13px">
+      <thead><tr><th>Comando</th><th>Default</th><th>Ejemplo</th></tr></thead>
+      <tbody>
+        <tr><td><code>/bus [N=52]</code></td><td>Bus 52 UYU · Crédito OCA · Transporte</td><td><code>/bus</code> o <code>/bus 50</code></td></tr>
+        <tr><td><code>/uber N</code></td><td>Uber · UYU · Débito UYU · Transporte</td><td><code>/uber 350</code></td></tr>
+        <tr><td><code>/cabify N</code></td><td>Cabify · UYU · Crédito Itaú UYU · Transporte</td><td><code>/cabify 240</code></td></tr>
+        <tr><td><code>/taxi N</code></td><td>Taxi · UYU · Débito UYU · Transporte</td><td><code>/taxi 200</code></td></tr>
+        <tr><td><code>/claude N</code></td><td>Claude · USD · Crédito Itaú USD · Suscripciones</td><td><code>/claude 10</code></td></tr>
+        <tr><td><code>/disco N</code></td><td>Disco · UYU · Crédito Itaú UYU · Comida</td><td><code>/disco 1500</code></td></tr>
+        <tr><td><code>/devoto N</code></td><td>Devoto · UYU · Crédito Itaú UYU · Comida</td><td><code>/devoto 800</code></td></tr>
+        <tr><td><code>/frog N</code></td><td>Frog · UYU · Débito UYU · Bebida/Bar</td><td><code>/frog 1000</code></td></tr>
+        <tr><td><code>/cafe N</code></td><td>Café · UYU · Débito UYU · Bebida/Bar</td><td><code>/cafe 200</code></td></tr>
+        <tr><td><code>/farma N</code></td><td>Farmacia · UYU · Débito UYU · Salud</td><td><code>/farma 800</code></td></tr>
+        <tr><td><code>/medic N</code></td><td>Medicamentos · UYU · Débito UYU · Salud</td><td><code>/medic 500</code></td></tr>
+        <tr><td><code>/agua [N=140]</code></td><td>Agua · UYU · Débito UYU · Bebida/Bar</td><td><code>/agua</code></td></tr>
+        <tr><td><code>/futbol [N=350]</code></td><td>Fútbol · UYU · Débito UYU · Gimnasio</td><td><code>/futbol</code></td></tr>
+      </tbody>
+    </table>
+    <p class="muted" style="margin-top:12px;font-size:12px">Podés sobrescribir cualquier campo: <code>/claude 20 efectivo</code> usa Efectivo en vez de Itaú USD.</p>
+
+    <h3 style="font-size:14px;margin:24px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Batch</h3>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:13px;line-height:1.8">
+      agregame estos gastos:<br>
+      - /bus 52<br>
+      - /claude 10<br>
+      - disco 1500 Itaú UYU<br>
+      - cabify 240 crédito Itaú
+    </div>
+
+    <h3 style="font-size:14px;margin:24px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cómo funciona</h3>
+    <ol style="font-size:13px;line-height:1.7">
+      <li>Vos escribís en el chat (no en este artifact)</li>
+      <li>Claude parsea y muestra un resumen antes de escribir</li>
+      <li>Si OK, fetch BCU para la fecha del gasto</li>
+      <li>Abre Sheet → tab del mes → inserta fila arriba del Total</li>
+      <li>Escribe: ítem, monto en col correspondiente, cotización, categoría</li>
+      <li>Confirma con vos</li>
+    </ol>
+
+    <p class="muted" style="margin-top:16px;font-size:11px">Fecha default: hoy. Para fecha distinta: <code>agregame ayer 52 bus OCA</code> o <code>el 5/5 disco 1500</code>.</p>
+  </div>
+</div>
+
+<div class="panel" id="tests">
+  <div style="max-width:900px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="font-size:18px;margin:0">Tests end-to-end</h2>
+      <button type="button" id="runTestsBtn">Correr tests</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px;font-size:13px">Asserts sobre parser, FX math, clasificación, y datos cargados. Corren contra estado actual del artifact.</p>
+    <div id="testsOutput"></div>
+  </div>
+</div>
+
+<div class="panel" id="raw">
+  <div class="filter-bar">
+    <input id="search" placeholder="Buscar ítem o categoría...">
+    <select id="filterCard"><option value="">Todos los medios</option></select>
+    <select id="filterCurrency"><option value="">Todas las monedas</option></select>
+    <select id="filterType"><option value="">Fijos + Variables</option><option value="variable">Solo variables</option><option value="fixed">Solo fijos</option></select>
+  </div>
+  <div id="rawTable"></div>
+</div>
+
+<script>
+const FILE_ID = "1kEcFTH2XgS5KF9qh3PFcq1HItDnmf_gXpohfQW8V3RI";
+const DRIVE_TOOL = "mcp__f93258f4-66ab-4c2c-9e11-baacc4a14391__read_file_content";
+
+// FX rates (anchored 11 May 2026, BCU/Infobae)
+const USD_UYU = 39.87;   // 1 USD = 39.87 UYU
+const USD_ARS = 1400;    // 1 USD ≈ 1400 ARS (from your sheet's typical Argentina rate)
+const FX_DATE = "11 May 2026";
+
+function toUSD(amount, currency) {
+  if (currency === 'USD') return amount;
+  if (currency === 'UYU') return amount / USD_UYU;
+  if (currency === 'ARS') return amount / USD_ARS;
+  return amount;
+}
+function toUYU(amount, currency) {
+  if (currency === 'UYU') return amount;
+  if (currency === 'USD') return amount * USD_UYU;
+  if (currency === 'ARS') return amount * (USD_UYU / USD_ARS);
+  return amount;
+}
+
+const CATS = ['Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento','Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Otros'];
+
+const MONTH_NAMES = [
+  'Mayo 2026','Junio 2026','Abril 2026','Marzo 2026','Febrero 2026','Enero 2026',
+  'Diciembre 2025','Noviembre 2025','Octubre 2025','Septiembre 2025','Agosto 2025',
+  'Julio 2025','Junio 2025','Mayo 2025','Abril 2025','Marzo 2025',
+  'Febrero 2025','Enero 2025','Diciembre 2024','Noviembre 2024','Octubre 2024'
+];
+// Mes actual basado en fecha del dispositivo (es-UY)
+const ES_MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function currentMonthName() {
+  const d = new Date();
+  return ES_MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+}
+// Returns YYYY*12+MM index from a "Mes YYYY" string. -1 if unparseable.
+function monthRank(name) {
+  const m = String(name).match(/^([A-Za-zÁÉÍÓÚáéíóú]+)\s+(\d{4})$/);
+  if (!m) return -1;
+  const idx = ES_MONTH_NAMES.findIndex(n => n.toLowerCase() === m[1].toLowerCase());
+  if (idx < 0) return -1;
+  return parseInt(m[2], 10) * 12 + idx;
+}
+function currentMonthRank() {
+  const d = new Date();
+  return d.getFullYear() * 12 + d.getMonth();
+}
+function monthLabel(i) { return MONTH_NAMES[i] || ('Mes ' + (i+1)); }
+
+const CAT_RULES = [
+  [/bus|taxi|uber|cabify|didi|combi|buque|pasaje|nafta|shell|axion|colonia express|sube|bondi|vuelta|viaje/i, "Transporte"],
+  [/disco|devoto|tata|d[ií]a\b|panader|carnicer|frog|mac\b|mcdonald|burguer|pizza|empanad|asado|comida|almuerzo|cena|desayuno|merienda|alfajor|galletas|helado|chocolate|sandwich|tostado|rotiser|pollo|huevos|queso|le pain|borneo|chipa|medialunas|cubanitos|dulce|yogurt|pde|poke|hamburguesa|barbacoa|guelfi|tata\b/i, "Comida"],
+  [/fernet|cerveza|coca|agua|bar|caf[eé]|pub|powerade|aquarius|jackson|gallaghers|cuba libre|campari|sidra|trago|whisky|vino|fenix|gu[eé]mes|guelfi|prisma|madison|bebida|alcohol|birra|fenet/i, "Bebida/Bar"],
+  [/medicamento|farmashop|farmacia|farmacity|análisis|dentista|hospital|cl[ií]nica|bluecross|blue cross|aflusan|vozama|duspatalin|dumirox|drogu|polish|forros|preservativ/i, "Salud"],
+  [/claude|anthropic|gpt|chatgpt|github|copilot|google|fly\.io|fly io|openai|notion|spotify|netflix/i, "Suscripciones"],
+  [/cine|cultural|stand up|concert|alfabeta|libro|teatro|m[uú]sica|entrada|phonetec|baile|fiesta|club\b/i, "Entretenimiento"],
+  [/jab[oó]n|esponja|papel higi[eé]nico|skip|detergente|lavandina|trapo|escoba|san roque|mercadito papel/i, "Limpieza"],
+  [/garrafa|adaptador|tapones|llave|ferreter|cesto|plancha|sanitaria|distribuidora|cintas|acolchado|almohada|cristales|huevos|maple/i, "Hogar"],
+  [/zara|ropa|sweater|polo|gorra|conjunto|peluqueria|invictus|vinilo|reloj/i, "Ropa"],
+  [/regalo|cumple|jano regalo/i, "Regalos"],
+  [/gimnasio|gym\b|fútbol|futbol|escalada|acupuntura|proteina|crea/i, "Gimnasio"],
+  [/alquiler|gastos comunes|tributos|antel|luz|^oca$|sandra|viandas|^ble$|sas|abitab|paquete banco|poliza|dgi|martin vidal|mart[ií]n vidal|ema\b/i, "Servicios"],
+];
+
+function classify(item) {
+  if (!item) return "Otros";
+  for (const [re, cat] of CAT_RULES) if (re.test(item)) return cat;
+  return "Otros";
+}
+
+function parseMarkdown(md) {
+  sheetTotals = {}; // reset on each parse
+  const lines = md.split('\n');
+  const sections = [];
+  let cur = null;
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t.startsWith('|')) { if (cur && cur.rows.length) sections.push(cur); cur = null; continue; }
+    const cells = t.split('|').slice(1, -1).map(c => c.trim());
+    if (cells.every(c => /^:?-+:?$/.test(c))) continue;
+    if (!cur) { cur = { headers: cells, rows: [] }; continue; }
+    cur.rows.push(cells);
+  }
+  if (cur && cur.rows.length) sections.push(cur);
+
+  const expenses = [];
+  const FIXED_NAMES = /^(alquiler|gastos comunes|tributos domiciliarios|antel internet|antel m[oó]vil|^luz$|^oca\b|sandra|viandas|^ble$|ita[uú] cr[eé]dito|gimnasio|bluecross|ema|mart[ií]n vidal|ita[uú] paquete|total|gasto total|compras|ahorro)/i;
+
+  let monthIdx = -1;
+  for (let si = 0; si < sections.length; si++) {
+    const s = sections[si];
+    const h = s.headers.map(x => x.toLowerCase());
+    if (h.some(c => c.includes('lunes')) && h.some(c => c.includes('martes'))) continue;
+    if (h.every(c => c === 'no_header' || c === '')) continue;
+
+    const isFixedTable = h[0] === 'gasto';
+    if (isFixedTable) monthIdx++;
+    const isItemTable = h[0] === 'ítem' || h[0] === 'item';
+
+    // Skip Argentina trip tables + sections with numeric/fake headers + summary tables
+    const isArgentinaTrip =
+      h.some(c => /precio d[oó]lar|d[oó]lar compra|d[oó]lar venta/i.test(c)) ||
+      // Argentina sections often have Precio Dolar in row 2 (sub-header)
+      s.rows.slice(0, 3).some(r => r.some(c => /precio d[oó]lar/i.test(String(c)))) ||
+      // Or header has ARS column with mostly empty first cols (Argentina pattern)
+      (h.includes('ars') && h.filter(c => c === '').length >= 3) ||
+      // Or first data row has "Deuda mama" (Argentina trip marker)
+      (s.rows.length > 0 && s.rows[0].some(c => /deuda mama/i.test(String(c))));
+    const headerLooksNumeric = /^[\d.,]+$/.test(s.headers[1] || '');
+    const isFakeSection = h[0] === 'gasto en uyu' || h[0] === 'gasto argentina';
+    // Detect "Gastos totales" summary — extract Cantidad row before skipping
+    const isGastosTotalesSummary = h[0] === 'gastos totales' || h.includes('uyu + usd (en uyu)') || h.includes('uyu + usd (en usd)');
+    if (isGastosTotalesSummary) {
+      const cantidadRow = s.rows.find(r => String(r[0]).trim().toLowerCase() === 'cantidad');
+      if (cantidadRow) {
+        const mIdx = Math.max(0, monthIdx);
+        sheetTotals[mIdx] = {
+          monthIdx: mIdx,
+          monthName: monthLabel(mIdx),
+          uyu: parseFloat(cantidadRow[1]) || 0,
+          usd: parseFloat(cantidadRow[2]) || 0,
+          uyuInUyu: parseFloat(cantidadRow[3]) || 0,
+          uyuInUsd: parseFloat(cantidadRow[4]) || 0
+        };
+      }
+    }
+    // Skip "Subtotal categoría" table (has Categoría label + cats with sums)
+    const isSubtotalCatTable = h[0] === 'categoría' && h.length <= 4 && h.includes('uyu') && h.includes('usd');
+    // Skip date-deuda summary tables ("Pesos | USD | Dólar compra | Dólar Venta | UYU")
+    const isExchangeTable = h.includes('dólar compra') || h.includes('dólar venta') || h.includes('dólar compra');
+    if (isArgentinaTrip || headerLooksNumeric || isFakeSection || isGastosTotalesSummary || isSubtotalCatTable || isExchangeTable) continue;
+
+    const PRIOR_MONTH_CARD = /^(ita[uú] cr[eé]dito|^oca$|ita[uú] paquete)/i;
+    for (const row of s.rows) {
+      const item = row[0];
+      if (!item || item === "NO_HEADER" || /^total|^gasto total|^compras\b|^ahorro/i.test(item)) continue;
+      const isFixed = isFixedTable && FIXED_NAMES.test(item);
+      const isPriorMonthCard = isFixedTable && PRIOR_MONTH_CARD.test(item);
+
+      for (let ci = 1; ci < s.headers.length; ci++) {
+        const colName = s.headers[ci] || '';
+        if (/cotizaci|d[oó]lar compra|d[oó]lar venta|precio dolar|nota|deuda mama\/precio/i.test(colName)) continue;
+        const raw = (row[ci] || "").replace(/\\-/g, '-').replace(/,/g, '');
+        const num = parseFloat(raw);
+        if (isNaN(num) || num === 0) continue;
+
+        let currency = "UYU";
+        if (/usd|^d[oó]lares?$/i.test(colName)) currency = "USD";
+        else if (/^ars$/i.test(colName)) currency = "ARS";
+        else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) currency = "UYU";
+
+        let card = colName;
+        if (/cr[eé]dito oca/i.test(colName)) card = "Crédito OCA";
+        else if (/cr[eé]dito.*ita[uú].*uyu/i.test(colName)) card = "Crédito Itaú UYU";
+        else if (/cr[eé]dito.*ita[uú].*usd/i.test(colName)) card = "Crédito Itaú USD";
+        else if (/cr[eé]dito.*ita[uú]/i.test(colName)) card = "Crédito Itaú";
+        else if (/d[eé]bito uyu/i.test(colName)) card = "Débito UYU";
+        else if (/d[eé]bito usd/i.test(colName)) card = "Débito USD";
+        else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) card = "Pago fijo (UYU)";
+        else if (/^dol(a|á)res?$/i.test(colName) || /^usd$/i.test(colName)) card = "Pago fijo (USD)";
+        else if (/^ars$/i.test(colName)) card = "Efectivo ARS";
+
+        expenses.push({
+          section: si,
+          monthIdx: Math.max(0, monthIdx),
+          monthName: monthLabel(Math.max(0, monthIdx)),
+          item,
+          amount: num,
+          currency,
+          card,
+          category: classify(item),
+          isFixed,
+          isPriorMonthCard
+        });
+      }
+    }
+  }
+  return expenses;
+}
+
+let allExpenses = [];
+let sheetTotals = {}; // monthIdx → { uyu, usd, uyuInUyu, uyuInUsd } from sheet "Gastos totales" rows
+let charts = {};
+
+// VERSION 4 - MCP standard response handling
+function extractContent(res) {
+  if (!res) return '';
+  // Object path
+  if (typeof res === 'object' && !Array.isArray(res)) {
+    // MCP standard: structuredContent has parsed object
+    if (res.structuredContent) {
+      const sc = res.structuredContent;
+      if (typeof sc === 'object' && typeof sc.fileContent === 'string') return sc.fileContent;
+      if (typeof sc === 'string' && sc.includes('|')) return sc;
+      const sub = extractContent(sc);
+      if (sub) return sub;
+    }
+    // MCP standard: content is array of {type, text}
+    if (Array.isArray(res.content)) {
+      for (const item of res.content) {
+        if (item && typeof item === 'object' && typeof item.text === 'string') {
+          const t = item.text.trim();
+          if (t.startsWith('{') || t.startsWith('[')) {
+            try { const sub = extractContent(JSON.parse(t)); if (sub) return sub; } catch {}
+          }
+          if (item.text.includes('|')) return item.text;
+        }
+      }
+    }
+    // Direct fileContent
+    if (typeof res.fileContent === 'string' && res.fileContent.includes('|')) return res.fileContent;
+    // Recurse on object props
+    for (const k of ['result','data','output','body']) {
+      if (res[k] && typeof res[k] === 'object') {
+        const sub = extractContent(res[k]);
+        if (sub) return sub;
+      }
+    }
+  }
+  // String path
+  if (typeof res === 'string') {
+    const trimmed = res.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const sub = extractContent(parsed);
+        if (sub) return sub;
+      } catch {}
+      const m = trimmed.match(/"fileContent"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (m) return m[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
+    return res;
+  }
+  return '';
+}
+
+async function loadData() {
+  try {
+    const res = await window.cowork.callMcpTool(DRIVE_TOOL, { file_id: FILE_ID });
+    window.__lastRes = res;
+    let shapeInfo = 'type=' + (typeof res);
+    if (res && typeof res === 'object') {
+      shapeInfo += ' keys=[' + Object.keys(res).join(',') + ']';
+      shapeInfo += ' isArr=' + Array.isArray(res);
+      if (Array.isArray(res) && res.length) shapeInfo += ' arr[0]=' + JSON.stringify(res[0]).substring(0, 200);
+    } else if (typeof res === 'string') {
+      shapeInfo += ' len=' + res.length + ' first200=' + res.substring(0, 200);
+    }
+    window.__shapeInfo = shapeInfo;
+    const content = extractContent(res);
+    window.__lastContent = content;
+    allExpenses = parseMarkdown(content);
+    window.__lastExpenses = allExpenses;
+    if (allExpenses.length === 0) {
+      const preview = (content || '').substring(0, 300).replace(/</g,'&lt;');
+      throw new Error('Parser=0. Shape: ' + shapeInfo + ' || contentLen=' + (content||'').length + ' preview=' + preview);
+    }
+    render();
+  } catch (e) {
+    document.getElementById('loading').innerHTML = '<div class="err">Error: ' + (e.message || e) + '</div>';
+  }
+}
+
+function fmt(n, cur) {
+  try { return new Intl.NumberFormat('es-UY', { style:'currency', currency: cur, maximumFractionDigits: 0 }).format(n); }
+  catch { return n.toLocaleString('es-UY') + ' ' + cur; }
+}
+
+let monthFilterInited = false;
+function initMonthFilter() {
+  if (monthFilterInited) return;
+  monthFilterInited = true;
+  const sel = document.getElementById('filterMonth');
+  const allMonths = [...new Set(allExpenses.map(e => e.monthName))];
+  // Exclude future months (e.g. Junio 2026 cuando estamos en Mayo 2026)
+  const curRank = currentMonthRank();
+  const months = allMonths.filter(m => {
+    const r = monthRank(m);
+    return r < 0 || r <= curRank; // si no parsea, no excluyas (seguro)
+  });
+  // Sort by monthIdx
+  const byName = {};
+  for (const e of allExpenses) byName[e.monthName] = Math.min(byName[e.monthName] ?? 999, e.monthIdx);
+  months.sort((a,b) => byName[a] - byName[b]);
+  const cur = currentMonthName();
+  sel.innerHTML = '<option value="">Todos los meses</option>' +
+    months.map(m => `<option value="${m}">${m}</option>`).join('');
+  // Default: mes actual si existe, sino primer mes disponible
+  sel.value = months.includes(cur) ? cur : (months[0] || '');
+  sel.onchange = render;
+  document.getElementById('includeFixed').onchange = render;
+  document.getElementById('usdView').onchange = render;
+}
+
+function getScope() {
+  const mf = document.getElementById('filterMonth').value;
+  const inclFixed = document.getElementById('includeFixed').checked;
+  let scope = allExpenses;
+  if (mf) scope = scope.filter(e => e.monthName === mf);
+  if (!inclFixed) scope = scope.filter(e => !e.isFixed);
+  return scope;
+}
+
+function isUsdView() { const el = document.getElementById('usdView'); return el && el.checked; }
+
+function render() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('dashContent').style.display = 'block';
+  initMonthFilter();
+  const scope = getScope();
+  renderKPIs(scope);
+  renderCharts(scope);
+  renderRaw();
+}
+
+function topCategoryHtml(scope, useUsd) {
+  // Compute total per category (vars+fijos combined, in UYU equivalent)
+  const totals = {};
+  for (const e of scope) {
+    const cat = e.category || 'Otros';
+    const val = useUsd ? toUSD(e.amount, e.currency) : (e.currency === 'UYU' ? e.amount : (e.currency === 'USD' ? e.amount * USD_UYU : e.amount * (USD_UYU / USD_ARS)));
+    totals[cat] = (totals[cat] || 0) + val;
+  }
+  const sorted = Object.entries(totals).sort((a,b) => b[1] - a[1]);
+  if (!sorted.length || sorted[0][1] <= 0) return '';
+  const top = sorted[0];
+  const sub = sorted[1] ? `2º ${sorted[1][0]} · ${fmt(sorted[1][1], useUsd ? 'USD' : 'UYU')}` : '';
+  return `<div class="kpi" style="background:#fef3c7;border-color:#fde68a;grid-column:span 2"><div class="kpi-label">🥇 Top categoría</div><div class="kpi-val" style="color:#92400e">${top[0]} · ${fmt(top[1], useUsd ? 'USD' : 'UYU')}</div><div class="kpi-sub">${sub}</div></div>`;
+}
+
+function renderKPIs(scope) {
+  const variable = scope.filter(e => !e.isFixed);
+  const fixed = scope.filter(e => e.isFixed && !e.isPriorMonthCard);
+  const priorCards = scope.filter(e => e.isPriorMonthCard);
+  // Top category (excludes prior-month card cash-outs)
+  const catScope = scope.filter(e => !e.isPriorMonthCard);
+  if (isUsdView()) {
+    const totVU = variable.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
+    const totFU = fixed.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
+    const totU = totVU + totFU;
+    const byCurUSD = { UYU:0, USD:0, ARS:0 };
+    for (const e of variable) byCurUSD[e.currency] = (byCurUSD[e.currency]||0) + toUSD(e.amount, e.currency);
+    const totPC = priorCards.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
+    document.getElementById('kpis').innerHTML = `
+      <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Total USD equiv (Var+Fijo)</div><div class="kpi-val">${fmt(totU,'USD')}</div><div class="kpi-sub">${variable.length + fixed.length} gastos</div></div>
+      ${topCategoryHtml(catScope, true)}
+      <div class="kpi"><div class="kpi-label">Variable USD equiv</div><div class="kpi-val">${fmt(totVU,'USD')}</div><div class="kpi-sub">${variable.length} gastos</div></div>
+      <div class="kpi"><div class="kpi-label">Fijos USD equiv</div><div class="kpi-val">${fmt(totFU,'USD')}</div><div class="kpi-sub">${fixed.length} mensual recurrente</div></div>
+      <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. (cash out)</div><div class="kpi-val">${fmt(totPC,'USD')}</div><div class="kpi-sub">Itaú/OCA cobros</div></div>
+      <div class="kpi"><div class="kpi-label">Var: de UYU</div><div class="kpi-val">${fmt(byCurUSD.UYU,'USD')}</div><div class="kpi-sub">UYU/${USD_UYU}</div></div>
+      <div class="kpi"><div class="kpi-label">Var: de ARS</div><div class="kpi-val">${fmt(byCurUSD.ARS,'USD')}</div><div class="kpi-sub">ARS/${USD_ARS}</div></div>
+    `;
+    return;
+  }
+  const totV = {}, totF = {}, totPC = {};
+  for (const e of variable) totV[e.currency] = (totV[e.currency] || 0) + e.amount;
+  for (const e of fixed) totF[e.currency] = (totF[e.currency] || 0) + e.amount;
+  for (const e of priorCards) totPC[e.currency] = (totPC[e.currency] || 0) + e.amount;
+  const totUYU = (totV.UYU||0) + (totF.UYU||0);
+  const totUSD = (totV.USD||0) + (totF.USD||0);
+  // Sheet-calculated totals (from "Gastos totales | Cantidad" row of each month's tab)
+  // Aggregate across all months in scope
+  const scopeMonthIdxs = new Set(scope.map(e => e.monthIdx));
+  let sheetUYU = 0, sheetUSD = 0, sheetUYUinUYU = 0, sheetUYUinUSD = 0;
+  let sheetTotalCount = 0;
+  for (const idx of scopeMonthIdxs) {
+    const t = sheetTotals[idx];
+    if (t) {
+      sheetUYU += t.uyu;
+      sheetUSD += t.usd;
+      sheetUYUinUYU += t.uyuInUyu;
+      sheetUYUinUSD += t.uyuInUsd;
+      sheetTotalCount++;
+    }
+  }
+  const sheetTotalHtml = sheetTotalCount > 0 ? `
+    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">Gasto total UYU (Sheet)</div><div class="kpi-val">${fmt(sheetUYU, 'UYU')}</div><div class="kpi-sub">${sheetTotalCount} mes(es) · directo del Sheet</div></div>
+    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">Gasto total USD (Sheet)</div><div class="kpi-val">${fmt(sheetUSD, 'USD')}</div><div class="kpi-sub">directo del Sheet</div></div>
+    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">UYU+USD en UYU (Sheet)</div><div class="kpi-val">${fmt(sheetUYUinUYU, 'UYU')}</div><div class="kpi-sub">convertido a UYU</div></div>
+    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">UYU+USD en USD (Sheet)</div><div class="kpi-val">${fmt(sheetUYUinUSD, 'USD')}</div><div class="kpi-sub">convertido a USD</div></div>
+  ` : '';
+  // If Sheet totals are present, skip the "calculado" duplicates. Otherwise show them as fallback.
+  const showCalc = sheetTotalCount === 0 || Math.abs(sheetUYU - totUYU) > 1 || Math.abs(sheetUSD - totUSD) > 1;
+  const calcHtml = showCalc ? `
+    <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Gasto total UYU (calculado)</div><div class="kpi-val">${fmt(totUYU, 'UYU')}</div><div class="kpi-sub">variable + fijos · parser${sheetTotalCount > 0 ? ' (difiere de Sheet)' : ''}</div></div>
+    <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Gasto total USD (calculado)</div><div class="kpi-val">${fmt(totUSD, 'USD')}</div><div class="kpi-sub">variable + fijos · parser${sheetTotalCount > 0 ? ' (difiere de Sheet)' : ''}</div></div>` : '';
+  const topCatKpi = topCategoryHtml(catScope, false);
+  const html = sheetTotalHtml + topCatKpi + calcHtml + `
+    <div class="kpi"><div class="kpi-label">Variable UYU</div><div class="kpi-val">${fmt(totV.UYU||0, 'UYU')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='UYU').length} gastos</div></div>
+    <div class="kpi"><div class="kpi-label">Variable USD</div><div class="kpi-val">${fmt(totV.USD||0, 'USD')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='USD').length} gastos</div></div>
+    <div class="kpi"><div class="kpi-label">Variable ARS</div><div class="kpi-val">${fmt(totV.ARS||0, 'ARS')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='ARS').length} gastos</div></div>
+    <div class="kpi"><div class="kpi-label">Fijos UYU</div><div class="kpi-val">${fmt(totF.UYU||0, 'UYU')}</div><div class="kpi-sub">mensual recurrente</div></div>
+    <div class="kpi"><div class="kpi-label">Fijos USD</div><div class="kpi-val">${fmt(totF.USD||0, 'USD')}</div><div class="kpi-sub">mensual recurrente</div></div>
+    <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. UYU</div><div class="kpi-val">${fmt(totPC.UYU||0, 'UYU')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
+    <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. USD</div><div class="kpi-val">${fmt(totPC.USD||0, 'USD')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
+    <div class="kpi"><div class="kpi-label">Total registros</div><div class="kpi-val">${allExpenses.length}</div></div>
+  `;
+  document.getElementById('kpis').innerHTML = html;
+}
+
+const PALETTE = ['#0f766e','#dc2626','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#10b981','#6b7280','#7c2d12','#1e40af','#581c87','#831843'];
+
+function mkChart(id, type, labels, data, opts) {
+  if (charts[id]) charts[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  charts[id] = new Chart(ctx, {
+    type,
+    data: { labels, datasets: [{ data, backgroundColor: type === 'bar' ? PALETTE[0] : PALETTE.slice(0, labels.length) }] },
+    options: Object.assign({ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: type === 'bar' ? 'top' : 'bottom', labels: { font: { size: 11 } } } } }, opts || {})
+  });
+}
+
+function agg(items, keyFn, valFn) {
+  const out = {};
+  for (const x of items) {
+    const k = keyFn(x); if (k == null) continue;
+    out[k] = (out[k] || 0) + valFn(x);
+  }
+  return out;
+}
+
+function renderCharts(scope) {
+  const variable = scope.filter(e => !e.isFixed);
+  const usd = isUsdView();
+
+  const vUYU = variable.filter(e => e.currency === 'UYU');
+  const vUSD = variable.filter(e => e.currency === 'USD');
+  const vARS = variable.filter(e => e.currency === 'ARS');
+
+  // FLIP CARD 1: Por moneda (USD equiv + UYU equiv) — both sides always render
+  const byCurUSD = agg(variable, e => e.currency, e => toUSD(e.amount, e.currency));
+  mkChart('chCurrencyUSD', 'doughnut', Object.keys(byCurUSD).map(c => c + ' → USD'), Object.values(byCurUSD));
+  const byCurUYU = agg(variable, e => e.currency, e => toUYU(e.amount, e.currency));
+  mkChart('chCurrencyUYU', 'doughnut', Object.keys(byCurUYU).map(c => c + ' → UYU'), Object.values(byCurUYU));
+
+  // FLIP CARD 2: Por medio de pago (UYU side + USD side)
+  const byCardUYU = agg(vUYU, e => e.card, e => e.amount);
+  mkChart('chCardUYU', 'doughnut', Object.keys(byCardUYU), Object.values(byCardUYU));
+  const byCardUSD = agg(vUSD, e => e.card, e => e.amount);
+  mkChart('chCardUSD', 'doughnut', Object.keys(byCardUSD), Object.values(byCardUSD));
+
+  // FLIP CARD 3: Por categoría (UYU only side + USD only side, ambos lados nativos)
+  const byCatUYU = agg(vUYU, e => e.category, e => e.amount);
+  const catUYUe = Object.entries(byCatUYU).sort((a,b)=>b[1]-a[1]);
+  mkChart('chCatUYU', 'bar', catUYUe.map(x=>x[0]), catUYUe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+
+  const byCatUSDside = agg(vUSD, e => e.category, e => e.amount);
+  const catUSDe = Object.entries(byCatUSDside).sort((a,b)=>b[1]-a[1]);
+  mkChart('chCatUSD', 'bar', catUSDe.map(x=>x[0]), catUSDe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+
+  // FLIP CARD 4: Top 15 ítems (UYU + USD nativos)
+  const byItemUYU = agg(vUYU, e => e.item, e => e.amount);
+  const topUYU = Object.entries(byItemUYU).sort((a,b)=>b[1]-a[1]).slice(0, 15);
+  mkChart('chTopUYU', 'bar', topUYU.map(x=>x[0]), topUYU.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+
+  const byItemUSD = agg(vUSD, e => e.item, e => e.amount);
+  const topUSD = Object.entries(byItemUSD).sort((a,b)=>b[1]-a[1]).slice(0, 15);
+  mkChart('chTopUSD', 'bar', topUSD.map(x=>x[0]), topUSD.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+
+  const byCatARS = agg(vARS, e => e.category, e => e.amount);
+  const catARSe = Object.entries(byCatARS).sort((a,b)=>b[1]-a[1]);
+  if (catARSe.length) mkChart('chARS', 'bar', catARSe.map(x=>x[0]), catARSe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+}
+
+function renderRaw() {
+  const cards = [...new Set(allExpenses.map(e=>e.card))].sort();
+  const curs = [...new Set(allExpenses.map(e=>e.currency))].sort();
+  const fc = document.getElementById('filterCard');
+  const fcCur = fc.value;
+  fc.innerHTML = '<option value="">Todos los medios</option>' + cards.map(c=>`<option ${c===fcCur?'selected':''}>${c}</option>`).join('');
+  const fcur = document.getElementById('filterCurrency');
+  const fcurCur = fcur.value;
+  fcur.innerHTML = '<option value="">Todas las monedas</option>' + curs.map(c=>`<option ${c===fcurCur?'selected':''}>${c}</option>`).join('');
+
+  const search = (document.getElementById('search').value || '').toLowerCase();
+  const cardF = fc.value;
+  const curF = fcur.value;
+  const typeF = document.getElementById('filterType').value;
+  const filtered = allExpenses.filter(e =>
+    (!search || e.item.toLowerCase().includes(search) || e.category.toLowerCase().includes(search)) &&
+    (!cardF || e.card === cardF) &&
+    (!curF || e.currency === curF) &&
+    (!typeF || (typeF === 'variable' ? !e.isFixed : e.isFixed))
+  );
+
+  let html = '<table><thead><tr><th>Mes</th><th>Ítem</th><th style="text-align:right">Monto</th><th>Moneda</th><th>Medio</th><th>Categoría</th><th>Tipo</th></tr></thead><tbody>';
+  for (const e of filtered.slice(0, 1000)) {
+    html += `<tr><td>${e.monthName}</td><td>${e.item}</td><td style="text-align:right">${e.amount.toLocaleString('es-UY')}</td><td>${e.currency}</td><td>${e.card}</td><td>${e.category}</td><td>${e.isFixed?'Fijo':'Variable'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  if (filtered.length > 1000) html += `<p class="muted">Mostrando 1000 de ${filtered.length}</p>`;
+  document.getElementById('rawTable').innerHTML = html;
+}
+
+for (const tab of document.querySelectorAll('.tab')) {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  };
+}
+
+document.getElementById('item').addEventListener('input', () => {
+  const item = document.getElementById('item').value;
+  const cat = classify(item);
+  document.getElementById('category').value = cat;
+  document.getElementById('catSuggestion').textContent = item ? 'Categoría sugerida (regla): ' + cat : '';
+});
+
+document.getElementById('aiSuggestBtn').onclick = async () => {
+  const item = document.getElementById('item').value;
+  if (!item) return;
+  document.getElementById('catSuggestion').textContent = 'Pensando...';
+  try {
+    const r = await window.cowork.askClaude('Clasifica este gasto en UNA categoría exactamente de esta lista: ' + CATS.join(', ') + '. Responde SOLO con el nombre exacto. Gasto: "' + item + '"', []);
+    const clean = (r || '').trim().split('\n')[0];
+    if (CATS.includes(clean)) {
+      document.getElementById('category').value = clean;
+      document.getElementById('catSuggestion').textContent = 'IA sugiere: ' + clean;
+    } else {
+      document.getElementById('catSuggestion').textContent = 'IA respondió: ' + clean + ' (no en lista, mantengo regla)';
+    }
+  } catch (e) {
+    document.getElementById('catSuggestion').textContent = 'Error IA: ' + e.message;
+  }
+};
+
+async function trySendToChat(msg) {
+  // Try multiple paths to send to chat
+  const attempts = [
+    () => window.cowork && typeof window.cowork.sendPrompt === 'function' && window.cowork.sendPrompt(msg),
+    () => typeof window.sendPrompt === 'function' && window.sendPrompt(msg),
+    () => window.parent && window.parent.postMessage && window.parent.postMessage({ type: 'sendPrompt', text: msg }, '*'),
+  ];
+  for (const fn of attempts) {
+    try { const r = fn(); if (r !== false && r !== undefined) return { sent: true, method: fn.toString() }; } catch (e) { /* try next */ }
+  }
+  return { sent: false };
+}
+
+async function copyToClipboard(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+document.getElementById('expenseForm').onsubmit = async (ev) => {
+  ev.preventDefault();
+  const data = {
+    date: document.getElementById('date').value,
+    item: document.getElementById('item').value,
+    amount: parseFloat(document.getElementById('amount').value),
+    currency: document.getElementById('currency').value,
+    card: document.getElementById('card').value,
+    category: document.getElementById('category').value,
+    rate: document.getElementById('rate').value,
+    notes: document.getElementById('notes').value,
+  };
+  const msg = 'Agregar gasto al Sheet "Registro de gastos":\n' +
+    '- Fecha: ' + data.date + '\n' +
+    '- Ítem: ' + data.item + '\n' +
+    '- Monto: ' + data.amount + ' ' + data.currency + '\n' +
+    '- Medio de pago: ' + data.card + '\n' +
+    '- Categoría: ' + data.category +
+    (data.rate ? '\n- Cotización: ' + data.rate : '\n- Cotización: AUTO (consultar BCU para la fecha ' + data.date + ' y escribir en col G)') +
+    (data.notes ? '\n- Notas: ' + data.notes : '');
+
+  // Save to queue (localStorage) so nothing is lost
+  const queue = JSON.parse(localStorage.getItem('expenseQueue') || '[]');
+  queue.push({ ...data, ts: Date.now(), msg });
+  localStorage.setItem('expenseQueue', JSON.stringify(queue));
+
+  const sendRes = await trySendToChat(msg);
+
+  let html = '';
+  if (sendRes.sent) {
+    html = '<div class="ok">Enviado al chat. Claude escribirá la fila en tu Sheet.</div>';
+  } else {
+    const esc = msg.replace(/</g,'&lt;');
+    html = '<div class="ok"><strong>Guardado en cola.</strong> Copialo y pegalo en el chat (clipboard del iframe está bloqueado, hay que seleccionar manual):</div>' +
+      '<textarea id="payloadOut" rows="8" readonly style="width:100%;font-family:monospace;font-size:12px;margin-top:8px;background:#f9f9f9">' + esc + '</textarea>' +
+      '<button type="button" id="selectAllBtn" style="margin-top:8px">Seleccionar texto</button>';
+  }
+  html += '<button type="button" class="secondary" id="showQueueBtn" style="margin-top:8px;margin-left:8px">Ver cola pendiente (' + queue.length + ')</button>' +
+    '<button type="button" class="secondary" id="clearQueueBtn" style="margin-top:8px;margin-left:8px">Limpiar cola</button>';
+  document.getElementById('formMsg').innerHTML = html;
+  const selBtn = document.getElementById('selectAllBtn');
+  if (selBtn) selBtn.onclick = () => { const t = document.getElementById('payloadOut'); t.focus(); t.select(); };
+  document.getElementById('showQueueBtn').onclick = showQueue;
+  document.getElementById('clearQueueBtn').onclick = () => { if (confirm('Limpiar cola de ' + queue.length + ' gastos pendientes?')) { localStorage.removeItem('expenseQueue'); document.getElementById('formMsg').innerHTML = '<div class="ok">Cola limpiada.</div>'; } };
+
+  document.getElementById('expenseForm').reset();
+  document.getElementById('catSuggestion').textContent = '';
+  document.getElementById('date').value = new Date().toISOString().split('T')[0];
+};
+
+function showQueue() {
+  const queue = JSON.parse(localStorage.getItem('expenseQueue') || '[]');
+  if (!queue.length) { document.getElementById('formMsg').innerHTML = '<div class="ok">Cola vacía.</div>'; return; }
+  const all = queue.map((q, i) => '--- #' + (i+1) + ' (' + new Date(q.ts).toLocaleString('es-UY') + ') ---\n' + q.msg).join('\n\n');
+  const esc = all.replace(/</g,'&lt;');
+  document.getElementById('formMsg').innerHTML =
+    '<div class="ok"><strong>Cola: ' + queue.length + ' gastos.</strong> Seleccioná, copiá y pegá en el chat.</div>' +
+    '<textarea id="queueOut" rows="14" readonly style="width:100%;font-family:monospace;font-size:11px;margin-top:8px;background:#f9f9f9">' + esc + '</textarea>' +
+    '<button type="button" onclick="(function(){const t=document.getElementById(\'queueOut\');t.focus();t.select();})()" style="margin-top:8px">Seleccionar texto</button>';
+}
+
+document.getElementById('search').oninput = renderRaw;
+document.getElementById('filterCard').onchange = renderRaw;
+document.getElementById('filterCurrency').onchange = renderRaw;
+document.getElementById('filterType').onchange = renderRaw;
+document.getElementById('date').value = new Date().toISOString().split('T')[0];
+
+// === TESTS ===
+function runTests() {
+  const tests = [];
+  const T = (name, fn) => {
+    try { const r = fn(); tests.push({ name, pass: r === true || r === undefined, msg: r === true || r === undefined ? 'OK' : String(r) }); }
+    catch (e) { tests.push({ name, pass: false, msg: 'ERROR: ' + e.message }); }
+  };
+  T('parser detecta >0 gastos', () => allExpenses.length > 0 || 'Esperaba >0, got ' + allExpenses.length);
+  T('parser detecta >100 gastos', () => allExpenses.length > 100 || 'Solo ' + allExpenses.length);
+  T('parser asigna monthIdx', () => allExpenses.every(e => typeof e.monthIdx === 'number') || 'Algún expense sin monthIdx');
+  T('Mayo aparece en monthNames', () => allExpenses.some(e => e.monthName === 'Mayo 2026') || 'No hay Mayo 2026');
+  T('Abril aparece en monthNames', () => allExpenses.some(e => e.monthName === 'Abril 2026') || 'No hay Abril 2026');
+  T('hay gastos UYU', () => allExpenses.some(e => e.currency === 'UYU'));
+  T('hay gastos USD', () => allExpenses.some(e => e.currency === 'USD'));
+  T('no hay currency inválida', () => allExpenses.every(e => ['UYU','USD','ARS'].includes(e.currency)) || 'Currency inválida');
+  T('toUSD UYU correcto', () => Math.abs(toUSD(39.87, 'UYU') - 1) < 0.01 || 'toUSD(39.87 UYU) != ~1');
+  T('toUSD USD identidad', () => toUSD(50, 'USD') === 50);
+  T('toUSD ARS correcto', () => Math.abs(toUSD(1400, 'ARS') - 1) < 0.01);
+  T('toUYU USD correcto', () => Math.abs(toUYU(1, 'USD') - 39.87) < 0.01);
+  T('toUYU UYU identidad', () => toUYU(100, 'UYU') === 100);
+  T('toUYU ARS razonable', () => toUYU(1400, 'ARS') > 35 && toUYU(1400, 'ARS') < 50);
+  T('Bus → Transporte', () => classify('Bus') === 'Transporte');
+  T('Claude → Suscripciones', () => classify('Claude') === 'Suscripciones');
+  T('Disco → Comida', () => classify('Disco') === 'Comida');
+  T('Fernet → Bebida/Bar', () => classify('Fernet') === 'Bebida/Bar');
+  T('Farmashop → Salud', () => classify('Farmashop') === 'Salud');
+  T('Jabón → Limpieza', () => classify('Jabón') === 'Limpieza');
+  T('Garrafa → Hogar', () => classify('Garrafa') === 'Hogar');
+  T('random → Otros', () => classify('xyz123random') === 'Otros');
+  T('isFixed flag funciona', () => allExpenses.some(e => e.isFixed) && allExpenses.some(e => !e.isFixed));
+  T('Alquiler marcado isFixed', () => {
+    const alq = allExpenses.find(e => /alquiler/i.test(e.item));
+    return alq ? (alq.isFixed === true || 'Alquiler no isFixed') : 'No se encontró Alquiler';
+  });
+  T('Itaú Crédito marcado priorMonth', () => {
+    const ita = allExpenses.find(e => /^ita[uú] cr[eé]dito$/i.test(e.item) && e.isFixed);
+    return ita ? (ita.isPriorMonthCard === true || 'Itaú Crédito no priorMonth') : 'No se encontró Itaú';
+  });
+  T('Argentina trip skipped (no items 1400 UYU)', () => {
+    const arg = allExpenses.filter(e => e.amount === 1400 && e.currency === 'UYU' && /uber|empanad/i.test(e.item));
+    return arg.length === 0 || 'Leak: ' + arg.length + ' items';
+  });
+  T('CATS tiene 13 categorías', () => CATS.length === 13 || 'CATS.length = ' + CATS.length);
+  T('CATS incluye Limpieza', () => CATS.includes('Limpieza'));
+  T('Banner FX existe', () => !!document.getElementById('fxRate'));
+  T('Filter mes existe', () => !!document.getElementById('filterMonth'));
+  T('USD view toggle existe', () => !!document.getElementById('usdView'));
+  T('Chart chCurrencyUSD renderiza', () => !!charts.chCurrencyUSD);
+  T('Chart chCatUYU renderiza', () => !!charts.chCatUYU);
+  T('Charts count >= 6', () => Object.keys(charts).length >= 6 || 'Solo ' + Object.keys(charts).length);
+
+  const pass = tests.filter(t => t.pass).length;
+  const fail = tests.filter(t => !t.pass).length;
+  const summary = `<div style="padding:12px;border-radius:8px;margin-bottom:12px;background:${fail===0?'#ecfdf5':'#fef2f2'};border:1px solid ${fail===0?'#a7f3d0':'#fecaca'};font-weight:600">${fail===0?'✓ Todos OK':'✗ ' + fail + ' fallaron'} · ${pass}/${tests.length} passed</div>`;
+  const rows = tests.map(t =>
+    `<tr><td style="width:30px;padding:4px 8px">${t.pass?'<span style="color:#15803d">✓</span>':'<span style="color:#dc2626">✗</span>'}</td><td style="padding:4px 8px"><code>${t.name}</code></td><td class="muted" style="font-size:11px;padding:4px 8px">${t.msg}</td></tr>`
+  ).join('');
+  document.getElementById('testsOutput').innerHTML = summary + `<table style="width:100%;font-size:13px"><tbody>${rows}</tbody></table>`;
+}
+document.getElementById('runTestsBtn').onclick = runTests;
+
+loadData();
+</script>
+</body>
+</html>

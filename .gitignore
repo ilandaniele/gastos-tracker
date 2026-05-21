@@ -1,0 +1,13 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Secretos — NUNCA commitear la API key de Gemini ni credenciales
+*.key
+secrets.json
+.env
