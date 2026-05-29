@@ -1,0 +1,456 @@
+<script>
+  function setStatus(text, cls) {
+    var el = document.getElementById('status');
+    el.className = cls || '';
+    el.textContent = text;
+    // Mostrar/ocultar el overlay full-screen con spinner cuando es 'loading'
+    var overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+      if (cls === 'loading') {
+        var txt = document.getElementById('loadingText');
+        if (txt) txt.textContent = text || 'Guardando...';
+        overlay.classList.add('show');
+      } else {
+        overlay.classList.remove('show');
+      }
+    }
+  }
+
+  function setLocked(locked) {
+    // Disable all form inputs + quick buttons during save
+    var f = document.getElementById('f');
+    for (var i = 0; i < f.elements.length; i++) f.elements[i].disabled = locked;
+    var qbtns = document.querySelectorAll('.quick-scroll button');
+    for (var j = 0; j < qbtns.length; j++) qbtns[j].disabled = locked;
+    document.body.style.opacity = locked ? '0.6' : '1';
+    document.body.style.pointerEvents = locked ? 'none' : 'auto';
+    // Keep status visible
+    document.getElementById('status').style.pointerEvents = 'auto';
+  }
+
+  function getField(name) {
+    return document.querySelector('#f [name="' + name + '"]');
+  }
+
+  function fillQuick(data) {
+    var itemField = getField('item');
+    if (itemField) itemField.value = data.item || '';
+    var amountField = getField('amount');
+    if (data.amount !== undefined && data.amount !== null) amountField.value = data.amount;
+    var curField = getField('currency'); if (data.currency && curField) curField.value = data.currency;
+    var cardField = getField('card'); if (data.card && cardField) cardField.value = data.card;
+    var catField = getField('category'); if (data.category && catField) catField.value = data.category;
+    if (data.amount === undefined || data.amount === null) amountField.focus();
+  }
+
+  // Hardcoded quick presets — avoids HTML attribute sanitization issues
+  var QUICKS = {
+    // Variables
+    bus52:     { item: 'Bus', amount: 52, currency: 'UYU', card: 'Crédito OCA', category: 'Transporte' },
+    cafe:      { item: 'Café', currency: 'UYU', card: 'Débito UYU', category: 'Bebida/Bar' },
+    frog:      { item: 'Frog', currency: 'UYU', card: 'Débito UYU', category: 'Bebida/Bar' },
+    disco:     { item: 'Disco', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Comida' },
+    devoto:    { item: 'Devoto', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Comida' },
+    tata:      { item: 'Tata', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Comida' },
+    claude:    { item: 'Claude', currency: 'USD', card: 'Crédito Itaú USD', category: 'Suscripciones' },
+    uber:      { item: 'Uber', currency: 'UYU', card: 'Débito UYU', category: 'Transporte' },
+    cabify:    { item: 'Cabify', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Transporte' },
+    taxi:      { item: 'Taxi', currency: 'UYU', card: 'Débito UYU', category: 'Transporte' },
+    agua140:   { item: 'Agua', amount: 140, currency: 'UYU', card: 'Débito UYU', category: 'Bebida/Bar' },
+    futbol350: { item: 'Fútbol', amount: 350, currency: 'UYU', card: 'Débito UYU', category: 'Gimnasio' },
+    farma:     { item: 'Farmacia', currency: 'UYU', card: 'Débito UYU', category: 'Salud' },
+    medic:     { item: 'Medicamento', currency: 'UYU', card: 'Débito UYU', category: 'Salud' },
+    cine:      { item: 'Cine', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Entretenimiento' },
+    regalo:    { item: 'Regalo', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Regalos' },
+    ropa:      { item: 'Ropa', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Ropa' },
+    pelu:      { item: 'Peluquería', currency: 'UYU', card: 'Débito UYU', category: 'Ropa' },
+    powerade:  { item: 'Powerade', currency: 'UYU', card: 'Débito UYU', category: 'Bebida/Bar' },
+    empanadas: { item: 'Empanadas', currency: 'UYU', card: 'Débito UYU', category: 'Comida' },
+    pizza:     { item: 'Pizza', currency: 'UYU', card: 'Crédito Itaú UYU', category: 'Comida' },
+    fernet:    { item: 'Fernet', currency: 'UYU', card: 'Débito UYU', category: 'Bebida/Bar' },
+    nafta:     { item: 'Nafta', currency: 'UYU', card: 'Crédito OCA', category: 'Transporte' },
+    otros:     { item: '', currency: 'UYU', card: 'Débito UYU', category: 'Otros' },
+    // Fijos — kind:'fijo' routes to fixed-table row on server (Mayo 2026 layout)
+    fijo_alquiler:   { kind: 'fijo', item: 'Alquiler',         currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_gc:         { kind: 'fijo', item: 'Gastos comunes',   currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_trib:       { kind: 'fijo', item: 'Tributos domiciliarios', currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_antel_int:  { kind: 'fijo', item: 'Antel Internet',   currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_antel_mov:  { kind: 'fijo', item: 'Antel móvil',      currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_luz:        { kind: 'fijo', item: 'Luz',              currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_itau:       { kind: 'fijo', item: 'Itau paquete',     currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_sandra:     { kind: 'fijo', item: 'Sandra Psicologa', currency: 'UYU', card: 'Débito UYU', category: 'Salud' },
+    fijo_viandas:    { kind: 'fijo', item: 'Viandas',          currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_ble:        { kind: 'fijo', item: 'Ble',              currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_bluecross:  { kind: 'fijo', item: 'BlueCross',        currency: 'UYU', card: 'Débito UYU', category: 'Salud' },
+    fijo_gimnasio:   { kind: 'fijo', item: 'Gimnasio',         currency: 'UYU', card: 'Débito UYU', category: 'Gimnasio' },
+    fijo_itau_cred:  { kind: 'fijo', item: 'Itaú Crédito',     currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
+    fijo_oca:        { kind: 'fijo', item: 'Oca',              currency: 'UYU', card: 'Débito UYU', category: 'Servicios' }
+  };
+  var btns = document.querySelectorAll('.quick-scroll button');
+  for (var i = 0; i < btns.length; i++) {
+    (function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-key');
+        if (QUICKS[key]) fillQuick(QUICKS[key]);
+        else setStatus('Quick key no encontrado: ' + key, 'err');
+      });
+    })(btns[i]);
+  }
+
+  // === Auto-correct card based on item text (only on manual typing) ===
+  // Rules: item starts with "bus" → Crédito OCA. Default → Débito UYU.
+  var AUTO_CARD_RULES = [
+    { re: /^\s*bus\b/i, card: 'Crédito OCA' }
+    // Add more if needed: { re: /^\s*claude/i, card: 'Crédito Itaú USD' }
+  ];
+  function autoCorrectCard() {
+    var itemField = getField('item');
+    var cardField = getField('card');
+    if (!itemField || !cardField) return;
+    var v = itemField.value.trim();
+    var matched = 'Débito UYU'; // default
+    for (var i = 0; i < AUTO_CARD_RULES.length; i++) {
+      if (AUTO_CARD_RULES[i].re.test(v)) { matched = AUTO_CARD_RULES[i].card; break; }
+    }
+    cardField.value = matched;
+  }
+  (function(){
+    var itemField = getField('item');
+    if (itemField) itemField.addEventListener('input', autoCorrectCard);
+  })();
+
+  function onSuccess(result) {
+    setLocked(false);
+    if (result && result.ok) {
+      var cot = result.written && result.written.cotizacion;
+      var src = result.cotizSource || '?';
+      var prefix = result.fixed ? '✓ FIJO actualizado · ' : '✓ Guardado · ';
+      var prevNote = '';
+      if (result.fixed && result.written && result.written.prevAmount > 0) {
+        prevNote = ' (sobreescribió ' + result.written.prevAmount + ')';
+      }
+      setStatus(prefix + result.tab + ' · row ' + result.row + ' · cot=' + cot + ' (' + src + ')' + prevNote, 'ok');
+      var f = document.getElementById('f');
+      f.reset();
+      // Local date, not UTC (avoids next-day glitch in evening)
+      var n = new Date();
+      var iso = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
+      var dateField = getField('date');
+      if (dateField) dateField.value = iso;
+    } else {
+      setStatus('✗ Error: ' + (result && result.error ? result.error : 'desconocido'), 'err');
+    }
+  }
+
+  function onError(err) {
+    setLocked(false);
+    setStatus('✗ Server: ' + (err && err.message ? err.message : err), 'err');
+  }
+
+  document.getElementById('f').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var f = document.getElementById('f');
+    var data = {};
+    for (var i = 0; i < f.elements.length; i++) {
+      var el = f.elements[i];
+      if (el.name && el.value) data[el.name] = el.value;
+    }
+    setLocked(true);
+    setStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(onSuccess)
+      .withFailureHandler(onError)
+      .addExpenseSafe(data);
+  });
+
+  // === Ticket OCR scan ===
+  var scannedItems = [];
+  var CATS = ['Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento','Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Otros'];
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function resizeImage(dataUrl, maxSize, cb) {
+    var img = new Image();
+    img.onload = function(){
+      var w = img.width, h = img.height;
+      var ratio = Math.min(maxSize/w, maxSize/h, 1);
+      var nw = Math.round(w * ratio), nh = Math.round(h * ratio);
+      var canvas = document.createElement('canvas');
+      canvas.width = nw; canvas.height = nh;
+      canvas.getContext('2d').drawImage(img, 0, 0, nw, nh);
+      cb(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = dataUrl;
+  }
+
+  document.getElementById('scanBtn').addEventListener('click', function(){
+    document.getElementById('ticketFile').click();
+  });
+  document.getElementById('ticketFile').addEventListener('change', function(ev){
+    var file = ev.target.files[0];
+    if (!file) return;
+    setStatus('Procesando imagen...', 'loading');
+    var reader = new FileReader();
+    reader.onload = function(e){
+      resizeImage(e.target.result, 1280, function(resizedDataUrl){
+        var b64 = resizedDataUrl.split(',')[1];
+        setStatus('Escaneando ticket con AI (puede tardar)...', 'loading');
+        google.script.run
+          .withSuccessHandler(onScanResult)
+          .withFailureHandler(function(err){
+            setStatus('✗ Scan: ' + (err && err.message ? err.message : err), 'err');
+          })
+          .scanTicket(b64);
+      });
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be re-selected
+    ev.target.value = '';
+  });
+
+  function onScanResult(result) {
+    if (!result || !result.ok) {
+      setStatus('✗ ' + (result && result.error || 'scan error'), 'err');
+      return;
+    }
+    scannedItems = (result.items || []).map(function(it){
+      return { name: it.name || '', amount: parseFloat(it.amount) || 0, category: it.category || 'Otros' };
+    });
+    if (!scannedItems.length) {
+      setStatus('No se detectaron items. Probá con foto más clara.', 'err');
+      return;
+    }
+    renderScanPreview();
+    setStatus('✓ ' + scannedItems.length + ' items detectados', 'ok');
+  }
+
+  function renderScanPreview() {
+    var container = document.getElementById('scanItems');
+    var html = '';
+    for (var i = 0; i < scannedItems.length; i++) {
+      var it = scannedItems[i];
+      html += '<div class="scan-row">' +
+        '<input type="text" data-idx="' + i + '" data-field="name" value="' + esc(it.name) + '">' +
+        '<input type="number" step="0.01" inputmode="decimal" data-idx="' + i + '" data-field="amount" value="' + it.amount + '">' +
+        '<select data-idx="' + i + '" data-field="category">' +
+        CATS.map(function(c){ return '<option' + (c===it.category?' selected':'') + '>' + c + '</option>'; }).join('') +
+        '</select>' +
+        '<button type="button" class="del-btn" data-del="' + i + '">×</button>' +
+      '</div>';
+    }
+    container.innerHTML = html;
+    var totEl = document.getElementById('scanTotal');
+    var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(e.amount)||0); }, 0);
+    totEl.textContent = fmt(tot, 'UYU');
+    document.getElementById('scanPreview').style.display = 'block';
+    // Wire delete buttons
+    var dels = container.querySelectorAll('[data-del]');
+    for (var d = 0; d < dels.length; d++) {
+      (function(btn){
+        btn.addEventListener('click', function(){
+          var idx = parseInt(btn.getAttribute('data-del'), 10);
+          scannedItems.splice(idx, 1);
+          if (!scannedItems.length) {
+            document.getElementById('scanPreview').style.display = 'none';
+          } else {
+            renderScanPreview();
+          }
+        });
+      })(dels[d]);
+    }
+    // Wire input updates
+    var inputs = container.querySelectorAll('input,select');
+    for (var ii = 0; ii < inputs.length; ii++) {
+      (function(el){
+        el.addEventListener('change', function(){
+          var idx = parseInt(el.getAttribute('data-idx'), 10);
+          var fld = el.getAttribute('data-field');
+          if (!scannedItems[idx]) return;
+          scannedItems[idx][fld] = fld === 'amount' ? (parseFloat(el.value) || 0) : el.value;
+          if (fld === 'amount') {
+            var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(e.amount)||0); }, 0);
+            document.getElementById('scanTotal').textContent = fmt(tot, 'UYU');
+          }
+        });
+      })(inputs[ii]);
+    }
+  }
+
+  document.getElementById('cancelScan').addEventListener('click', function(){
+    scannedItems = [];
+    document.getElementById('scanPreview').style.display = 'none';
+    setStatus('Cancelado', 'ok');
+    setTimeout(function(){ var s = document.getElementById('status'); s.style.display = 'none'; }, 1500);
+  });
+  document.getElementById('saveAll').addEventListener('click', function(){
+    if (!scannedItems.length) return;
+    var cardField = getField('card');
+    var defaultCard = cardField ? cardField.value : 'Débito UYU';
+    var dateField = getField('date');
+    var date = dateField ? dateField.value : '';
+    var batch = scannedItems.map(function(it){
+      return {
+        item: it.name,
+        amount: it.amount,
+        currency: 'UYU',
+        card: defaultCard,
+        category: it.category,
+        date: date
+      };
+    });
+    setLocked(true);
+    setStatus('Guardando ' + batch.length + ' items...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(result){
+        setLocked(false);
+        if (result && result.ok) {
+          setStatus('✓ ' + result.saved + ' guardados · ' + result.failed + ' fallaron · ' + result.tab, 'ok');
+          scannedItems = [];
+          document.getElementById('scanPreview').style.display = 'none';
+        } else {
+          setStatus('✗ Batch: ' + (result && result.error || 'error'), 'err');
+        }
+      })
+      .withFailureHandler(function(err){
+        setLocked(false);
+        setStatus('✗ Batch: ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addBatch(batch);
+  });
+
+  // === Tabs ===
+  var dashLoadedOnce = false;
+  function switchTab(panelId) {
+    var tabs = document.querySelectorAll('.tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-panel') === panelId);
+    }
+    var panels = document.querySelectorAll('.panel');
+    for (var j = 0; j < panels.length; j++) {
+      panels[j].classList.toggle('active', panels[j].id === panelId);
+    }
+    if (panelId === 'dashPanel' && !dashLoadedOnce) loadDashboard();
+  }
+  var tabBtns = document.querySelectorAll('.tab');
+  for (var t = 0; t < tabBtns.length; t++) {
+    (function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-panel')); }); })(tabBtns[t]);
+  }
+  document.getElementById('refreshDash').addEventListener('click', function(){ loadDashboard(); });
+
+  // === Dashboard ===
+  function fmt(n, cur) {
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    try {
+      if (!cur) {
+        return new Intl.NumberFormat('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+      }
+      // UYU: sin decimales (montos enteros). USD/ARS: 2 decimales.
+      var maxFrac = cur === 'UYU' ? 0 : 2;
+      return new Intl.NumberFormat('es-UY', {
+        style: 'currency',
+        currency: cur,
+        currencyDisplay: 'symbol',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: maxFrac
+      }).format(n);
+    } catch(e) {
+      var sym = cur === 'USD' ? 'US$ ' : '$ ';
+      return sym + n.toFixed(cur === 'UYU' ? 0 : 2);
+    }
+  }
+
+  function loadDashboard() {
+    var content = document.getElementById('dashContent');
+    content.className = 'dash-loader';
+    content.textContent = 'Cargando datos...';
+    google.script.run
+      .withSuccessHandler(renderDashboard)
+      .withFailureHandler(function(err){
+        content.textContent = '✗ Error: ' + (err && err.message ? err.message : err);
+      })
+      .getDashboardData();
+  }
+
+  function renderDashboard(data) {
+    dashLoadedOnce = true;
+    var content = document.getElementById('dashContent');
+    if (!data || !data.ok) {
+      content.className = 'dash-loader';
+      content.textContent = '✗ ' + ((data && data.error) || 'Error desconocido');
+      return;
+    }
+    document.getElementById('dashTitle').textContent = data.tab;
+    content.className = '';
+    var t = data.totals || {};
+    var html = '';
+
+    // KPIs
+    html += '<div class="dash-section"><div class="dash-kpis">';
+    html += '<div class="dash-kpi big"><div class="dash-kpi-label">Total UYU+USD en UYU</div><div class="dash-kpi-val">' + fmt(t.uyuInUyu, 'UYU') + '</div><div class="dash-kpi-sub">cot. ' + fmt(data.cotizacion) + '</div></div>';
+    html += '<div class="dash-kpi"><div class="dash-kpi-label">Total UYU</div><div class="dash-kpi-val">' + fmt(t.uyu, 'UYU') + '</div></div>';
+    html += '<div class="dash-kpi"><div class="dash-kpi-label">Total USD</div><div class="dash-kpi-val">' + fmt(t.usd, 'USD') + '</div></div>';
+    html += '<div class="dash-kpi"><div class="dash-kpi-label">Fijos UYU</div><div class="dash-kpi-val">' + fmt(t.fixedUyu, 'UYU') + '</div></div>';
+    html += '<div class="dash-kpi"><div class="dash-kpi-label">Variable UYU</div><div class="dash-kpi-val">' + fmt(t.varUyu, 'UYU') + '</div><div class="dash-kpi-sub">' + (data.variableCount || 0) + ' gastos</div></div>';
+    // Top categoría KPI
+    if (data.byCategory && data.byCategory.length) {
+      var topCat = data.byCategory.filter(function(c){ return (c.uyu||0) > 0; })[0];
+      if (topCat) {
+        html += '<div class="dash-kpi big" style="background:#fef3c7;border-color:#fde68a"><div class="dash-kpi-label">🥇 Top categoría</div><div class="dash-kpi-val" style="color:#92400e">' + topCat.name + '</div><div class="dash-kpi-sub">' + fmt(topCat.uyu, 'UYU') + '</div></div>';
+      }
+    }
+    html += '</div></div>';
+
+    // Por categoría con barras + ranking
+    if (data.byCategory && data.byCategory.length) {
+      var maxCat = data.byCategory.reduce(function(m, x){ return Math.max(m, x.uyu || 0); }, 0);
+      var totalCatUyu = data.byCategory.reduce(function(s, x){ return s + (x.uyu || 0); }, 0);
+      html += '<div class="dash-section"><h2>Por categoría (UYU)</h2><div class="dash-list">';
+      var rank = 0;
+      for (var i = 0; i < data.byCategory.length; i++) {
+        var c = data.byCategory[i];
+        if (!c.uyu && !c.usd) continue;
+        rank++;
+        var pct = maxCat > 0 ? (c.uyu / maxCat * 100) : 0;
+        var pctTot = totalCatUyu > 0 ? (c.uyu / totalCatUyu * 100) : 0;
+        var medal = rank === 1 ? '🥇 ' : (rank === 2 ? '🥈 ' : (rank === 3 ? '🥉 ' : ''));
+        var rowStyle = rank === 1 ? ' style="background:#fefce8"' : '';
+        var barColor = rank === 1 ? '#f59e0b' : '#0f766e';
+        html += '<div class="dash-list-row"' + rowStyle + '>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="name">' + medal + c.name + '</div>' +
+            '<div class="dash-bar"><div style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
+          '</div>' +
+          '<div class="val" style="text-align:right">' + fmt(c.uyu, 'UYU') +
+            '<div class="sub" style="font-weight:400">' + pctTot.toFixed(0) + '%</div>' +
+          '</div>' +
+        '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Por medio de pago
+    if (data.byCard && data.byCard.length) {
+      html += '<div class="dash-section"><h2>Por medio de pago</h2><div class="dash-list">';
+      for (var k = 0; k < data.byCard.length; k++) {
+        var card = data.byCard[k];
+        if (!card.amount) continue;
+        html += '<div class="dash-list-row"><span class="name">' + card.name + '</span><span class="val">' + fmt(card.amount, card.currency) + '</span></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Últimos gastos
+    if (data.recent && data.recent.length) {
+      html += '<div class="dash-section"><h2>Últimos gastos</h2><div class="dash-list">';
+      for (var r = 0; r < data.recent.length; r++) {
+        var e = data.recent[r];
+        html += '<div class="dash-list-row"><div style="flex:1;min-width:0"><div class="name">' + e.item + '</div><div class="sub">' + (e.card || '') + (e.category ? ' · ' + e.category : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    content.innerHTML = html;
+  }
+</script>

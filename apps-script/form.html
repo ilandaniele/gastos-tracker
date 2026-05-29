@@ -1,0 +1,118 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Agregar Gasto</title>
+<?!= include('form-styles') ?></head><body>
+<div class="tabs">
+  <button type="button" class="tab active" data-panel="addPanel">+ Agregar</button>
+  <button type="button" class="tab" data-panel="dashPanel">📊 Dashboard</button>
+</div>
+
+<div id="addPanel" class="panel active">
+<h1>Agregar Gasto</h1>
+<div class="quick-section">
+  <div class="quick-label">Variables — scroll →</div>
+  <div class="quick-scroll" id="quickVar">
+    <button type="button" data-key="bus52">🚌52</button>
+    <button type="button" data-key="cafe">☕</button>
+    <button type="button" data-key="frog">🍺Frog</button>
+    <button type="button" data-key="disco">🛒Disco</button>
+    <button type="button" data-key="devoto">🛒Devoto</button>
+    <button type="button" data-key="tata">🛒Tata</button>
+    <button type="button" data-key="claude">🤖Claude</button>
+    <button type="button" data-key="uber">🚕Uber</button>
+    <button type="button" data-key="cabify">🚕Cabify</button>
+    <button type="button" data-key="taxi">🚖Taxi</button>
+    <button type="button" data-key="agua140">💧140</button>
+    <button type="button" data-key="futbol350">⚽350</button>
+    <button type="button" data-key="farma">💊Farma</button>
+    <button type="button" data-key="medic">💉Medic</button>
+    <button type="button" data-key="cine">🎬Cine</button>
+    <button type="button" data-key="regalo">🎁Regalo</button>
+    <button type="button" data-key="ropa">👕Ropa</button>
+    <button type="button" data-key="pelu">💇Pelu</button>
+    <button type="button" data-key="powerade">🥤Pwr</button>
+    <button type="button" data-key="empanadas">🥟Empa</button>
+    <button type="button" data-key="pizza">🍕Pizza</button>
+    <button type="button" data-key="fernet">🍸Fernet</button>
+    <button type="button" data-key="nafta">⛽Nafta</button>
+    <button type="button" data-key="otros">📦Otros</button>
+  </div>
+</div>
+<div class="quick-section">
+  <div class="quick-label">Fijos — scroll →</div>
+  <div class="quick-scroll fijos" id="quickFijo">
+    <button type="button" data-key="fijo_alquiler">🏠Alq</button>
+    <button type="button" data-key="fijo_gc">🏢GC</button>
+    <button type="button" data-key="fijo_trib">🧾Trib</button>
+    <button type="button" data-key="fijo_antel_int">📶Net</button>
+    <button type="button" data-key="fijo_antel_mov">📱Móvil</button>
+    <button type="button" data-key="fijo_luz">💡Luz</button>
+    <button type="button" data-key="fijo_itau">🏦Itau pq</button>
+    <button type="button" data-key="fijo_sandra">🧠Sandra</button>
+    <button type="button" data-key="fijo_viandas">🍱Vianda</button>
+    <button type="button" data-key="fijo_ble">📞Ble</button>
+    <button type="button" data-key="fijo_bluecross">⚕️Blue</button>
+    <button type="button" data-key="fijo_gimnasio">🏋️Gym</button>
+    <button type="button" data-key="fijo_itau_cred">💳Itaú cr</button>
+    <button type="button" data-key="fijo_oca">💳Oca</button>
+  </div>
+</div>
+<div class="scan-section">
+  <input type="file" id="ticketFile" accept="image/*" style="display:none">
+  <button type="button" id="scanBtn" class="scan-btn">📷 Escanear ticket</button>
+</div>
+<div id="scanPreview" style="display:none">
+  <h3>Items detectados — revisá antes de guardar</h3>
+  <div id="scanItems"></div>
+  <div class="scan-total"><span>Total</span><span class="v" id="scanTotal">—</span></div>
+  <div class="scan-actions">
+    <button type="button" id="cancelScan" class="scan-btn cancel">Cancelar</button>
+    <button type="button" id="saveAll" class="scan-btn save">Guardar todos</button>
+  </div>
+</div>
+<form id="f">
+  <label>Ítem</label>
+  <input name="item" required>
+  <div class="row">
+    <div><label>Monto</label><input name="amount" type="number" step="0.01" required inputmode="decimal"></div>
+    <div><label>Moneda</label><select name="currency" required>
+      <option value="UYU">UYU</option><option value="USD">USD</option><option value="ARS">ARS</option>
+    </select></div>
+  </div>
+  <label>Medio de pago</label>
+  <select name="card" required>
+    <option selected>Débito UYU</option>
+    <option>Crédito OCA</option>
+    <option>Crédito Itaú UYU</option>
+    <option>Crédito Itaú USD</option>
+    <option>Débito USD</option>
+  </select>
+  <label>Categoría</label>
+  <select name="category" required>
+    <option>Transporte</option><option>Comida</option><option>Bebida/Bar</option>
+    <option>Salud</option><option>Suscripciones</option><option>Entretenimiento</option>
+    <option>Hogar</option><option>Limpieza</option><option>Ropa</option>
+    <option>Regalos</option><option>Gimnasio</option><option>Servicios</option><option>Otros</option>
+  </select>
+  <div class="row">
+    <div><label>Fecha</label><input name="date" type="date" value="<?= today ?>"></div>
+    <div><label>Cotización USD</label><input name="cotizacion" type="number" step="0.01" placeholder="auto (BCU)"></div>
+  </div>
+  <label>Notas (opcional)</label>
+  <input name="notes" placeholder="">
+  <button type="submit" id="submitBtn">Guardar gasto</button>
+  <div id="status"></div>
+</form>
+</div><!-- /addPanel -->
+
+<div id="dashPanel" class="panel">
+  <h1 id="dashTitle">Dashboard</h1>
+  <button type="button" id="refreshDash" class="dash-refresh">↻ Recargar</button>
+  <div id="dashContent" class="dash-loader">Cargando datos...</div>
+</div>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="spinner-text" id="loadingText">Guardando...</div>
+</div>
+
+<?!= include('form-scripts') ?>
+</body></html>

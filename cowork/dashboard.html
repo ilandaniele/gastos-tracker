@@ -14,7 +14,7 @@ h1 { margin: 0 0 12px; font-size: 22px; }
 .panel { display: none; }
 .panel.active { display: block; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.kpi { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; cursor: help; }
 .kpi-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .kpi-val { font-size: 22px; font-weight: 700; margin-top: 4px; }
 .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -29,6 +29,9 @@ h1 { margin: 0 0 12px; font-size: 22px; }
 .flip-back { transform: rotateY(180deg); }
 .flip-hint { position: absolute; top: 10px; right: 14px; font-size: 10px; color: var(--muted); pointer-events: none; }
 .flip-hint::before { content: "↻ "; }
+.flip-container.flip-sm { min-height: 120px; }
+.flip-container.flip-sm .flip-inner { height: 120px; }
+.flip-container.flip-sm .flip-face { padding: 12px; }
 form { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-width: 560px; }
 label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; font-weight: 500; }
 input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit; background: white; color: var(--fg); }
@@ -75,6 +78,7 @@ tbody tr:hover { background: #fafafa; }
       <label style="margin:0;display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="usdView"> Vista USD total (convierte todo)</label>
     </div>
     <div class="kpi-grid" id="kpis"></div>
+    <div id="topCatBanner"></div>
     <div class="chart-grid">
       <div class="flip-container" id="flipMoneda" onclick="this.classList.toggle('flipped')">
         <div class="flip-inner">
@@ -124,7 +128,7 @@ tbody tr:hover { background: #fafafa; }
           </div>
         </div>
       </div>
-      <div class="chart-card"><h3>Gasto efectivo ARS</h3><div class="chart-wrap"><canvas id="chARS"></canvas></div></div>
+      <div class="chart-card" id="arsCard"><h3>Gasto efectivo ARS</h3><div class="chart-wrap"><canvas id="chARS"></canvas></div></div>
     </div>
   </div>
 </div>
@@ -298,12 +302,6 @@ function toUYU(amount, currency) {
 
 const CATS = ['Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento','Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Otros'];
 
-const MONTH_NAMES = [
-  'Mayo 2026','Junio 2026','Abril 2026','Marzo 2026','Febrero 2026','Enero 2026',
-  'Diciembre 2025','Noviembre 2025','Octubre 2025','Septiembre 2025','Agosto 2025',
-  'Julio 2025','Junio 2025','Mayo 2025','Abril 2025','Marzo 2025',
-  'Febrero 2025','Enero 2025','Diciembre 2024','Noviembre 2024','Octubre 2024'
-];
 // Mes actual basado en fecha del dispositivo (es-UY)
 const ES_MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 function currentMonthName() {
@@ -322,7 +320,14 @@ function currentMonthRank() {
   const d = new Date();
   return d.getFullYear() * 12 + d.getMonth();
 }
-function monthLabel(i) { return MONTH_NAMES[i] || ('Mes ' + (i+1)); }
+// monthIdx 0 = mes actual (1ra pestaña del Sheet), 1 = mes anterior, etc.
+// Pestañas del Sheet en orden cronológico inverso, sin huecos ni meses futuros.
+function monthLabel(i) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - i);
+  return ES_MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+}
 
 const CAT_RULES = [
   [/bus|taxi|uber|cabify|didi|combi|buque|pasaje|nafta|shell|axion|colonia express|sube|bondi|vuelta|viaje/i, "Transporte"],
@@ -360,95 +365,127 @@ function parseMarkdown(md) {
   }
   if (cur && cur.rows.length) sections.push(cur);
 
-  const expenses = [];
+  // Marca filas de gasto fijo (recurrente) dentro de la tabla fija
   const FIXED_NAMES = /^(alquiler|gastos comunes|tributos domiciliarios|antel internet|antel m[oó]vil|^luz$|^oca\b|sandra|viandas|^ble$|ita[uú] cr[eé]dito|gimnasio|bluecross|ema|mart[ií]n vidal|ita[uú] paquete|total|gasto total|compras|ahorro)/i;
+  // Etiquetas que identifican la tabla fija por contenido (sirve aunque falte el header "Gasto")
+  const FIXED_LABELS = /^(alquiler|gastos comunes|tributos|antel|^luz$|^oca\b|sandra|viandas|^ble$|ita[uú] cr[eé]dito|ita[uú] paquete|gimnasio|bluecross|blue cross|ema|mart[ií]n vidal)/i;
+  const PRIOR_MONTH_CARD = /^(ita[uú] cr[eé]dito|^oca$|ita[uú] paquete)/i;
 
-  let monthIdx = -1;
-  for (let si = 0; si < sections.length; si++) {
-    const s = sections[si];
+  // Clasifica una sección: 'fixed' | 'variable' | 'totales' | 'skip'
+  function classifySection(s) {
     const h = s.headers.map(x => x.toLowerCase());
-    if (h.some(c => c.includes('lunes')) && h.some(c => c.includes('martes'))) continue;
-    if (h.every(c => c === 'no_header' || c === '')) continue;
-
-    const isFixedTable = h[0] === 'gasto';
-    if (isFixedTable) monthIdx++;
-    const isItemTable = h[0] === 'ítem' || h[0] === 'item';
-
-    // Skip Argentina trip tables + sections with numeric/fake headers + summary tables
-    const isArgentinaTrip =
+    // Calendario semanal (lunes/martes...)
+    if (h.some(c => c.includes('lunes')) && h.some(c => c.includes('martes'))) return 'skip';
+    // Viaje a Argentina: el dashboard lo ignora
+    const isArgentina =
       h.some(c => /precio d[oó]lar|d[oó]lar compra|d[oó]lar venta/i.test(c)) ||
-      // Argentina sections often have Precio Dolar in row 2 (sub-header)
       s.rows.slice(0, 3).some(r => r.some(c => /precio d[oó]lar/i.test(String(c)))) ||
-      // Or header has ARS column with mostly empty first cols (Argentina pattern)
       (h.includes('ars') && h.filter(c => c === '').length >= 3) ||
-      // Or first data row has "Deuda mama" (Argentina trip marker)
-      (s.rows.length > 0 && s.rows[0].some(c => /deuda mama/i.test(String(c))));
-    const headerLooksNumeric = /^[\d.,]+$/.test(s.headers[1] || '');
-    const isFakeSection = h[0] === 'gasto en uyu' || h[0] === 'gasto argentina';
-    // Detect "Gastos totales" summary — extract Cantidad row before skipping
-    const isGastosTotalesSummary = h[0] === 'gastos totales' || h.includes('uyu + usd (en uyu)') || h.includes('uyu + usd (en usd)');
-    if (isGastosTotalesSummary) {
-      const cantidadRow = s.rows.find(r => String(r[0]).trim().toLowerCase() === 'cantidad');
-      if (cantidadRow) {
-        const mIdx = Math.max(0, monthIdx);
-        sheetTotals[mIdx] = {
-          monthIdx: mIdx,
-          monthName: monthLabel(mIdx),
-          uyu: parseFloat(cantidadRow[1]) || 0,
-          usd: parseFloat(cantidadRow[2]) || 0,
-          uyuInUyu: parseFloat(cantidadRow[3]) || 0,
-          uyuInUsd: parseFloat(cantidadRow[4]) || 0
-        };
-      }
+      (s.rows.length > 0 && s.rows[0].some(c => /deuda mama/i.test(String(c)))) ||
+      h[0] === 'gasto en uyu' || h[0] === 'gasto argentina';
+    if (isArgentina) return 'skip';
+    // Tabla de cotización / deuda
+    if (h.includes('dólar compra') || h.includes('dólar venta')) return 'skip';
+    // Resumen "Gastos totales"
+    if (h[0] === 'gastos totales' || h.some(c => c.includes('uyu + usd'))) return 'totales';
+    // Subtotal por categoría
+    if (h[0] === 'categoría' && h.length <= 4) return 'skip';
+    // Tabla variable de gastos
+    if (h[0] === 'lugar / actividad') return 'variable';
+    // Tabla fija: >=3 filas con etiquetas de gasto fijo
+    const fixedHits = s.rows.filter(r => FIXED_LABELS.test(String(r[0] || '').trim())).length;
+    if (fixedHits >= 3) return 'fixed';
+    return 'skip';
+  }
+
+  // Agrupa secciones en meses. Cada pestaña del Sheet = 1 mes (1 tabla fija,
+  // 1 variable y a veces 1 "Gastos totales"). El orden de bloques NO es
+  // consistente entre pestañas, así que se arranca un mes nuevo cuando aparece
+  // un tipo mayor (fixed/variable/totales) que el grupo actual ya contiene.
+  const MAJOR = { fixed: 1, variable: 1, totales: 1 };
+  const groups = [];
+  let g = null;
+  for (const s of sections) {
+    s._type = classifySection(s);
+    if (s._type === 'skip') { if (g) g.sections.push(s); continue; }
+    if (!g || (MAJOR[s._type] && g.types[s._type])) {
+      g = { sections: [], types: {} };
+      groups.push(g);
     }
-    // Skip "Subtotal categoría" table (has Categoría label + cats with sums)
-    const isSubtotalCatTable = h[0] === 'categoría' && h.length <= 4 && h.includes('uyu') && h.includes('usd');
-    // Skip date-deuda summary tables ("Pesos | USD | Dólar compra | Dólar Venta | UYU")
-    const isExchangeTable = h.includes('dólar compra') || h.includes('dólar venta') || h.includes('dólar compra');
-    if (isArgentinaTrip || headerLooksNumeric || isFakeSection || isGastosTotalesSummary || isSubtotalCatTable || isExchangeTable) continue;
+    g.sections.push(s);
+    g.types[s._type] = true;
+  }
 
-    const PRIOR_MONTH_CARD = /^(ita[uú] cr[eé]dito|^oca$|ita[uú] paquete)/i;
-    for (const row of s.rows) {
-      const item = row[0];
-      if (!item || item === "NO_HEADER" || /^total|^gasto total|^compras\b|^ahorro/i.test(item)) continue;
-      const isFixed = isFixedTable && FIXED_NAMES.test(item);
-      const isPriorMonthCard = isFixedTable && PRIOR_MONTH_CARD.test(item);
+  // Extrae gastos y totales — un grupo por mes
+  const expenses = [];
+  for (let gi = 0; gi < groups.length; gi++) {
+    const monthName = monthLabel(gi);
+    for (const s of groups[gi].sections) {
+      if (s._type === 'totales') {
+        // Mapea columnas por NOMBRE de header — algunas tablas tienen columna vacía espaciadora
+        const h = s.headers.map(x => x.toLowerCase());
+        const uyuCol = h.findIndex(c => c === 'uyu');
+        const usdCol = h.findIndex(c => c === 'usd');
+        const enUyuCol = h.findIndex(c => /\(en uyu\)/.test(c));
+        const enUsdCol = h.findIndex(c => /\(en usd\)/.test(c));
+        const cantidadRow = s.rows.find(r => String(r[0]).trim().toLowerCase() === 'cantidad');
+        if (cantidadRow) {
+          const val = (i) => i >= 0 ? (parseFloat(String(cantidadRow[i] || '').replace(/,/g, '')) || 0) : 0;
+          sheetTotals[gi] = {
+            monthIdx: gi,
+            monthName,
+            uyu: val(uyuCol),
+            usd: val(usdCol),
+            uyuInUyu: val(enUyuCol),
+            uyuInUsd: val(enUsdCol)
+          };
+        }
+        continue;
+      }
+      if (s._type !== 'fixed' && s._type !== 'variable') continue;
+      const isFixedTable = s._type === 'fixed';
+      for (const row of s.rows) {
+        const item = row[0];
+        if (!item || item === "NO_HEADER" || /^total|^gasto total|^compras\b|^ahorro/i.test(item)) continue;
+        const isFixed = isFixedTable && FIXED_NAMES.test(item);
+        const isPriorMonthCard = isFixedTable && PRIOR_MONTH_CARD.test(item);
 
-      for (let ci = 1; ci < s.headers.length; ci++) {
-        const colName = s.headers[ci] || '';
-        if (/cotizaci|d[oó]lar compra|d[oó]lar venta|precio dolar|nota|deuda mama\/precio/i.test(colName)) continue;
-        const raw = (row[ci] || "").replace(/\\-/g, '-').replace(/,/g, '');
-        const num = parseFloat(raw);
-        if (isNaN(num) || num === 0) continue;
+        for (let ci = 1; ci < s.headers.length; ci++) {
+          const colName = s.headers[ci] || '';
+          if (/cotizaci|d[oó]lar compra|d[oó]lar venta|precio dolar|nota|deuda mama\/precio/i.test(colName)) continue;
+          const raw = (row[ci] || "").replace(/\\-/g, '-').replace(/,/g, '');
+          const num = parseFloat(raw);
+          if (isNaN(num) || num === 0) continue;
 
-        let currency = "UYU";
-        if (/usd|^d[oó]lares?$/i.test(colName)) currency = "USD";
-        else if (/^ars$/i.test(colName)) currency = "ARS";
-        else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) currency = "UYU";
+          let currency = "UYU";
+          if (/usd|^d[oó]lares?$/i.test(colName)) currency = "USD";
+          else if (/^ars$/i.test(colName)) currency = "ARS";
+          else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) currency = "UYU";
 
-        let card = colName;
-        if (/cr[eé]dito oca/i.test(colName)) card = "Crédito OCA";
-        else if (/cr[eé]dito.*ita[uú].*uyu/i.test(colName)) card = "Crédito Itaú UYU";
-        else if (/cr[eé]dito.*ita[uú].*usd/i.test(colName)) card = "Crédito Itaú USD";
-        else if (/cr[eé]dito.*ita[uú]/i.test(colName)) card = "Crédito Itaú";
-        else if (/d[eé]bito uyu/i.test(colName)) card = "Débito UYU";
-        else if (/d[eé]bito usd/i.test(colName)) card = "Débito USD";
-        else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) card = "Pago fijo (UYU)";
-        else if (/^dol(a|á)res?$/i.test(colName) || /^usd$/i.test(colName)) card = "Pago fijo (USD)";
-        else if (/^ars$/i.test(colName)) card = "Efectivo ARS";
+          let card = colName;
+          if (/cr[eé]dito oca/i.test(colName)) card = "Crédito OCA";
+          else if (/cr[eé]dito.*ita[uú].*uyu/i.test(colName)) card = "Crédito Itaú UYU";
+          else if (/cr[eé]dito.*ita[uú].*usd/i.test(colName)) card = "Crédito Itaú USD";
+          else if (/cr[eé]dito.*ita[uú]/i.test(colName)) card = "Crédito Itaú";
+          else if (/d[eé]bito uyu/i.test(colName)) card = "Débito UYU";
+          else if (/d[eé]bito usd/i.test(colName)) card = "Débito USD";
+          else if (/^pesos$/i.test(colName) || /^uyu$/i.test(colName)) card = "Pago fijo (UYU)";
+          else if (/^dol(a|á)res?$/i.test(colName) || /^usd$/i.test(colName)) card = "Pago fijo (USD)";
+          else if (/^ars$/i.test(colName)) card = "Efectivo ARS";
 
-        expenses.push({
-          section: si,
-          monthIdx: Math.max(0, monthIdx),
-          monthName: monthLabel(Math.max(0, monthIdx)),
-          item,
-          amount: num,
-          currency,
-          card,
-          category: classify(item),
-          isFixed,
-          isPriorMonthCard
-        });
+          expenses.push({
+            section: gi,
+            monthIdx: gi,
+            monthName,
+            item,
+            amount: num,
+            currency,
+            card,
+            category: classify(item),
+            isFixed,
+            isPriorMonthCard
+          });
+        }
       }
     }
   }
@@ -602,15 +639,17 @@ function topCategoryHtml(scope, useUsd) {
   if (!sorted.length || sorted[0][1] <= 0) return '';
   const top = sorted[0];
   const sub = sorted[1] ? `2º ${sorted[1][0]} · ${fmt(sorted[1][1], useUsd ? 'USD' : 'UYU')}` : '';
-  return `<div class="kpi" style="background:#fef3c7;border-color:#fde68a;grid-column:span 2"><div class="kpi-label">🥇 Top categoría</div><div class="kpi-val" style="color:#92400e">${top[0]} · ${fmt(top[1], useUsd ? 'USD' : 'UYU')}</div><div class="kpi-sub">${sub}</div></div>`;
+  return `<div class="kpi" style="background:#fef3c7;border-color:#fde68a;margin-bottom:16px" title="Categoría con más gasto del mes (fijos + variables, en UYU equivalente). Excluye cash-out de tarjetas."><div class="kpi-label">🥇 Top categoría del mes</div><div class="kpi-val" style="color:#92400e">${top[0]} · ${fmt(top[1], useUsd ? 'USD' : 'UYU')}</div><div class="kpi-sub">${sub}</div></div>`;
 }
 
 function renderKPIs(scope) {
   const variable = scope.filter(e => !e.isFixed);
   const fixed = scope.filter(e => e.isFixed && !e.isPriorMonthCard);
   const priorCards = scope.filter(e => e.isPriorMonthCard);
-  // Top category (excludes prior-month card cash-outs)
+  // Top categoría (excluye cash-out de tarjetas) — va en su propio banner, fuera de la grilla
   const catScope = scope.filter(e => !e.isPriorMonthCard);
+  document.getElementById('topCatBanner').innerHTML = topCategoryHtml(catScope, isUsdView());
+
   if (isUsdView()) {
     const totVU = variable.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
     const totFU = fixed.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
@@ -618,14 +657,16 @@ function renderKPIs(scope) {
     const byCurUSD = { UYU:0, USD:0, ARS:0 };
     for (const e of variable) byCurUSD[e.currency] = (byCurUSD[e.currency]||0) + toUSD(e.amount, e.currency);
     const totPC = priorCards.reduce((s,e) => s + toUSD(e.amount, e.currency), 0);
+    const arsKpi = byCurUSD.ARS > 0
+      ? `<div class="kpi" title="Gastos variables originalmente en ARS, convertidos a USD via ARS/1400."><div class="kpi-label">Var: de ARS</div><div class="kpi-val">${fmt(byCurUSD.ARS,'USD')}</div><div class="kpi-sub">ARS/${USD_ARS}</div></div>`
+      : '';
     document.getElementById('kpis').innerHTML = `
-      <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Total USD equiv (Var+Fijo)</div><div class="kpi-val">${fmt(totU,'USD')}</div><div class="kpi-sub">${variable.length + fixed.length} gastos</div></div>
-      ${topCategoryHtml(catScope, true)}
-      <div class="kpi"><div class="kpi-label">Variable USD equiv</div><div class="kpi-val">${fmt(totVU,'USD')}</div><div class="kpi-sub">${variable.length} gastos</div></div>
-      <div class="kpi"><div class="kpi-label">Fijos USD equiv</div><div class="kpi-val">${fmt(totFU,'USD')}</div><div class="kpi-sub">${fixed.length} mensual recurrente</div></div>
-      <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. (cash out)</div><div class="kpi-val">${fmt(totPC,'USD')}</div><div class="kpi-sub">Itaú/OCA cobros</div></div>
-      <div class="kpi"><div class="kpi-label">Var: de UYU</div><div class="kpi-val">${fmt(byCurUSD.UYU,'USD')}</div><div class="kpi-sub">UYU/${USD_UYU}</div></div>
-      <div class="kpi"><div class="kpi-label">Var: de ARS</div><div class="kpi-val">${fmt(byCurUSD.ARS,'USD')}</div><div class="kpi-sub">ARS/${USD_ARS}</div></div>
+      <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0;grid-column:span 2" title="Todos los gastos del mes convertidos a USD usando la cotización fija. Suma fijos + variables (excluye cash-out de tarjetas)."><div class="kpi-label">Total USD equiv (Var+Fijo)</div><div class="kpi-val">${fmt(totU,'USD')}</div><div class="kpi-sub">${variable.length + fixed.length} gastos</div></div>
+      <div class="kpi" title="Gastos variables del mes convertidos a USD."><div class="kpi-label">Variable USD equiv</div><div class="kpi-val">${fmt(totVU,'USD')}</div><div class="kpi-sub">${variable.length} gastos</div></div>
+      <div class="kpi" title="Gastos fijos recurrentes del mes, convertidos a USD."><div class="kpi-label">Fijos USD equiv</div><div class="kpi-val">${fmt(totFU,'USD')}</div><div class="kpi-sub">${fixed.length} mensual recurrente</div></div>
+      <div class="kpi" style="background:#fef3c7;border-color:#fde68a" title="Pago de saldo Itaú/OCA del mes anterior, convertido a USD. NO es gasto nuevo: ya está contado en variables del mes pasado."><div class="kpi-label">Tarjetas mes ant. (cash out)</div><div class="kpi-val">${fmt(totPC,'USD')}</div><div class="kpi-sub">Itaú/OCA cobros</div></div>
+      <div class="kpi" title="Gastos variables originalmente en UYU, convertidos a USD usando la cotización fija."><div class="kpi-label">Var: de UYU</div><div class="kpi-val">${fmt(byCurUSD.UYU,'USD')}</div><div class="kpi-sub">UYU/${USD_UYU}</div></div>
+      ${arsKpi}
     `;
     return;
   }
@@ -635,42 +676,53 @@ function renderKPIs(scope) {
   for (const e of priorCards) totPC[e.currency] = (totPC[e.currency] || 0) + e.amount;
   const totUYU = (totV.UYU||0) + (totF.UYU||0);
   const totUSD = (totV.USD||0) + (totF.USD||0);
-  // Sheet-calculated totals (from "Gastos totales | Cantidad" row of each month's tab)
-  // Aggregate across all months in scope
+  // Totales del Sheet (fila "Gastos totales | Cantidad" de los meses en scope)
   const scopeMonthIdxs = new Set(scope.map(e => e.monthIdx));
-  let sheetUYU = 0, sheetUSD = 0, sheetUYUinUYU = 0, sheetUYUinUSD = 0;
-  let sheetTotalCount = 0;
+  let sheetUYU = 0, sheetUSD = 0, sheetUYUinUYU = 0, sheetUYUinUSD = 0, sheetTotalCount = 0;
   for (const idx of scopeMonthIdxs) {
     const t = sheetTotals[idx];
-    if (t) {
-      sheetUYU += t.uyu;
-      sheetUSD += t.usd;
-      sheetUYUinUYU += t.uyuInUyu;
-      sheetUYUinUSD += t.uyuInUsd;
-      sheetTotalCount++;
-    }
+    if (t) { sheetUYU += t.uyu; sheetUSD += t.usd; sheetUYUinUYU += t.uyuInUyu; sheetUYUinUSD += t.uyuInUsd; sheetTotalCount++; }
   }
-  const sheetTotalHtml = sheetTotalCount > 0 ? `
-    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">Gasto total UYU (Sheet)</div><div class="kpi-val">${fmt(sheetUYU, 'UYU')}</div><div class="kpi-sub">${sheetTotalCount} mes(es) · directo del Sheet</div></div>
-    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">Gasto total USD (Sheet)</div><div class="kpi-val">${fmt(sheetUSD, 'USD')}</div><div class="kpi-sub">directo del Sheet</div></div>
-    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">UYU+USD en UYU (Sheet)</div><div class="kpi-val">${fmt(sheetUYUinUYU, 'UYU')}</div><div class="kpi-sub">convertido a UYU</div></div>
-    <div class="kpi" style="background:#dbeafe;border-color:#60a5fa"><div class="kpi-label">UYU+USD en USD (Sheet)</div><div class="kpi-val">${fmt(sheetUYUinUSD, 'USD')}</div><div class="kpi-sub">convertido a USD</div></div>
-  ` : '';
-  // If Sheet totals are present, skip the "calculado" duplicates. Otherwise show them as fallback.
-  const showCalc = sheetTotalCount === 0 || Math.abs(sheetUYU - totUYU) > 1 || Math.abs(sheetUSD - totUSD) > 1;
-  const calcHtml = showCalc ? `
-    <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Gasto total UYU (calculado)</div><div class="kpi-val">${fmt(totUYU, 'UYU')}</div><div class="kpi-sub">variable + fijos · parser${sheetTotalCount > 0 ? ' (difiere de Sheet)' : ''}</div></div>
-    <div class="kpi" style="background:#ecfdf5;border-color:#a7f3d0"><div class="kpi-label">Gasto total USD (calculado)</div><div class="kpi-val">${fmt(totUSD, 'USD')}</div><div class="kpi-sub">variable + fijos · parser${sheetTotalCount > 0 ? ' (difiere de Sheet)' : ''}</div></div>` : '';
-  const topCatKpi = topCategoryHtml(catScope, false);
-  const html = sheetTotalHtml + topCatKpi + calcHtml + `
-    <div class="kpi"><div class="kpi-label">Variable UYU</div><div class="kpi-val">${fmt(totV.UYU||0, 'UYU')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='UYU').length} gastos</div></div>
-    <div class="kpi"><div class="kpi-label">Variable USD</div><div class="kpi-val">${fmt(totV.USD||0, 'USD')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='USD').length} gastos</div></div>
-    <div class="kpi"><div class="kpi-label">Variable ARS</div><div class="kpi-val">${fmt(totV.ARS||0, 'ARS')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='ARS').length} gastos</div></div>
-    <div class="kpi"><div class="kpi-label">Fijos UYU</div><div class="kpi-val">${fmt(totF.UYU||0, 'UYU')}</div><div class="kpi-sub">mensual recurrente</div></div>
-    <div class="kpi"><div class="kpi-label">Fijos USD</div><div class="kpi-val">${fmt(totF.USD||0, 'USD')}</div><div class="kpi-sub">mensual recurrente</div></div>
-    <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. UYU</div><div class="kpi-val">${fmt(totPC.UYU||0, 'UYU')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
-    <div class="kpi" style="background:#fef3c7;border-color:#fde68a"><div class="kpi-label">Tarjetas mes ant. USD</div><div class="kpi-val">${fmt(totPC.USD||0, 'USD')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
-    <div class="kpi"><div class="kpi-label">Total registros</div><div class="kpi-val">${allExpenses.length}</div></div>
+  const hasSheet = sheetTotalCount > 0;
+  const dispUYU = hasSheet ? sheetUYU : totUYU;
+  const dispUSD = hasSheet ? sheetUSD : totUSD;
+  const combUYU = hasSheet ? sheetUYUinUYU : (totUYU + totUSD * USD_UYU);
+  const combUSD = hasSheet ? sheetUYUinUSD : (totUYU / USD_UYU + totUSD);
+  const src = hasSheet ? `directo del Sheet (${sheetTotalCount} mes${sheetTotalCount>1?'es':''})` : 'calculado: variable + fijos';
+  const mismatch = hasSheet && (Math.abs(sheetUYU - totUYU) > 1 || Math.abs(sheetUSD - totUSD) > 1);
+  const mismatchNote = mismatch ? ` · ⚠ calc difiere (${fmt(totUYU,'UYU')} / ${fmt(totUSD,'USD')})` : '';
+  // Headline: UYU + USD combinado — el gasto total FINAL (verde fuerte, borde 2px, span 2)
+  const combinedCard = `
+    <div class="kpi" style="background:#d1fae5;border:2px solid #047857;grid-column:span 2" title="Total del mes combinando fijos + variables en una sola cifra. Muestra el equivalente en UYU y en USD lado a lado. Viene del Sheet (Gastos totales/Cantidad) si existe; sino se calcula sumando.">
+      <div class="kpi-label" style="color:#047857">💰 Gasto total final · UYU + USD combinado</div>
+      <div class="kpi-val" style="color:#047857;font-size:24px">${fmt(combUYU,'UYU')} <span style="font-size:17px;color:#065f46;font-weight:600">· ${fmt(combUSD,'USD')}</span></div>
+      <div class="kpi-sub" style="color:#047857">${src}${mismatchNote}</div>
+    </div>`;
+  // Gasto (fijo + variable) por moneda — cards separadas, colores distintos (azul / naranja)
+  const gastoUyuCard = `
+    <div class="kpi" style="background:#dbeafe;border-color:#3b82f6" title="Suma de todos los gastos UYU del mes (fijos + variables). Excluye cash-out de tarjetas Itaú/Oca.">
+      <div class="kpi-label" style="color:#1e40af">Gasto (fijo + variable) · UYU</div>
+      <div class="kpi-val" style="color:#1e40af">${fmt(dispUYU,'UYU')}</div>
+      <div class="kpi-sub">${src}</div>
+    </div>`;
+  const gastoUsdCard = `
+    <div class="kpi" style="background:#fed7aa;border-color:#f97316" title="Suma de todos los gastos USD del mes (fijos + variables). Excluye cash-out de tarjetas.">
+      <div class="kpi-label" style="color:#c2410c">Gasto (fijo + variable) · USD</div>
+      <div class="kpi-val" style="color:#c2410c">${fmt(dispUSD,'USD')}</div>
+      <div class="kpi-sub">${src}</div>
+    </div>`;
+  const arsKpi = (totV.ARS||0) > 0
+    ? `<div class="kpi" title="Gastos en pesos argentinos (típicamente viajes a AR). Conversión a USD usando ARS/1400."><div class="kpi-label">Variable ARS</div><div class="kpi-val">${fmt(totV.ARS,'ARS')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='ARS').length} gastos</div></div>`
+    : '';
+  // Variable = gris claro · Fijos = lavanda · Tarjetas mes ant = amarillo
+  const html = combinedCard + gastoUyuCard + gastoUsdCard + `
+    <div class="kpi" style="background:#f5f5f5" title="Gastos UYU del día a día (Disco, Bus, Bar, etc.). Excluye fijos mensuales."><div class="kpi-label">Variable UYU</div><div class="kpi-val">${fmt(totV.UYU||0, 'UYU')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='UYU').length} gastos</div></div>
+    <div class="kpi" style="background:#f5f5f5" title="Gastos USD del día a día (suscripciones, compras puntuales). Excluye fijos."><div class="kpi-label">Variable USD</div><div class="kpi-val">${fmt(totV.USD||0, 'USD')}</div><div class="kpi-sub">${variable.filter(e=>e.currency==='USD').length} gastos</div></div>
+    ${arsKpi}
+    <div class="kpi" style="background:#ede9fe;border-color:#a78bfa" title="Gastos mensuales recurrentes en UYU: Alquiler, Gastos comunes, Luz, Antel, BlueCross, Gimnasio, Ble, etc."><div class="kpi-label" style="color:#6d28d9">Fijos UYU</div><div class="kpi-val" style="color:#6d28d9">${fmt(totF.UYU||0, 'UYU')}</div><div class="kpi-sub">mensual recurrente</div></div>
+    <div class="kpi" style="background:#ede9fe;border-color:#a78bfa" title="Gastos mensuales recurrentes en USD: Sandra Psicologa, etc."><div class="kpi-label" style="color:#6d28d9">Fijos USD</div><div class="kpi-val" style="color:#6d28d9">${fmt(totF.USD||0, 'USD')}</div><div class="kpi-sub">mensual recurrente</div></div>
+    <div class="kpi" style="background:#fef3c7;border-color:#fde68a" title="Pago de saldo Itaú Crédito UYU + Oca (cobro del consumo del mes anterior). NO es gasto nuevo: ya está contado en los variables del mes pasado."><div class="kpi-label">Tarjetas mes ant. UYU</div><div class="kpi-val">${fmt(totPC.UYU||0, 'UYU')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
+    <div class="kpi" style="background:#fef3c7;border-color:#fde68a" title="Pago de saldo Itaú Crédito USD (cobro del consumo del mes anterior). NO es gasto nuevo."><div class="kpi-label">Tarjetas mes ant. USD</div><div class="kpi-val">${fmt(totPC.USD||0, 'USD')}</div><div class="kpi-sub">cash out (no gasto)</div></div>
   `;
   document.getElementById('kpis').innerHTML = html;
 }
@@ -717,12 +769,16 @@ function renderCharts(scope) {
   const byCardUSD = agg(vUSD, e => e.card, e => e.amount);
   mkChart('chCardUSD', 'doughnut', Object.keys(byCardUSD), Object.values(byCardUSD));
 
-  // FLIP CARD 3: Por categoría (UYU only side + USD only side, ambos lados nativos)
-  const byCatUYU = agg(vUYU, e => e.category, e => e.amount);
+  // FLIP CARD 3: Por categoría — incluye gastos FIJOS (Alquiler→Servicios, Sandra→Salud, etc.),
+  // excluye solo cash-out de tarjetas. Respeta el toggle "Incluir gastos fijos" via el scope.
+  const catScopeAll = scope.filter(e => !e.isPriorMonthCard);
+  const catScopeUYU = catScopeAll.filter(e => e.currency === 'UYU');
+  const catScopeUSD = catScopeAll.filter(e => e.currency === 'USD');
+  const byCatUYU = agg(catScopeUYU, e => e.category, e => e.amount);
   const catUYUe = Object.entries(byCatUYU).sort((a,b)=>b[1]-a[1]);
   mkChart('chCatUYU', 'bar', catUYUe.map(x=>x[0]), catUYUe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
 
-  const byCatUSDside = agg(vUSD, e => e.category, e => e.amount);
+  const byCatUSDside = agg(catScopeUSD, e => e.category, e => e.amount);
   const catUSDe = Object.entries(byCatUSDside).sort((a,b)=>b[1]-a[1]);
   mkChart('chCatUSD', 'bar', catUSDe.map(x=>x[0]), catUSDe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
 
@@ -737,7 +793,13 @@ function renderCharts(scope) {
 
   const byCatARS = agg(vARS, e => e.category, e => e.amount);
   const catARSe = Object.entries(byCatARS).sort((a,b)=>b[1]-a[1]);
-  if (catARSe.length) mkChart('chARS', 'bar', catARSe.map(x=>x[0]), catARSe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+  const arsCard = document.getElementById('arsCard');
+  if (catARSe.length) {
+    if (arsCard) arsCard.style.display = '';
+    mkChart('chARS', 'bar', catARSe.map(x=>x[0]), catARSe.map(x=>x[1]), { indexAxis: 'y', plugins: { legend: { display: false } } });
+  } else if (arsCard) {
+    arsCard.style.display = 'none';
+  }
 }
 
 function renderRaw() {
