@@ -32,6 +32,24 @@
     return document.querySelector('#f [name="' + name + '"]');
   }
 
+  // Asegurar que el input de fecha refleje el "hoy" del cliente, no el cacheado
+  // del momento que se renderizó el HTML (caso típico: webapp abierta desde ayer).
+  function _todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function refreshDateToToday() {
+    var f = document.getElementById('date');
+    if (f) f.value = _todayStr();
+  }
+  // Init: corregir el valor server-rendered con el "hoy" del cliente
+  refreshDateToToday();
+  // Cuando la PWA/pestaña vuelve a estar visible (típico al reabrir después de horas),
+  // refrescar la fecha. Cubre el caso de webapp pinned/PWA abierta desde un día anterior.
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') refreshDateToToday();
+  });
+
   function fillQuick(data) {
     var itemField = getField('item');
     if (itemField) itemField.value = data.item || '';
@@ -332,6 +350,8 @@
       panels[j].classList.toggle('active', panels[j].id === panelId);
     }
     if (panelId === 'dashPanel' && !dashLoadedOnce) loadDashboard();
+    // Cada vez que se abre la pestaña de agregar, refrescar la fecha a "hoy"
+    if (panelId === 'addPanel') refreshDateToToday();
   }
   var tabBtns = document.querySelectorAll('.tab');
   for (var t = 0; t < tabBtns.length; t++) {
