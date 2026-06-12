@@ -67,6 +67,10 @@ const ROUTES = {
   // Tabla fija: agrega columna "Categoría" + completa con classifyItem(label)
   classifyFixedMonth: p => classifyFixedMonth(p.month || currentMonthTab()),
   classifyAllFixed: () => classifyAllFixedMonths(),
+  // Limpia tabs huérfanos tipo "Sheet23", "Sheet24" (solo si están vacíos)
+  cleanupOrphans: () => cleanupOrphanSheets(),
+  // Reporte de cierre de mes: filas sin cotización/categoría, top categorías, top items, batches sospechosos
+  auditMonth: p => auditMonth(p.month || currentMonthTab()),
   // Debug: dump headers of a tab — ?action=inspectHeaders&month=Mayo%202026
   inspectHeaders: p => inspectHeaders(p.month || currentMonthTab()),
   // Diagnostic: verify UrlFetch (script.external_request) scope works — ?action=testFetch
@@ -372,6 +376,159 @@ function classifyAllFixedMonths() {
   return { ok: true, totalClassified: totalClassified, columnsAdded: columnsAdded, results: results };
 }
 
+// === Cleanup: borrar tabs huérfanos vacíos tipo "Sheet23", "Sheet24" ===
+// Pueden aparecer si una operación (copyTo/setName) falla a medias o si
+// el usuario clickea "+" sin querer. Solo borra los que están completamente vacíos.
+function cleanupOrphanSheets() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const orphanRe = /^Sheet\d+$/i;
+  const sheets = ss.getSheets();
+  const deleted = [], kept = [];
+  for (const sh of sheets) {
+    const name = sh.getName();
+    if (!orphanRe.test(name)) continue;
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (lastRow === 0 && lastCol === 0) {
+      ss.deleteSheet(sh);
+      deleted.push(name);
+    } else {
+      // Tiene contenido — no borrar, listar para revisión manual
+      kept.push({ name: name, lastRow: lastRow, lastCol: lastCol });
+    }
+  }
+  return { ok: true, deleted: deleted, deletedCount: deleted.length, kept: kept };
+}
+
+// === Reporte de cierre de mes (auditMonth) ===
+// Devuelve totales, filas faltantes, top categorías, top items y batches con misma
+// cotización (posible bleed entre meses). Pensado para el cierre mensual recurrente.
+function auditMonth(tabName) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return { ok: false, error: 'Tab no existe: ' + tabName };
+
+  const range = sheet.getDataRange().getValues();
+  const headerRow = findHeaderRow(range);
+  if (headerRow < 0) return { ok: false, error: 'No se encontró header de tabla variable' };
+
+  const headers = range[headerRow].map(h => String(h || '').trim());
+  const cotizCol = headers.findIndex(h => /cotizaci/i.test(h));
+  const catCol = headers.findIndex(h => /^categor/i.test(h));
+  const uyuCols = [], usdCols = [];
+  for (let c = 1; c < headers.length; c++) {
+    const h = headers[c];
+    // CORTAR al primer header vacío — la tabla variable termina ahí.
+    // A la derecha puede haber otra tabla (ej. "Categoría | UYU | USD" para subtotales)
+    // que NO debe sumarse fila por fila.
+    if (!h) break;
+    if (c === cotizCol || c === catCol) continue;
+    if (/nota|deuda/i.test(h)) continue;
+    if (/usd|d[oó]lares?$/i.test(h)) usdCols.push(c);
+    else if (/uyu|cr[eé]dito oca|d[eé]bito uyu|pesos/i.test(h)) uyuCols.push(c);
+  }
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const missingCotiz = [], missingCat = [];
+  const items = [];
+  let sumUyu = 0, sumUsd = 0;
+  let consecutiveEmpty = 0;
+  for (let i = headerRow + 1; i < range.length; i++) {
+    const row = range[i];
+    const itemCell = String(row[0] || '').trim();
+    if (!itemCell) {
+      // Cortar si vienen 4+ filas vacías seguidas — fin de la tabla variable
+      consecutiveEmpty++;
+      if (consecutiveEmpty >= 4) break;
+      continue;
+    }
+    consecutiveEmpty = 0;
+    const lowerA = itemCell.toLowerCase();
+    if (lowerA.startsWith('total') || lowerA.startsWith('gasto total') || isBoundaryRow(lowerA)) break;
+    // Marcadores de viaje Argentina / otras tablas no-variables
+    if (lowerA === 'ítem' || lowerA === 'item' || /deuda mama/i.test(lowerA)) break;
+    if (row.some(c => /precio d[oó]lar/i.test(String(c || '')))) break;
+
+    let rowUyu = 0, rowUsd = 0;
+    for (const c of uyuCols) { const v = parseFloat(row[c]); if (isFinite(v)) rowUyu += v; }
+    for (const c of usdCols) { const v = parseFloat(row[c]); if (isFinite(v)) rowUsd += v; }
+    sumUyu += rowUyu;
+    sumUsd += rowUsd;
+
+    if (cotizCol >= 0) {
+      const cot = row[cotizCol];
+      if (cot === '' || cot == null || !isFinite(parseFloat(cot))) {
+        missingCotiz.push({ row: i + 1, item: itemCell });
+      }
+    }
+    const cat = catCol >= 0 ? String(row[catCol] || '').trim() : '';
+    if (catCol >= 0 && !cat) missingCat.push({ row: i + 1, item: itemCell });
+
+    items.push({
+      row: i + 1, item: itemCell,
+      uyu: rowUyu, usd: rowUsd, cat: cat,
+      cotiz: cotizCol >= 0 ? row[cotizCol] : ''
+    });
+  }
+
+  // Top categorías (ordenadas por monto en UYU equivalente, aproximando USD a UYU x40)
+  const FX = 40;
+  const byCat = {};
+  for (const it of items) {
+    const c = it.cat || 'Otros';
+    if (!byCat[c]) byCat[c] = { uyu: 0, usd: 0, count: 0 };
+    byCat[c].uyu += it.uyu; byCat[c].usd += it.usd; byCat[c].count++;
+  }
+  const topCategorias = Object.keys(byCat).map(name => ({
+    name: name, uyu: round2(byCat[name].uyu), usd: round2(byCat[name].usd), count: byCat[name].count
+  })).sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX)).slice(0, 5);
+
+  // Top items por monto (UYU equivalente)
+  const topItems = items.slice().sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX))
+    .slice(0, 5)
+    .map(it => ({ row: it.row, item: it.item, uyu: round2(it.uyu), usd: round2(it.usd), cat: it.cat }));
+
+  // Detección de batches con misma cotización (posible bleed entre meses)
+  const cotizGroups = {};
+  for (const it of items) {
+    const key = String(it.cotiz);
+    if (!key || key === 'undefined' || key === 'null') continue;
+    if (!isFinite(parseFloat(key))) continue;
+    if (!cotizGroups[key]) cotizGroups[key] = [];
+    cotizGroups[key].push(it.row);
+  }
+  const sameCotizBatches = Object.keys(cotizGroups)
+    .filter(k => cotizGroups[k].length >= 5)
+    .map(k => ({
+      cotiz: parseFloat(k), count: cotizGroups[k].length,
+      firstRow: cotizGroups[k][0], lastRow: cotizGroups[k][cotizGroups[k].length - 1]
+    })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+  return {
+    ok: true,
+    _v: 'audit-fix-rightside-table-v4',
+    tab: tabName,
+    itemCount: items.length,
+    sumUyu: round2(sumUyu),
+    sumUsd: round2(sumUsd),
+    lastRowProcessed: items.length ? items[items.length - 1].row : null,
+    _debug: {
+      headers: headers,
+      uyuCols: uyuCols,
+      usdCols: usdCols,
+      cotizCol: cotizCol,
+      catCol: catCol,
+      firstThreeItems: items.slice(0, 3)
+    },
+    consistencyOk: missingCotiz.length === 0 && missingCat.length === 0,
+    missingCotiz: missingCotiz,
+    missingCategory: missingCat,
+    topCategorias: topCategorias,
+    topItems: topItems,
+    sameCotizBatches: sameCotizBatches
+  };
+}
+
 // === Ticket OCR via Gemini Vision ===
 function scanTicket(base64Image) {
   try {
@@ -625,7 +782,13 @@ function getOrCreateMonthTab(ss, tabName) {
   const template = ss.getSheetByName(TEMPLATE_TAB);
   if (!template) throw new Error('Template tab "' + TEMPLATE_TAB + '" no encontrado para crear ' + tabName);
   sheet = template.copyTo(ss);
-  sheet.setName(tabName);
+  // setName en try/catch: si falla, borrar el huérfano para no dejar basura tipo "Sheet25"
+  try {
+    sheet.setName(tabName);
+  } catch (e) {
+    try { ss.deleteSheet(sheet); } catch (_) {}
+    throw new Error('No se pudo nombrar el tab "' + tabName + '" (¿ya existe con otro casing?): ' + e.message);
+  }
   // Mover el nuevo tab a posición 1 (leftmost) — mantiene el invariante:
   // leftmost = mes más reciente, lo que el dashboard usa para etiquetar correctamente.
   ss.setActiveSheet(sheet);
@@ -707,10 +870,44 @@ function _stripAccents(s) {
 
 function toNumber(x) { const n = parseFloat(x); return isFinite(n) ? n : null; }
 
+// Parsea fechas como LOCAL en vez de UTC — evita el bug de timezone donde
+// `new Date('2026-06-01')` se interpreta como UTC midnight y rola al día anterior
+// en zonas con UTC offset negativo (ej. Montevideo UTC-3).
+function parseLocalDate(date) {
+  if (!date) return new Date();
+  if (date instanceof Date) return date;
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(date)) {
+    const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  }
+  return new Date(date);
+}
+
 function monthTabFor(date) {
-  const d = date instanceof Date ? date : new Date(date);
+  const d = parseLocalDate(date);
   if (isNaN(d.getTime())) throw new Error('Fecha inválida: ' + date);
   return MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// Asegura una columna "Fecha" en el header del variable table.
+// La agrega justo después del último header CONTIGUO del variable table
+// (corta en el primer header vacío — a la derecha puede haber otra tabla
+// tipo "Categoría|UYU|USD" para subtotales que NO es parte de la variable).
+function ensureDateColumn(sheet, headers, headerRow1Indexed) {
+  // Buscar Fecha en cualquier posición (puede haber quedado fuera de lugar)
+  for (let c = 0; c < headers.length; c++) {
+    if (/^fecha$/i.test(String(headers[c] || '').trim())) return c;
+  }
+  // Detectar fin del header contiguo de la variable table
+  let endOfVariableHeader = 0;
+  for (let c = 0; c < headers.length; c++) {
+    const h = String(headers[c] || '').trim();
+    if (!h) break;
+    endOfVariableHeader = c + 1;
+  }
+  const targetCol1 = endOfVariableHeader + 1;
+  sheet.getRange(headerRow1Indexed, targetCol1).setValue('Fecha');
+  return targetCol1 - 1;
 }
 
 function currentMonthTab() { return monthTabFor(new Date()); }
@@ -781,7 +978,10 @@ function _doAddExpense(p) {
     else { cotizacion = COTIZ_FALLBACK; cotizSource = 'fallback'; }
   }
 
-  const tabName = monthTabFor(date ? new Date(date) : new Date());
+  // IMPORTANTE: pasar el string crudo (no `new Date(date)`), porque `new Date('2026-06-01')`
+  // se parsea como UTC midnight, y en zona Montevideo (UTC-3) `.getMonth()` retorna Mayo.
+  // monthTabFor() maneja strings YYYY-MM-DD parseándolos como fecha local.
+  const tabName = monthTabFor(date || new Date());
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = getOrCreateMonthTab(ss, tabName);
   const range = sheet.getDataRange().getValues();
@@ -879,6 +1079,17 @@ function _doAddExpense(p) {
   if (catCol >= 0 && finalCategory) row[catCol] = finalCategory;
   if (notes && catCol >= 0 && catCol + 1 < numCols) row[catCol + 1] = notes;
   sheet.getRange(insertAt, 1, 1, numCols).setValues([row]);
+
+  // Escribir la fecha en la columna "Fecha" del variable table (la crea si no existe)
+  try {
+    const fechaColIdx = ensureDateColumn(sheet, headers, headerRow + 1);
+    if (fechaColIdx >= 0) {
+      const dateObj = parseLocalDate(date);
+      if (dateObj && !isNaN(dateObj.getTime())) {
+        sheet.getRange(insertAt, fechaColIdx + 1).setValue(dateObj);
+      }
+    }
+  } catch (e) { Logger.log('Fecha write failed: ' + e.message); }
 
   // Update Total row formulas to include the new row (only if boundary was a real "Total" with SUM formulas)
   if (newTotalRow1Indexed > 0 && boundaryIsTotalSum) {
