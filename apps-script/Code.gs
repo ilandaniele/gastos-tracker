@@ -71,6 +71,11 @@ const ROUTES = {
   cleanupOrphans: () => cleanupOrphanSheets(),
   // Reporte de cierre de mes: filas sin cotización/categoría, top categorías, top items, batches sospechosos
   auditMonth: p => auditMonth(p.month || currentMonthTab()),
+  // Reporte mensual por email
+  sendReport: p => sendMonthlyReport(p.month, p.email),
+  previewReport: p => ({ ok: true, html: buildMonthlyReportHtml(p.month || currentMonthTab()) }),
+  installReportTrigger: () => installMonthlyReportTrigger(),
+  removeReportTrigger: () => removeMonthlyReportTrigger(),
   // Debug: dump headers of a tab — ?action=inspectHeaders&month=Mayo%202026
   inspectHeaders: p => inspectHeaders(p.month || currentMonthTab()),
   // Diagnostic: verify UrlFetch (script.external_request) scope works — ?action=testFetch
@@ -479,13 +484,14 @@ function auditMonth(tabName) {
     if (!byCat[c]) byCat[c] = { uyu: 0, usd: 0, count: 0 };
     byCat[c].uyu += it.uyu; byCat[c].usd += it.usd; byCat[c].count++;
   }
-  const topCategorias = Object.keys(byCat).map(name => ({
+  const allCategoriasSorted = Object.keys(byCat).map(name => ({
     name: name, uyu: round2(byCat[name].uyu), usd: round2(byCat[name].usd), count: byCat[name].count
-  })).sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX)).slice(0, 5);
+  })).sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX));
+  const topCategorias = allCategoriasSorted.slice(0, 5);
 
-  // Top items por monto (UYU equivalente)
+  // Top items por monto (UYU equivalente) — devuelve 10 para reportes
   const topItems = items.slice().sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX))
-    .slice(0, 5)
+    .slice(0, 10)
     .map(it => ({ row: it.row, item: it.item, uyu: round2(it.uyu), usd: round2(it.usd), cat: it.cat }));
 
   // Detección de batches con misma cotización (posible bleed entre meses)
@@ -524,9 +530,259 @@ function auditMonth(tabName) {
     missingCotiz: missingCotiz,
     missingCategory: missingCat,
     topCategorias: topCategorias,
+    allCategorias: allCategoriasSorted,
     topItems: topItems,
     sameCotizBatches: sameCotizBatches
   };
+}
+
+// === Reporte mensual por email ===
+// Genera y envía resumen del mes + comparativa con los 5 meses previos.
+//  ?action=sendReport&month=Mayo+2026     → envía reporte ahora
+//  ?action=installReportTrigger           → instala trigger automático día 28 9am
+//  ?action=removeReportTrigger            → desinstala
+//  ?action=previewReport&month=Mayo+2026  → devuelve el HTML (para inspección)
+
+function _prevMonth(monthStr) {
+  const m = String(monthStr).match(/^([A-Za-zÁÉÍÓÚáéíóú]+)\s+(\d{4})$/);
+  if (!m) return null;
+  const idx = MONTH_NAMES.findIndex(n => n.toLowerCase() === m[1].toLowerCase());
+  if (idx < 0) return null;
+  const year = parseInt(m[2], 10);
+  if (idx === 0) return MONTH_NAMES[11] + ' ' + (year - 1);
+  return MONTH_NAMES[idx - 1] + ' ' + year;
+}
+
+function _fmtUyu(n) {
+  if (!isFinite(n)) return '—';
+  return '$ ' + Math.round(n).toLocaleString('es-UY');
+}
+
+function _fmtUsd(n) {
+  if (!isFinite(n)) return '—';
+  return 'US$ ' + (Math.round(n * 100) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function _pctChange(curr, prev) {
+  if (!prev || prev === 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+function buildMonthlyReportHtml(currentMonth) {
+  // Junta el mes actual + 5 previos
+  const months = [currentMonth];
+  for (let i = 1; i <= 5; i++) {
+    const prev = _prevMonth(months[months.length - 1]);
+    if (!prev) break;
+    months.push(prev);
+  }
+  const monthlyData = months.map(m => {
+    try { return { month: m, audit: auditMonth(m) }; }
+    catch (e) { return { month: m, audit: { ok: false, error: e.message } }; }
+  });
+  const current = monthlyData[0];
+  const previous = monthlyData.slice(1).filter(md => md.audit.ok);
+
+  if (!current.audit.ok) {
+    return '<html><body><p>Error en mes actual: ' + (current.audit.error || 'desconocido') + '</p></body></html>';
+  }
+
+  // Helper para buscar cualquier categoría (no solo top 5)
+  const findCat = (audit, name) => {
+    const list = (audit && audit.allCategorias) || (audit && audit.topCategorias) || [];
+    return list.find(c => c.name === name);
+  };
+
+  let html = '<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 20px; color: #1a1a1a; line-height: 1.5;">';
+  html += '<h1 style="color: #047857; border-bottom: 2px solid #047857; padding-bottom: 8px; margin: 0;">📊 Reporte de gastos — ' + current.month + '</h1>';
+
+  // Total card
+  html += '<div style="background: #d1fae5; padding: 20px; border-radius: 8px; margin: 16px 0; text-align: center;">';
+  html += '<div style="font-size: 13px; color: #047857; text-transform: uppercase; letter-spacing: 0.5px;">Total variables del mes</div>';
+  html += '<div style="font-size: 30px; font-weight: 700; color: #047857; margin-top: 4px;">' + _fmtUyu(current.audit.sumUyu) + '</div>';
+  html += '<div style="font-size: 18px; color: #065f46; margin-top: 4px;">' + _fmtUsd(current.audit.sumUsd) + '</div>';
+  html += '<div style="font-size: 12px; color: #047857; margin-top: 8px;">' + current.audit.itemCount + ' gastos · solo variables, no incluye fijos mensuales</div>';
+  html += '</div>';
+
+  // Comida focus (lo que más te importa)
+  const comidaCurrent = findCat(current.audit, 'Comida');
+  if (comidaCurrent) {
+    const comidaPrev = previous.map(md => findCat(md.audit, 'Comida')).filter(c => c).map(c => c.uyu);
+    const avgComida = comidaPrev.length ? comidaPrev.reduce((a, b) => a + b, 0) / comidaPrev.length : 0;
+    const pctC = _pctChange(comidaCurrent.uyu, avgComida);
+    html += '<div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #f59e0b;">';
+    html += '<div style="font-size: 13px; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px;">🍽 Gasto en Comida</div>';
+    html += '<div style="font-size: 26px; font-weight: 700; color: #92400e; margin-top: 4px;">' + _fmtUyu(comidaCurrent.uyu) + '</div>';
+    html += '<div style="font-size: 13px; color: #78350f; margin-top: 6px;">' + comidaCurrent.count + ' compras';
+    if (avgComida > 0 && pctC !== null) {
+      const sign = pctC >= 0 ? '+' : '';
+      const color = pctC >= 10 ? '#dc2626' : (pctC <= -10 ? '#15803d' : '#92400e');
+      html += ' · <span style="color: ' + color + '; font-weight: 600;">' + sign + pctC.toFixed(0) + '%</span> vs promedio últimos ' + comidaPrev.length + ' meses (' + _fmtUyu(avgComida) + ')';
+    }
+    html += '</div>';
+    if (comidaPrev.length) {
+      html += '<div style="margin-top: 12px; font-size: 12px; color: #78350f;">Histórico: ';
+      const cells = [];
+      for (let i = previous.length - 1; i >= 0; i--) {
+        const c = findCat(previous[i].audit, 'Comida');
+        cells.push(previous[i].month.split(' ')[0].substr(0, 3) + ' ' + _fmtUyu(c ? c.uyu : 0));
+      }
+      cells.push('<b>' + current.month.split(' ')[0].substr(0, 3) + ' ' + _fmtUyu(comidaCurrent.uyu) + '</b>');
+      html += cells.join(' → ');
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Comparación últimos 6 meses
+  html += '<h2 style="margin-top: 32px;">Últimos 6 meses</h2>';
+  html += '<table style="width: 100%; border-collapse: collapse;">';
+  html += '<tr style="background: #f5f5f5;">';
+  html += '<th style="text-align: left; padding: 10px; border-bottom: 2px solid #e5e5e5;">Mes</th>';
+  html += '<th style="text-align: right; padding: 10px; border-bottom: 2px solid #e5e5e5;">UYU</th>';
+  html += '<th style="text-align: right; padding: 10px; border-bottom: 2px solid #e5e5e5;">USD</th>';
+  html += '<th style="text-align: right; padding: 10px; border-bottom: 2px solid #e5e5e5;"># Gastos</th>';
+  html += '</tr>';
+  for (const md of monthlyData) {
+    if (!md.audit.ok) {
+      html += '<tr><td colspan="4" style="padding: 8px; color: #999;">' + md.month + ' — sin datos</td></tr>';
+      continue;
+    }
+    const isCurrent = md.month === current.month;
+    const style = isCurrent ? 'background: #ecfdf5; font-weight: 700;' : '';
+    html += '<tr style="' + style + '">';
+    html += '<td style="padding: 10px; border-bottom: 1px solid #e5e5e5;">' + md.month + (isCurrent ? ' ←' : '') + '</td>';
+    html += '<td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e5e5;">' + _fmtUyu(md.audit.sumUyu) + '</td>';
+    html += '<td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e5e5;">' + _fmtUsd(md.audit.sumUsd) + '</td>';
+    html += '<td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e5e5; color: #666;">' + md.audit.itemCount + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+
+  // Top categorías con tendencia
+  html += '<h2 style="margin-top: 32px;">Top categorías</h2>';
+  html += '<table style="width: 100%; border-collapse: collapse;">';
+  for (const cat of (current.audit.topCategorias || [])) {
+    const prevVals = previous.map(md => findCat(md.audit, cat.name)).filter(c => c).map(c => c.uyu);
+    const avg = prevVals.length ? prevVals.reduce((a, b) => a + b, 0) / prevVals.length : 0;
+    const pct = _pctChange(cat.uyu, avg);
+    let badge = '';
+    if (pct !== null) {
+      if (pct >= 20) badge = ' <span style="background: #fef2f2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-size: 11px;">▲ ' + pct.toFixed(0) + '%</span>';
+      else if (pct <= -20) badge = ' <span style="background: #f0fdf4; color: #15803d; padding: 2px 6px; border-radius: 4px; font-size: 11px;">▼ ' + Math.abs(pct).toFixed(0) + '%</span>';
+    }
+    html += '<tr>';
+    html += '<td style="padding: 10px; border-bottom: 1px solid #e5e5e5;"><b>' + cat.name + '</b>' + badge + '</td>';
+    html += '<td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e5e5;">' + _fmtUyu(cat.uyu);
+    if (cat.usd > 0) html += '<br><span style="color: #666; font-size: 12px;">+ ' + _fmtUsd(cat.usd) + '</span>';
+    html += '</td>';
+    html += '<td style="text-align: right; padding: 10px; border-bottom: 1px solid #e5e5e5; color: #666; font-size: 12px;">' + cat.count + ' gastos</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+
+  // Top 10 ítems individuales
+  if (current.audit.topItems && current.audit.topItems.length) {
+    html += '<h2 style="margin-top: 32px;">Top 10 gastos individuales</h2>';
+    html += '<table style="width: 100%; border-collapse: collapse;">';
+    html += '<tr style="background: #f5f5f5;">';
+    html += '<th style="text-align: left; padding: 8px; border-bottom: 2px solid #e5e5e5;">#</th>';
+    html += '<th style="text-align: left; padding: 8px; border-bottom: 2px solid #e5e5e5;">Ítem</th>';
+    html += '<th style="text-align: left; padding: 8px; border-bottom: 2px solid #e5e5e5;">Categoría</th>';
+    html += '<th style="text-align: right; padding: 8px; border-bottom: 2px solid #e5e5e5;">Monto</th>';
+    html += '</tr>';
+    current.audit.topItems.forEach((it, i) => {
+      html += '<tr>';
+      html += '<td style="padding: 8px; border-bottom: 1px solid #e5e5e5; color: #666;">' + (i + 1) + '</td>';
+      html += '<td style="padding: 8px; border-bottom: 1px solid #e5e5e5;">' + it.item + '</td>';
+      html += '<td style="padding: 8px; border-bottom: 1px solid #e5e5e5; color: #666; font-size: 12px;">' + (it.cat || '—') + '</td>';
+      html += '<td style="text-align: right; padding: 8px; border-bottom: 1px solid #e5e5e5;">';
+      if (it.uyu > 0) html += _fmtUyu(it.uyu);
+      if (it.usd > 0) html += (it.uyu > 0 ? ' + ' : '') + _fmtUsd(it.usd);
+      html += '</td></tr>';
+    });
+    html += '</table>';
+  }
+
+  // Recomendaciones
+  html += '<h2 style="margin-top: 32px;">🎯 Dónde aflojar</h2>';
+  html += '<ul style="line-height: 1.7;">';
+  const recs = [];
+  for (const cat of (current.audit.topCategorias || []).slice(0, 5)) {
+    const prevVals = previous.map(md => findCat(md.audit, cat.name)).filter(c => c).map(c => c.uyu);
+    const avg = prevVals.length ? prevVals.reduce((a, b) => a + b, 0) / prevVals.length : 0;
+    if (avg > 0 && cat.uyu > avg * 1.3) {
+      const pct = ((cat.uyu - avg) / avg * 100).toFixed(0);
+      recs.push('<li><b>' + cat.name + '</b> está <span style="color: #dc2626;">' + pct + '% arriba</span> del promedio (avg ' + _fmtUyu(avg) + ' vs ahora ' + _fmtUyu(cat.uyu) + '). Identificá qué cambió este mes.</li>');
+    }
+  }
+  if (comidaCurrent && comidaCurrent.uyu > 8000) {
+    recs.push('<li><b>Comida</b> es tu mayor margen flexible — reducir 1-2 salidas o pedidos semanales puede bajar 3-5k UYU/mes.</li>');
+  }
+  const subs = findCat(current.audit, 'Suscripciones');
+  if (subs && subs.usd > 0) {
+    recs.push('<li><b>Suscripciones</b> · ' + _fmtUsd(subs.usd) + ' USD este mes. Revisá cuáles usás de verdad — cancelar 1-2 chicas libera ~5-10 USD/mes.</li>');
+  }
+  if (recs.length === 0) {
+    recs.push('<li>Todo dentro de rango vs los meses previos. Mantené el ritmo.</li>');
+  }
+  html += recs.join('');
+  html += '</ul>';
+
+  html += '<hr style="border: none; border-top: 1px solid #e5e5e5; margin: 32px 0 16px;">';
+  html += '<p style="font-size: 11px; color: #888;">Reporte generado por el webhook de gastos. Trigger automático: <code>?action=installReportTrigger</code> (día 28 a las 9am).</p>';
+  html += '</body></html>';
+  return html;
+}
+
+function sendMonthlyReport(monthOpt, emailOpt) {
+  const month = monthOpt || currentMonthTab();
+  // getEffectiveUser retorna el owner del script (ilan.daniele@gmail.com),
+  // funciona aunque la webapp esté como "Anyone" sin login.
+  // getActiveUser falla porque no hay user autenticado en requests anónimos.
+  const email = emailOpt || Session.getEffectiveUser().getEmail();
+  if (!email) throw new Error('No se pudo determinar email destinatario');
+  const html = buildMonthlyReportHtml(month);
+  MailApp.sendEmail({
+    to: email,
+    subject: '📊 Reporte de gastos — ' + month,
+    htmlBody: html
+  });
+  return { ok: true, sentTo: email, month: month };
+}
+
+function installMonthlyReportTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (const t of triggers) {
+    if (t.getHandlerFunction() === 'monthlyReportCron') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  }
+  ScriptApp.newTrigger('monthlyReportCron').timeBased().onMonthDay(28).atHour(9).create();
+  return { ok: true, msg: 'Trigger instalado: día 28 de cada mes a las 9am', removedPrevious: removed };
+}
+
+function removeMonthlyReportTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (const t of triggers) {
+    if (t.getHandlerFunction() === 'monthlyReportCron') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  }
+  return { ok: true, removed: removed };
+}
+
+function monthlyReportCron() {
+  try {
+    const r = sendMonthlyReport(currentMonthTab(), null);
+    Logger.log('Monthly report sent: ' + JSON.stringify(r));
+  } catch (e) {
+    Logger.log('Monthly report cron failed: ' + e.message);
+  }
 }
 
 // === Ticket OCR via Gemini Vision ===
