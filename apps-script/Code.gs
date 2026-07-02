@@ -760,8 +760,8 @@ function installMonthlyReportTrigger() {
       removed++;
     }
   }
-  ScriptApp.newTrigger('monthlyReportCron').timeBased().onMonthDay(28).atHour(9).create();
-  return { ok: true, msg: 'Trigger instalado: día 28 de cada mes a las 9am', removedPrevious: removed };
+  ScriptApp.newTrigger('monthlyReportCron').timeBased().onMonthDay(5).atHour(9).create();
+  return { ok: true, msg: 'Trigger instalado: día 5 de cada mes a las 9am (reporta mes anterior)', removedPrevious: removed };
 }
 
 function removeMonthlyReportTrigger() {
@@ -778,7 +778,9 @@ function removeMonthlyReportTrigger() {
 
 function monthlyReportCron() {
   try {
-    const r = sendMonthlyReport(currentMonthTab(), null);
+    // Reporta el MES ANTERIOR (corre día 5 → junta datos completos del mes recién cerrado)
+    const prevMonth = _prevMonth(currentMonthTab());
+    const r = sendMonthlyReport(prevMonth, null);
     Logger.log('Monthly report sent: ' + JSON.stringify(r));
   } catch (e) {
     Logger.log('Monthly report cron failed: ' + e.message);
