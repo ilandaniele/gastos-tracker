@@ -989,6 +989,18 @@ function getDashboardData() {
         if (u || s) byCategory.push({ name: cat, uyu: u, usd: s });
       }
       byCategory.sort((a, b) => b.uyu - a.uyu);
+    } else if (catCol >= 0) {
+      // Fallback: no side subtotal table -> compute categorias desde varRows
+      // (para meses donde el usuario borro la tabla lateral Categoria|UYU|USD)
+      const catSums = {};
+      for (const v of varRows) {
+        const key = v.category || 'Otros';
+        if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
+        if (v.currency === 'USD') catSums[key].usd += v.amount;
+        else catSums[key].uyu += v.amount;
+      }
+      Object.values(catSums).forEach(c => byCategory.push(c));
+      byCategory.sort((a, b) => (b.uyu + b.usd * 40) - (a.uyu + a.usd * 40));
     }
 
     // 6. By card (variable only — group sums)
