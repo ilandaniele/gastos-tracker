@@ -165,13 +165,43 @@
     setStatus('✗ Server: ' + (err && err.message ? err.message : err), 'err');
   }
 
+  // Normaliza decimales: acepta coma o punto → siempre punto para el backend
+  function normDec(s) { return String(s == null ? '' : s).replace(',', '.').trim(); }
+
+  // Real-time: reemplazar coma por punto en campos numéricos mientras se tipea
+  (function(){
+    var numericFields = ['amount', 'cotizacion'];
+    numericFields.forEach(function(name){
+      var el = getField(name);
+      if (!el) return;
+      el.addEventListener('input', function(){
+        var pos = el.selectionStart;
+        var v = el.value;
+        // Sólo permitir dígitos, coma, punto (una sola)
+        var cleaned = v.replace(/[^0-9.,]/g, '');
+        // Colapsar múltiples separadores → dejar sólo el primero
+        var firstSep = cleaned.search(/[.,]/);
+        if (firstSep >= 0) {
+          cleaned = cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, '');
+        }
+        if (cleaned !== v) {
+          el.value = cleaned;
+          try { el.setSelectionRange(pos, pos); } catch(_){}
+        }
+      });
+    });
+  })();
+
   document.getElementById('f').addEventListener('submit', function(ev){
     ev.preventDefault();
     var f = document.getElementById('f');
     var data = {};
     for (var i = 0; i < f.elements.length; i++) {
       var el = f.elements[i];
-      if (el.name && el.value) data[el.name] = el.value;
+      if (el.name && el.value) {
+        // Normalizar decimales antes de mandar al backend
+        data[el.name] = (el.name === 'amount' || el.name === 'cotizacion') ? normDec(el.value) : el.value;
+      }
     }
     setLocked(true);
     setStatus('Guardando...', 'loading');
@@ -234,7 +264,7 @@
       return;
     }
     scannedItems = (result.items || []).map(function(it){
-      return { name: it.name || '', amount: parseFloat(it.amount) || 0, category: it.category || 'Otros' };
+      return { name: it.name || '', amount: parseFloat(normDec(it.amount)) || 0, category: it.category || 'Otros' };
     });
     if (!scannedItems.length) {
       setStatus('No se detectaron items. Probá con foto más clara.', 'err');
@@ -251,7 +281,7 @@
       var it = scannedItems[i];
       html += '<div class="scan-row">' +
         '<input type="text" data-idx="' + i + '" data-field="name" value="' + esc(it.name) + '">' +
-        '<input type="number" step="0.01" inputmode="decimal" data-idx="' + i + '" data-field="amount" value="' + it.amount + '">' +
+        '<input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" data-idx="' + i + '" data-field="amount" value="' + it.amount + '">' +
         '<select data-idx="' + i + '" data-field="category">' +
         CATS.map(function(c){ return '<option' + (c===it.category?' selected':'') + '>' + c + '</option>'; }).join('') +
         '</select>' +
@@ -260,7 +290,7 @@
     }
     container.innerHTML = html;
     var totEl = document.getElementById('scanTotal');
-    var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(e.amount)||0); }, 0);
+    var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(normDec(e.amount))||0); }, 0);
     totEl.textContent = fmt(tot, 'UYU');
     document.getElementById('scanPreview').style.display = 'block';
     // Wire delete buttons
@@ -286,9 +316,9 @@
           var idx = parseInt(el.getAttribute('data-idx'), 10);
           var fld = el.getAttribute('data-field');
           if (!scannedItems[idx]) return;
-          scannedItems[idx][fld] = fld === 'amount' ? (parseFloat(el.value) || 0) : el.value;
+          scannedItems[idx][fld] = fld === 'amount' ? (parseFloat(normDec(el.value)) || 0) : el.value;
           if (fld === 'amount') {
-            var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(e.amount)||0); }, 0);
+            var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(normDec(e.amount))||0); }, 0);
             document.getElementById('scanTotal').textContent = fmt(tot, 'UYU');
           }
         });
