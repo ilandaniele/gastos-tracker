@@ -95,7 +95,10 @@ const ROUTES = {
   habitsData: p => getHabitsData(p.month || currentHabitTab()),
   habitDay: p => upsertHabitDay(p),
   addMeal: p => addMealEntry(p),
-  habitToday: () => getHabitToday(),
+  habitToday: p => getHabitDay(p.date || null),
+  updateMeal: p => updateMealRow(p),
+  deleteMeal: p => deleteMealRow(p),
+  clearHabitDay: p => clearHabitDay(p.date, p.confirm),
   createHabitMonth: p => {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const name = p.month || currentHabitTab();
@@ -1908,12 +1911,9 @@ function upsertHabitDay(p) {
     if (v != null && setCell(field, v)) written[field] = v;
   }
 
-  // --- Ejercicio (texto). Si ya hay algo distinto, se concatena. ---
+  // --- Ejercicio (texto). El form manda el valor completo, así que reemplaza. ---
   if (p.ejercicio) {
-    const prev = String(readCur('ejercicio') || '').trim();
-    const val = (!prev) ? p.ejercicio
-              : (prev.toLowerCase().indexOf(String(p.ejercicio).toLowerCase()) >= 0 ? prev : prev + ' + ' + p.ejercicio);
-    if (setCell('ejercicio', val)) written.ejercicio = val;
+    if (setCell('ejercicio', p.ejercicio)) written.ejercicio = p.ejercicio;
   }
 
   // --- Contadores con delta (agua, mast) ---
@@ -1930,11 +1930,9 @@ function upsertHabitDay(p) {
     }
   }
 
-  // --- Notas (se acumulan) ---
+  // --- Notas. El form manda el texto completo, así que reemplaza. ---
   if (p.notas) {
-    const prev = String(readCur('notas') || '').trim();
-    const val = prev ? prev + ' · ' + p.notas : p.notas;
-    if (setCell('notas', val)) written.notas = val;
+    if (setCell('notas', p.notas)) written.notas = p.notas;
   }
 
   return { ok: true, tab: tabName, row: row, date: dateStr, written: written };
@@ -1978,12 +1976,12 @@ function addMealEntry(p) {
                       procesado: cls.procesado, source: cls.source } };
 }
 
-// Estado del día de hoy (para pre-cargar el form)
-function getHabitToday() {
+// Estado de un día (para pre-cargar el form). Sin argumento = hoy.
+function getHabitDay(dateOpt) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
-    const dateStr = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
-    const tabName = currentHabitTab();
+    const dateStr = dateOpt || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+    const tabName = habitTabFor(dateStr);
     const sheet = ss.getSheetByName(tabName);
     if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [] };
     const row = _habitFindDayRow(sheet, dateStr);
@@ -2007,28 +2005,32 @@ function getHabitToday() {
         notas: String(g('notas') || '')
       };
     }
-    // Comidas de hoy
+    // Comidas del día
     const meals = [];
     const lastRow = sheet.getLastRow();
     if (lastRow >= HABIT_MEAL_FIRST_ROW) {
       const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
       const today = parseLocalDate(dateStr);
       const tKey = today.getFullYear() + '-' + today.getMonth() + '-' + today.getDate();
-      for (const r of vals) {
+      for (let i = 0; i < vals.length; i++) {
+        const r = vals[i];
         if (!r[0]) continue;
         const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
         if (!d) continue;
         if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() !== tKey) continue;
-        meals.push({ hora: _readHM(r[1]), comida: String(r[2] || ''),
+        // row = fila real en la hoja, sirve como id estable para editar/borrar
+        meals.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]), comida: String(r[2] || ''),
                      macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '') });
       }
     }
     return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day, meals: meals };
   } catch (err) {
-    Logger.log('getHabitToday error: ' + err.message);
+    Logger.log('getHabitDay error: ' + err.message);
     return { ok: false, error: err.message };
   }
 }
+
+function getHabitToday() { return getHabitDay(null); }
 
 // Lee y agrega todos los datos del mes de hábitos
 function readHabitMonth(tabName) {
@@ -2259,6 +2261,106 @@ function resetHabitMonth(monthOpt, confirm) {
   return { ok: true, tab: tabName, msg: 'Datos limpiados (estructura y fechas conservadas)' };
 }
 
+
+// Edita una comida ya cargada. p: { row, comida, hora, macro, tipo, month }
+// - si cambia el texto y no mandan macro -> reclasifica
+// - si cambia la hora -> recalcula el tipo (desayuno/almuerzo/...)
+function updateMealRow(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < HABIT_MEAL_FIRST_ROW) throw new Error('Fila de comida inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || (p.date ? habitTabFor(p.date) : currentHabitTab());
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
+
+  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  if (!String(cur[2] || '').trim()) throw new Error('Esa fila no tiene una comida cargada');
+
+  const comida = (p.comida !== undefined && p.comida !== '') ? String(p.comida).trim() : String(cur[2]);
+  const hora   = (p.hora   !== undefined && p.hora   !== '') ? String(p.hora).trim()   : _readHM(cur[1]);
+
+  let macro = (p.macro !== undefined && p.macro !== '') ? String(p.macro).trim() : null;
+  let tipo  = (p.tipo  !== undefined && p.tipo  !== '') ? String(p.tipo).trim()  : null;
+  let procesado = String(cur[5] || '');
+
+  const textChanged = comida !== String(cur[2]);
+  if (macro === null && textChanged) {
+    const cls = classifyMeal(comida, hora);
+    macro = cls.macro;
+    procesado = cls.procesado;
+  } else if (macro === null) {
+    macro = String(cur[3] || '');
+  }
+  if (tipo === null) tipo = _mealTypeByHour(hora) || String(cur[4] || '');
+
+  sheet.getRange(row, 2).setNumberFormat('@');
+  sheet.getRange(row, 2, 1, 5).setValues([[hora, comida, macro, tipo, procesado]]);
+
+  return { ok: true, tab: tabName, row: row,
+           written: { hora: hora, comida: comida, macro: macro, tipo: tipo, procesado: procesado } };
+}
+
+// Borra una comida. Elimina la fila entera para no dejar huecos en el log.
+function deleteMealRow(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < HABIT_MEAL_FIRST_ROW) throw new Error('Fila de comida inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || (p.date ? habitTabFor(p.date) : currentHabitTab());
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
+
+  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  const comida = String(cur[2] || '').trim();
+  if (!comida) throw new Error('Esa fila ya está vacía');
+
+  sheet.deleteRow(row);
+  return { ok: true, tab: tabName, row: row, deleted: comida };
+}
+
+// Borra los datos de UN día (deja la fecha). Requiere confirm=SI.
+function clearHabitDay(dateOpt, confirm) {
+  if (String(confirm || '').toUpperCase() !== 'SI') {
+    return { ok: false, error: 'Agregá confirm=SI para confirmar' };
+  }
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const dateStr = dateOpt || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const tabName = habitTabFor(dateStr);
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
+
+  const row = _habitFindDayRow(sheet, dateStr);
+  let clearedMeals = 0;
+  if (row > 0) {
+    const nC = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+    sheet.getRange(row, 2, 1, nC - 1).clearContent();
+    const hm = _habitHeaderMap(sheet);
+    for (const f of ['levante', 'acoste']) {
+      const col = _habitColOf(hm, f);
+      if (col > 0) sheet.getRange(row, col).setNumberFormat('@');
+    }
+  }
+  // Borrar las comidas de ese día (de abajo hacia arriba para no correr los índices)
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const target = parseLocalDate(dateStr);
+    const tKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+    const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, 3).getValues();
+    for (let i = vals.length - 1; i >= 0; i--) {
+      const v = vals[i];
+      if (!v[0] || !String(v[2] || '').trim()) continue;
+      const d = Object.prototype.toString.call(v[0]) === '[object Date]' ? v[0] : parseLocalDate(v[0]);
+      if (!d) continue;
+      if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() === tKey) {
+        sheet.deleteRow(HABIT_MEAL_FIRST_ROW + i);
+        clearedMeals++;
+      }
+    }
+  }
+  return { ok: true, tab: tabName, date: dateStr, clearedMeals: clearedMeals };
+}
+
 // === Wrappers para google.script.run (siempre devuelven objeto plano) ===
 function habitDaySafe(data) {
   try { return upsertHabitDay(data || {}); }
@@ -2277,5 +2379,25 @@ function getHabitsDataSafe(month) {
 
 function getHabitTodaySafe() {
   try { return getHabitToday(); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+function getHabitDaySafe(dateStr) {
+  try { return getHabitDay(dateStr); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+function updateMealSafe(data) {
+  try { return updateMealRow(data || {}); }
+  catch (err) { Logger.log('updateMealSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function deleteMealSafe(data) {
+  try { return deleteMealRow(data || {}); }
+  catch (err) { Logger.log('deleteMealSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function clearHabitDaySafe(dateStr) {
+  try { return clearHabitDay(dateStr, 'SI'); }
   catch (err) { return { ok: false, error: err.message }; }
 }

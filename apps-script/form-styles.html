@@ -132,4 +132,43 @@
   .quick-scroll.agua button { background: #f0f9ff; color: #0369a1; font-variant-numeric: tabular-nums; }
   .quick-scroll.agua button:active { background: #e0f2fe; }
   .hcounter-val small { white-space: nowrap; }
+  /* --- selector de dia --- */
+  .hdatebar { display: grid; grid-template-columns: 44px 1fr 44px 56px; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .hdatebar button { margin: 0; padding: 10px 0; font-size: 20px; background: #f5f5f5; color: #1a1a1a; border-radius: 8px; }
+  .hdatebar button:active { background: #e5e5e5; }
+  .hdatebar input[type="date"] { padding: 10px 8px; font-size: 15px; text-align: center; }
+  .hdatetoday { font-size: 13px !important; font-weight: 600; background: #f0fdfa !important; color: #0f766e !important; border: 1px solid #a7f3d0; }
+  .hdirty { display: none; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 13px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-weight: 600; }
+  .hdirty.show { display: block; }
+  .hhint { font-size: 10px; color: #aaa; font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+  /* --- ruedas de hora --- */
+  .hwheel-row { display: grid; grid-template-columns: 1fr 72px 10px 72px 62px; gap: 5px; align-items: center; margin-bottom: 9px; }
+  .hwheel-row:last-of-type { margin-bottom: 0; }
+  .hwheel { padding: 11px 4px; font-size: 17px; text-align: center; font-variant-numeric: tabular-nums; text-align-last: center; }
+  .hcolon { text-align: center; font-weight: 700; color: #666; }
+
+  /* --- numericos con +/- --- */
+  .hnum-row { display: grid; grid-template-columns: 54px 1fr auto 54px; gap: 8px; align-items: center; }
+  .hnum-row input { text-align: center; font-size: 22px; font-weight: 700; padding: 10px 4px; font-variant-numeric: tabular-nums; color: #0f766e; }
+  .hnumbtn { margin: 0; width: 54px; height: 50px; border-radius: 10px; font-size: 24px; font-weight: 700; background: #f5f5f5; color: #1a1a1a; padding: 0; }
+  .hnumbtn:active { background: #e5e5e5; }
+  .hunit { font-size: 13px; color: #888; font-weight: 600; }
+  .hejer-input { display: grid; grid-template-columns: 1fr 84px; gap: 8px; margin-top: 10px; }
+
+  /* --- botones secundarios --- */
+  .hdanger { background: #fef2f2 !important; color: #b91c1c !important; border: 1px solid #fecaca !important; }
+  .hdanger:active { background: #fee2e2 !important; }
+  .hsecondary { background: #f5f5f5 !important; color: #1a1a1a !important; }
+  #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
+
+  /* --- modal editar comida --- */
+  #mealModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show { display: flex; }
+  .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
+  .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
+  .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
+  .hmodal-actions button { margin: 0; padding: 12px 4px; font-size: 14px; }
+  .hmeal-row { cursor: pointer; }
+  .hmeal-row:active { background: #fafafa; }
 </style>

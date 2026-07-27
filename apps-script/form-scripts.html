@@ -505,11 +505,16 @@
     content.innerHTML = html;
   }
 
+
   // ==========================================================
   // === HABITOS ==============================================
   // ==========================================================
   var habitLoadedOnce = false;
-  var habitState = { mast: 0, agua: 0, meals: [], date: '' };
+  var AGUA_STEP = 250, AGUA_META = 2000;
+
+  // Estado local del dia que se esta editando. NADA se guarda hasta
+  // que se toca "Guardar dia" (salvo las comidas, que son un log aparte).
+  var H = { date: '', meals: [], saved: {}, dirty: false, editingRow: null };
 
   function hEl(id) { return document.getElementById(id); }
 
@@ -531,100 +536,211 @@
     var d = new Date();
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function fmtMl(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
-  function loadHabitToday() {
+  function markDirty() {
+    H.dirty = true;
+    var f = hEl('dirtyFlag'); if (f) f.classList.add('show');
+  }
+  function clearDirty() {
+    H.dirty = false;
+    var f = hEl('dirtyFlag'); if (f) f.classList.remove('show');
+  }
+
+  // ---------- Ruedas de hora ----------
+  function fillWheels() {
+    var hs = ['--'], ms = ['--'], i;
+    for (i = 0; i < 24; i++) hs.push(String(i).padStart(2, '0'));
+    for (i = 0; i < 60; i += 5) ms.push(String(i).padStart(2, '0'));
+    [['levH', hs], ['acoH', hs], ['levM', ms], ['acoM', ms]].forEach(function(pair) {
+      var el = hEl(pair[0]);
+      if (!el) return;
+      el.innerHTML = pair[1].map(function(v) { return '<option value="' + (v === '--' ? '' : v) + '">' + v + '</option>'; }).join('');
+    });
+  }
+  fillWheels();
+
+  function getWheel(hId, mId) {
+    var h = hEl(hId), m = hEl(mId);
+    if (!h || !m || !h.value) return '';
+    return h.value + ':' + (m.value || '00');
+  }
+  function setWheel(hId, mId, hm) {
+    var h = hEl(hId), m = hEl(mId);
+    if (!h || !m) return;
+    if (!hm) { h.value = ''; m.value = ''; return; }
+    var parts = String(hm).split(':');
+    h.value = (parts[0] || '').padStart(2, '0');
+    // Redondear los minutos al múltiplo de 5 más cercano (las ruedas van de a 5)
+    var mm = parseInt(parts[1] || '0', 10);
+    if (!isFinite(mm)) mm = 0;
+    var rounded = String(Math.round(mm / 5) * 5 % 60).padStart(2, '0');
+    m.value = rounded;
+    // Si el valor exacto no está en la lista, agregarlo para no perderlo
+    if (m.value !== rounded) {
+      var opt = document.createElement('option');
+      opt.value = rounded; opt.textContent = rounded;
+      m.appendChild(opt); m.value = rounded;
+    }
+  }
+
+  // ---------- Carga de un dia ----------
+  function loadDay(dateStr) {
+    var d = dateStr || todayISO();
     habStatus('Cargando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         habStatus('', '');
         habitLoadedOnce = true;
         if (!r || !r.ok) { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        habitState.date = r.date || '';
-        habitState.meals = r.meals || [];
-        var lbl = hEl('habitDateLabel');
-        if (lbl && r.date) {
-          var parts = r.date.split('-');
-          lbl.textContent = '· ' + parts[2] + '/' + parts[1];
-        }
-        var d = r.day || {};
-        if (hEl('inLevante')) hEl('inLevante').value = d.levante || '';
-        if (hEl('inAcoste'))  hEl('inAcoste').value  = d.acoste  || '';
-        if (hEl('hsSueno'))   hEl('hsSueno').textContent = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
-        if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
-        if (hEl('habNotas'))   hEl('habNotas').value = '';
-        setSlider('habAvance', 'avanceVal', d.avance);
-        setSlider('habAnimo',  'animoVal',  d.animo);
-        habitState.mast = d.mast || 0;
-        if (hEl('mastVal')) hEl('mastVal').textContent = habitState.mast;
-        habitState.agua = d.agua || 0;
-        renderAgua();
-        renderEjercicio(d.ejercicio, d.ejercicioMin);
-        if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
+        H.date = r.date || d;
+        H.meals = r.meals || [];
+        H.saved = r.day || {};
+        if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
+        paintDay(H.saved);
         renderMeals();
+        clearDirty();
       })
-      .withFailureHandler(function(err) {
-        habStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-      })
-      .getHabitTodaySafe();
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .getHabitDaySafe(d);
+  }
+
+  function paintDay(d) {
+    d = d || {};
+    setWheel('levH', 'levM', d.levante || '');
+    setWheel('acoH', 'acoM', d.acoste || '');
+    if (hEl('hsSueno')) hEl('hsSueno').textContent = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
+    if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
+    if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
+    if (hEl('ejerText'))   hEl('ejerText').value   = d.ejercicio || '';
+    if (hEl('ejerMin'))    hEl('ejerMin').value    = d.ejercicioMin != null ? String(d.ejercicioMin) : '';
+    setSlider('habAvance', 'avanceVal', d.avance);
+    setSlider('habAnimo',  'animoVal',  d.animo);
+    if (hEl('aguaInput')) hEl('aguaInput').value = d.agua != null ? d.agua : 0;
+    if (hEl('mastInput')) hEl('mastInput').value = d.mast != null ? d.mast : 0;
+    renderAgua();
+    if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
   }
 
   function setSlider(sliderId, badgeId, val) {
     var s = hEl(sliderId), b = hEl(badgeId);
     if (!s) return;
     s.value = (val != null && isFinite(val)) ? val : 0;
-    if (b) b.textContent = (s.value === '0' || s.value === 0) ? '—' : s.value;
+    if (b) b.textContent = (String(s.value) === '0') ? '—' : s.value;
   }
 
-  function renderMeals() {
-    var box = hEl('mealList');
-    if (!box) return;
-    if (!habitState.meals.length) { box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin comidas registradas hoy</div>'; return; }
-    var html = '';
-    for (var i = 0; i < habitState.meals.length; i++) {
-      var m = habitState.meals[i];
-      html += '<div class="hmeal-row">' +
-        '<span class="mt">' + esc(m.hora) + '</span>' +
-        '<span class="mn">' + esc(m.comida) + '</span>' +
-        '<span class="mm">' + esc(m.macro || '') + '</span>' +
-      '</div>';
+  // ---------- Navegacion de dias ----------
+  function shiftDay(delta) {
+    var base = (hEl('dayPicker') && hEl('dayPicker').value) || todayISO();
+    var parts = base.split('-');
+    var d = new Date(parseInt(parts[0],10), parseInt(parts[1],10)-1, parseInt(parts[2],10));
+    d.setDate(d.getDate() + delta);
+    var iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    goToDay(iso);
+  }
+  function goToDay(iso) {
+    if (H.dirty && !confirm('Tenés cambios sin guardar en este día. ¿Cambiar de día igual?')) return;
+    loadDay(iso);
+  }
+  if (hEl('dayPrev'))  hEl('dayPrev').addEventListener('click', function() { shiftDay(-1); });
+  if (hEl('dayNext'))  hEl('dayNext').addEventListener('click', function() { shiftDay(1); });
+  if (hEl('dayToday')) hEl('dayToday').addEventListener('click', function() { goToDay(todayISO()); });
+  if (hEl('dayPicker')) hEl('dayPicker').addEventListener('change', function() { goToDay(hEl('dayPicker').value); });
+
+  // ---------- Marcar cambios ----------
+  ['levH','levM','acoH','acoM','habTrabajo','habAvance','habAnimo','habNotas',
+   'ejerText','ejerMin','aguaInput','mastInput'].forEach(function(id) {
+    var el = hEl(id);
+    if (!el) return;
+    el.addEventListener('change', markDirty);
+    el.addEventListener('input', markDirty);
+  });
+
+  // "ahora" solo completa la rueda; se guarda con "Guardar dia"
+  if (hEl('btnLevante')) hEl('btnLevante').addEventListener('click', function() {
+    setWheel('levH', 'levM', nowHM()); markDirty();
+  });
+  if (hEl('btnAcoste')) hEl('btnAcoste').addEventListener('click', function() {
+    setWheel('acoH', 'acoM', nowHM()); markDirty();
+  });
+
+  // ---------- Sliders ----------
+  [['habAvance','avanceVal'], ['habAnimo','animoVal']].forEach(function(pair) {
+    var s = hEl(pair[0]);
+    if (!s) return;
+    s.addEventListener('input', function() {
+      var b = hEl(pair[1]);
+      if (b) b.textContent = (s.value === '0') ? '—' : s.value;
+    });
+  });
+
+  // ---------- Numericos con +/- (solo cambian el campo en pantalla) ----------
+  function bumpField(inputId, delta, after) {
+    var el = hEl(inputId);
+    if (!el) return;
+    var v = parseInt(String(el.value).replace(/\D/g, ''), 10);
+    if (!isFinite(v)) v = 0;
+    v += delta;
+    if (v < 0) v = 0;
+    el.value = v;
+    markDirty();
+    if (after) after();
+  }
+  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click',  function() { bumpField('aguaInput',  AGUA_STEP, renderAgua); });
+  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpField('aguaInput', -AGUA_STEP, renderAgua); });
+  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click',  function() { bumpField('mastInput',  1); });
+  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpField('mastInput', -1); });
+  if (hEl('aguaInput')) hEl('aguaInput').addEventListener('input', renderAgua);
+
+  (function() {
+    var ab = document.querySelectorAll('#quickAgua button');
+    for (var i = 0; i < ab.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var ml = parseInt(btn.getAttribute('data-ml'), 10) || 0;
+          if (ml) bumpField('aguaInput', ml, renderAgua);
+        });
+      })(ab[i]);
     }
+  })();
+
+  function renderAgua() {
+    var el = hEl('aguaInput');
+    var n = el ? (parseInt(String(el.value).replace(/\D/g, ''), 10) || 0) : 0;
+    var box = hEl('aguaBar');
+    if (!box) return;
+    var segs = Math.ceil(AGUA_META / AGUA_STEP);
+    var full = Math.min(Math.floor(n / AGUA_STEP), segs);
+    var html = '';
+    for (var i = 0; i < segs; i++) html += '<i class="' + (i < full ? 'on' : '') + '"></i>';
+    if (n >= AGUA_META) html += '<span style="font-size:11px;color:#0369a1;margin-left:6px;align-self:center">meta ✓</span>';
     box.innerHTML = html;
   }
 
-  // --- Horas: input editable + botón "ahora" ---
-  function saveTime(field, hm, label) {
-    if (!hm) return;
-    var payload = { date: habitState.date };
-    payload[field] = hm;
-    habStatus('Guardando ' + hm + '...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.ok) {
-          if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
-            hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
-          }
-          habStatus('✓ ' + label + ' ' + hm, 'ok');
-        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
-      })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .habitDaySafe(payload);
-  }
+  // ---------- Ejercicio: atajos ----------
+  (function() {
+    var eb = document.querySelectorAll('#quickEjer button');
+    for (var i = 0; i < eb.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var t = hEl('ejerText');
+          if (!t) return;
+          var val = btn.getAttribute('data-ejer') || '';
+          var cur = t.value.trim();
+          // Si ya hay algo distinto, se suma en vez de reemplazar
+          if (!cur) t.value = val;
+          else if (cur.toLowerCase().indexOf(val.toLowerCase()) < 0) t.value = cur + ' + ' + val;
+          markDirty();
+        });
+      })(eb[i]);
+    }
+  })();
 
-  function bindTime(inputId, btnId, field, label) {
-    var inp = hEl(inputId), btn = hEl(btnId);
-    // Editar el input guarda al confirmar el valor
-    if (inp) inp.addEventListener('change', function() { saveTime(field, inp.value, label); });
-    // "ahora" completa el input con la hora actual y guarda
-    if (btn) btn.addEventListener('click', function() {
-      var hm = nowHM();
-      if (inp) inp.value = hm;
-      saveTime(field, hm, label);
-    });
-  }
-  bindTime('inLevante', 'btnLevante', 'levante', 'Levantada:');
-  bindTime('inAcoste',  'btnAcoste',  'acoste',  'Acostada:');
-
-  // --- Comidas rápidas ---
+  // ---------- Comidas (log aparte: se guardan al instante) ----------
   (function() {
     var mb = document.querySelectorAll('#quickMeal button');
     for (var i = 0; i < mb.length; i++) {
@@ -637,6 +753,31 @@
     }
   })();
 
+  function renderMeals() {
+    var box = hEl('mealList');
+    if (!box) return;
+    if (!H.meals.length) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin comidas registradas este día</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < H.meals.length; i++) {
+      var m = H.meals[i];
+      html += '<div class="hmeal-row" data-row="' + m.row + '">' +
+        '<span class="mt">' + esc(m.hora) + '</span>' +
+        '<span class="mn">' + esc(m.comida) + '</span>' +
+        '<span class="mm">' + esc(m.macro || '') + '</span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('.hmeal-row');
+    for (var j = 0; j < rows.length; j++) {
+      (function(el) {
+        el.addEventListener('click', function() { openMealModal(parseInt(el.getAttribute('data-row'), 10)); });
+      })(rows[j]);
+    }
+  }
+
   function submitMeal() {
     var t = hEl('mealText');
     var txt = t ? t.value.trim() : '';
@@ -646,177 +787,145 @@
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
-          habitState.meals.push({ hora: hora, comida: txt, macro: (r.written && r.written.macro) || '', tipo: (r.written && r.written.tipo) || '' });
-          habitState.meals.sort(function(a, b) { return String(a.hora).localeCompare(String(b.hora)); });
-          renderMeals();
           if (t) t.value = '';
           if (hEl('mealHora')) hEl('mealHora').value = nowHM();
-          habStatus('✓ ' + txt + ' — ' + ((r.written && r.written.macro) || '') + ' (' + ((r.written && r.written.tipo) || '') + ')', 'ok');
+          habStatus('✓ ' + txt + ' — ' + ((r.written && r.written.macro) || ''), 'ok');
+          reloadMeals();
         } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .addMealSafe({ date: habitState.date, hora: hora, comida: txt });
+      .addMealSafe({ date: H.date, hora: hora, comida: txt });
   }
   if (hEl('btnAddMeal')) hEl('btnAddMeal').addEventListener('click', submitMeal);
   if (hEl('mealText')) hEl('mealText').addEventListener('keydown', function(ev) {
     if (ev.key === 'Enter') { ev.preventDefault(); submitMeal(); }
   });
 
-  // --- Sliders ---
-  (function() {
-    var pairs = [['habAvance', 'avanceVal'], ['habAnimo', 'animoVal']];
-    for (var i = 0; i < pairs.length; i++) {
-      (function(sid, bid) {
-        var s = hEl(sid);
-        if (!s) return;
-        s.addEventListener('input', function() {
-          var b = hEl(bid);
-          if (b) b.textContent = (s.value === '0') ? '—' : s.value;
-        });
-      })(pairs[i][0], pairs[i][1]);
-    }
-  })();
+  // Recarga solo la lista de comidas, sin pisar lo que el usuario este editando
+  function reloadMeals() {
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) { H.meals = r.meals || []; renderMeals(); }
+      })
+      .withFailureHandler(function() {})
+      .getHabitDaySafe(H.date);
+  }
 
-  // --- Contador ---
-  function bumpCounter(field, delta, valId, label) {
-    var payload = { date: habitState.date };
-    payload[field + 'Delta'] = delta;
+  // ---------- Modal de edicion de comida ----------
+  function openMealModal(row) {
+    var m = null;
+    for (var i = 0; i < H.meals.length; i++) if (H.meals[i].row === row) { m = H.meals[i]; break; }
+    if (!m) return;
+    H.editingRow = row;
+    if (hEl('edComida')) hEl('edComida').value = m.comida || '';
+    if (hEl('edHora'))   hEl('edHora').value   = m.hora || '';
+    if (hEl('edMacro'))  hEl('edMacro').value  = m.macro || '';
+    if (hEl('mealModal')) hEl('mealModal').classList.add('show');
+  }
+  function closeMealModal() {
+    H.editingRow = null;
+    if (hEl('mealModal')) hEl('mealModal').classList.remove('show');
+  }
+  if (hEl('edCancel')) hEl('edCancel').addEventListener('click', closeMealModal);
+  if (hEl('mealModal')) hEl('mealModal').addEventListener('click', function(ev) {
+    if (ev.target === hEl('mealModal')) closeMealModal();
+  });
+
+  if (hEl('edSave')) hEl('edSave').addEventListener('click', function() {
+    if (H.editingRow == null) return;
+    var payload = {
+      row: H.editingRow,
+      date: H.date,
+      comida: (hEl('edComida') && hEl('edComida').value.trim()) || '',
+      hora:   (hEl('edHora')   && hEl('edHora').value)   || '',
+      macro:  (hEl('edMacro')  && hEl('edMacro').value.trim())  || ''
+    };
+    if (!payload.comida) { habStatus('La comida no puede quedar vacía', 'err'); return; }
     habStatus('Guardando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
-        if (r && r.ok) {
-          var next = (r.written && r.written[field] != null) ? r.written[field] : habitState[field] + delta;
-          if (next < 0) next = 0;
-          habitState[field] = next;
-          if (hEl(valId)) hEl(valId).textContent = next;
-          if (field === 'agua') renderAgua();
-          habStatus('✓ ' + label + ': ' + next, 'ok');
-        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+        closeMealModal();
+        if (r && r.ok) { habStatus('✓ Comida actualizada', 'ok'); reloadMeals(); }
+        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
       })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .habitDaySafe(payload);
-  }
-  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter('mast', 1, 'mastVal', 'Masturbación'); });
-  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter('mast', -1, 'mastVal', 'Masturbación'); });
-  var AGUA_STEP = 250;   // ml por tap en +/-
-  var AGUA_META = 2000;  // objetivo diario en ml
-  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click', function() { bumpCounter('agua', AGUA_STEP, 'aguaVal', 'Agua (ml)'); });
-  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpCounter('agua', -AGUA_STEP, 'aguaVal', 'Agua (ml)'); });
-
-  // Botones de cantidad exacta
-  (function() {
-    var ab = document.querySelectorAll('#quickAgua button');
-    for (var i = 0; i < ab.length; i++) {
-      (function(btn) {
-        btn.addEventListener('click', function() {
-          var ml = parseInt(btn.getAttribute('data-ml'), 10) || 0;
-          if (ml) bumpCounter('agua', ml, 'aguaVal', 'Agua (ml)');
-        });
-      })(ab[i]);
-    }
-  })();
-
-  // --- Agua: barra por vasos de 250 ml (meta 2000) ---
-  function fmtMl(n) {
-    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  }
-  function renderAgua() {
-    var n = habitState.agua || 0;
-    if (hEl('aguaVal')) hEl('aguaVal').textContent = fmtMl(n);
-    var sub = hEl('aguaSub');
-    if (sub) {
-      sub.textContent = n >= AGUA_META
-        ? ('ml · meta ✓ (+' + fmtMl(n - AGUA_META) + ')')
-        : ('ml de ' + fmtMl(AGUA_META));
-    }
-    var box = hEl('aguaBar');
-    if (!box) return;
-    // La barra siempre muestra los 8 vasos de la meta; lo que pasa de ahí no
-    // agrega segmentos (evita una fila interminable si tomás 3 litros).
-    var segs = Math.ceil(AGUA_META / AGUA_STEP);
-    var full = Math.min(Math.floor(n / AGUA_STEP), segs);
-    var html = '';
-    for (var i = 0; i < segs; i++) html += '<i class="' + (i < full ? 'on' : '') + '"></i>';
-    box.innerHTML = html;
-  }
-
-  // --- Ejercicio ---
-  function renderEjercicio(txt, min) {
-    var box = hEl('ejerHoy');
-    if (!box) return;
-    if (!txt && !min) { box.textContent = ''; return; }
-    box.textContent = '🏃 ' + (txt || 'Ejercicio') + (min ? ' · ' + min + ' min' : '');
-  }
-
-  (function() {
-    var eb = document.querySelectorAll('#quickEjer button');
-    for (var i = 0; i < eb.length; i++) {
-      (function(btn) {
-        btn.addEventListener('click', function() {
-          var t = hEl('ejerText');
-          if (t) { t.value = btn.getAttribute('data-ejer') || ''; }
-          var m = hEl('ejerMin');
-          if (m && !m.value) m.focus();
-        });
-      })(eb[i]);
-    }
-  })();
-
-  function submitEjercicio() {
-    var t = hEl('ejerText'), m = hEl('ejerMin');
-    var txt = t ? t.value.trim() : '';
-    var min = m ? m.value.trim() : '';
-    if (!txt && !min) { habStatus('Elegí un ejercicio o poné los minutos', 'err'); return; }
-    var payload = { date: habitState.date };
-    if (txt) payload.ejercicio = txt;
-    if (min) payload.ejercicioMin = normDec(min);
-    habStatus('Guardando ejercicio...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.ok) {
-          var w = r.written || {};
-          renderEjercicio(w.ejercicio || txt, w.ejercicioMin || min);
-          if (t) t.value = '';
-          if (m) m.value = '';
-          habStatus('✓ ' + (w.ejercicio || txt) + (w.ejercicioMin ? ' · ' + w.ejercicioMin + ' min' : ''), 'ok');
-        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
-      })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .habitDaySafe(payload);
-  }
-  if (hEl('btnAddEjer')) hEl('btnAddEjer').addEventListener('click', submitEjercicio);
-  if (hEl('ejerMin')) hEl('ejerMin').addEventListener('keydown', function(ev) {
-    if (ev.key === 'Enter') { ev.preventDefault(); submitEjercicio(); }
+      .withFailureHandler(function(err) { closeMealModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .updateMealSafe(payload);
   });
 
-  // --- Guardar día completo ---
-  if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() {
-    var payload = { date: habitState.date };
-    var tr = hEl('habTrabajo');
-    if (tr && tr.value.trim()) payload.trabajo = normDec(tr.value);
-    var av = hEl('habAvance');
-    if (av && av.value !== '0') payload.avance = av.value;
-    var an = hEl('habAnimo');
-    if (an && an.value !== '0') payload.animo = an.value;
-    var nt = hEl('habNotas');
-    if (nt && nt.value.trim()) payload.notas = nt.value.trim();
+  if (hEl('edDelete')) hEl('edDelete').addEventListener('click', function() {
+    if (H.editingRow == null) return;
+    if (!confirm('¿Borrar esta comida?')) return;
+    var row = H.editingRow;
+    habStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        closeMealModal();
+        if (r && r.ok) { habStatus('✓ Borrada: ' + r.deleted, 'ok'); reloadMeals(); }
+        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(err) { closeMealModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .deleteMealSafe({ row: row, date: H.date });
+  });
 
-    var keys = Object.keys(payload).filter(function(k) { return k !== 'date'; });
-    if (!keys.length) { habStatus('No hay nada nuevo para guardar', 'err'); return; }
+  // ---------- Guardar el dia ----------
+  if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() {
+    var payload = { date: H.date };
+    var campos = [];
+
+    var lev = getWheel('levH', 'levM'), aco = getWheel('acoH', 'acoM');
+    if (lev) { payload.levante = lev; campos.push('levanté'); }
+    if (aco) { payload.acoste  = aco; campos.push('acosté'); }
+
+    var tr = hEl('habTrabajo');
+    if (tr && tr.value.trim()) { payload.trabajo = normDec(tr.value); campos.push('trabajo'); }
+    var av = hEl('habAvance');
+    if (av && av.value !== '0') { payload.avance = av.value; campos.push('avance'); }
+    var an = hEl('habAnimo');
+    if (an && an.value !== '0') { payload.animo = an.value; campos.push('ánimo'); }
+    var et = hEl('ejerText');
+    if (et && et.value.trim()) { payload.ejercicio = et.value.trim(); campos.push('ejercicio'); }
+    var em = hEl('ejerMin');
+    if (em && em.value.trim()) { payload.ejercicioMin = normDec(em.value); campos.push('min'); }
+    var nt = hEl('habNotas');
+    if (nt && nt.value.trim()) { payload.notas = nt.value.trim(); campos.push('notas'); }
+
+    // Numericos: se mandan como valor absoluto (el campo muestra el total)
+    var ag = hEl('aguaInput');
+    if (ag) { var agv = parseInt(String(ag.value).replace(/\D/g,''),10); if (isFinite(agv)) { payload.agua = agv; campos.push('agua'); } }
+    var ms = hEl('mastInput');
+    if (ms) { var msv = parseInt(String(ms.value).replace(/\D/g,''),10); if (isFinite(msv)) { payload.mast = msv; campos.push('contador'); } }
+
+    if (!campos.length) { habStatus('No hay nada para guardar', 'err'); return; }
 
     habStatus('Guardando día...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
-          habStatus('✓ Guardado · ' + keys.join(', '), 'ok');
-          if (nt) nt.value = '';
+          clearDirty();
+          if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
+            hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
+          }
+          habStatus('✓ Guardado · ' + campos.join(', '), 'ok');
         } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
       .habitDaySafe(payload);
   });
 
-  // --- Resumen del mes ---
+  // ---------- Borrar el dia ----------
+  if (hEl('clearHabit')) hEl('clearHabit').addEventListener('click', function() {
+    if (!confirm('¿Borrar TODOS los datos de este día, incluidas las comidas?')) return;
+    habStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) { habStatus('✓ Día borrado', 'ok'); loadDay(H.date); }
+        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .clearHabitDaySafe(H.date);
+  });
+
+  // ---------- Resumen del mes ----------
   function loadHabitsSummary() {
     var box = hEl('habitsSummary');
     if (!box) return;
@@ -849,7 +958,6 @@
       '<div class="hkpi"><div class="hkpi-l">Masturbación</div><div class="hkpi-v">' + (t.mast || 0) + '</div></div>' +
     '</div>';
 
-    // Correlaciones (solo si hay muestra suficiente)
     var corr = [];
     if (c.sleepGood && c.sleepBad && c.sleepGood.n >= 3 && c.sleepBad.n >= 3) {
       corr.push('😴 Con 7+ hs de sueño tu avance promedio es <b>' + c.sleepGood.avance +
@@ -878,4 +986,6 @@
     }
     box.innerHTML = html;
   }
+
+  function loadHabitToday() { loadDay(todayISO()); }
 </script>

@@ -111,19 +111,30 @@
 </div>
 
 <div id="habitPanel" class="panel">
-  <h1>Hábitos <span id="habitDateLabel" class="hdate"></span></h1>
+  <!-- SELECTOR DE DIA -->
+  <div class="hdatebar">
+    <button type="button" id="dayPrev">‹</button>
+    <input type="date" id="dayPicker">
+    <button type="button" id="dayNext">›</button>
+    <button type="button" id="dayToday" class="hdatetoday">hoy</button>
+  </div>
+  <div class="hdirty" id="dirtyFlag">Hay cambios sin guardar</div>
 
-  <!-- SUEÑO -->
+  <!-- SUENO -->
   <div class="hcard">
     <div class="hcard-title">😴 Sueño</div>
-    <div class="htime-row">
+    <div class="hwheel-row">
       <span class="htime-lbl">☀️ Me levanté</span>
-      <input type="time" id="inLevante">
+      <select id="levH" class="hwheel"></select>
+      <span class="hcolon">:</span>
+      <select id="levM" class="hwheel"></select>
       <button type="button" class="hnow" id="btnLevante">ahora</button>
     </div>
-    <div class="htime-row">
+    <div class="hwheel-row">
       <span class="htime-lbl">🌙 Me acosté</span>
-      <input type="time" id="inAcoste">
+      <select id="acoH" class="hwheel"></select>
+      <span class="hcolon">:</span>
+      <select id="acoM" class="hwheel"></select>
       <button type="button" class="hnow" id="btnAcoste">ahora</button>
     </div>
     <div class="hsleep" id="hsSueno"></div>
@@ -131,7 +142,7 @@
 
   <!-- COMIDA -->
   <div class="hcard">
-    <div class="hcard-title">🍽️ Comida</div>
+    <div class="hcard-title">🍽️ Comida <span class="hhint">tocá una para editarla</span></div>
     <div class="quick-scroll meals" id="quickMeal">
       <button type="button" data-meal="Café">☕Café</button>
       <button type="button" data-meal="Mate">🧉Mate</button>
@@ -182,21 +193,20 @@
       <button type="button" data-ejer="Yoga">🧘Yoga</button>
       <button type="button" data-ejer="Funcional">🤸Funcional</button>
     </div>
-    <div class="hmeal-input">
+    <div class="hejer-input">
       <input type="text" id="ejerText" placeholder="¿Qué hiciste?" autocomplete="off">
       <input type="text" id="ejerMin" inputmode="numeric" pattern="[0-9]*" placeholder="min">
-      <button type="button" id="btnAddEjer">+</button>
     </div>
-    <div class="hsleep" id="ejerHoy"></div>
   </div>
 
   <!-- AGUA -->
   <div class="hcard">
-    <div class="hcard-title">💧 Agua</div>
-    <div class="hcounter">
-      <button type="button" id="aguaMinus">−</button>
-      <div class="hcounter-val"><span id="aguaVal">0</span><small id="aguaSub">ml de 2000</small></div>
-      <button type="button" id="aguaPlus">+</button>
+    <div class="hcard-title">💧 Agua <span class="hhint">total del día</span></div>
+    <div class="hnum-row">
+      <button type="button" class="hnumbtn" id="aguaMinus">−</button>
+      <input type="text" id="aguaInput" inputmode="numeric" pattern="[0-9]*" value="0">
+      <span class="hunit">ml</span>
+      <button type="button" class="hnumbtn" id="aguaPlus">+</button>
     </div>
     <div class="hwater" id="aguaBar"></div>
     <div class="quick-scroll agua" id="quickAgua">
@@ -211,11 +221,12 @@
 
   <!-- MASTURBACION -->
   <div class="hcard">
-    <div class="hcard-title">📊 Masturbación</div>
-    <div class="hcounter">
-      <button type="button" id="mastMinus">−</button>
-      <div class="hcounter-val"><span id="mastVal">0</span><small>veces hoy</small></div>
-      <button type="button" id="mastPlus">+</button>
+    <div class="hcard-title">📊 Masturbación <span class="hhint">total del día</span></div>
+    <div class="hnum-row">
+      <button type="button" class="hnumbtn" id="mastMinus">−</button>
+      <input type="text" id="mastInput" inputmode="numeric" pattern="[0-9]*" value="0">
+      <span class="hunit">veces</span>
+      <button type="button" class="hnumbtn" id="mastPlus">+</button>
     </div>
   </div>
 
@@ -226,6 +237,7 @@
   </div>
 
   <button type="button" id="saveHabit">Guardar día</button>
+  <button type="button" id="clearHabit" class="hdanger">Borrar datos de este día</button>
   <div id="habStatus"></div>
 
   <!-- RESUMEN DEL MES -->
@@ -234,6 +246,37 @@
       <button type="button" id="refreshHabits" class="hmini">↻</button>
     </div>
     <div id="habitsSummary" class="dash-loader">Tocá ↻ para cargar</div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR COMIDA -->
+<div id="mealModal">
+  <div class="hmodal-box">
+    <h3>Editar comida</h3>
+    <label class="hlabel">Qué comiste</label>
+    <input type="text" id="edComida" autocomplete="off">
+    <label class="hlabel">Hora</label>
+    <input type="time" id="edHora">
+    <label class="hlabel">Macro</label>
+    <input type="text" id="edMacro" list="macroList" autocomplete="off">
+    <datalist id="macroList">
+      <option value="Proteína"></option>
+      <option value="Carbo"></option>
+      <option value="Verdura"></option>
+      <option value="Fruta"></option>
+      <option value="Ultraprocesado"></option>
+      <option value="Bebida"></option>
+      <option value="Proteína + Carbo"></option>
+      <option value="Proteína + Verdura"></option>
+      <option value="Proteína + Carbo + Verdura"></option>
+      <option value="Carbo + Bebida"></option>
+      <option value="Otros"></option>
+    </datalist>
+    <div class="hmodal-actions">
+      <button type="button" id="edDelete" class="hdanger">Borrar</button>
+      <button type="button" id="edCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="edSave">Guardar</button>
+    </div>
   </div>
 </div>
 
