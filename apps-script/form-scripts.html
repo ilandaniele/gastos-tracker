@@ -547,9 +547,9 @@
           lbl.textContent = '· ' + parts[2] + '/' + parts[1];
         }
         var d = r.day || {};
-        if (hEl('valLevante')) hEl('valLevante').textContent = d.levante || '—';
-        if (hEl('valAcoste'))  hEl('valAcoste').textContent  = d.acoste  || '—';
-        if (hEl('hsSueno'))    hEl('hsSueno').textContent    = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
+        if (hEl('inLevante')) hEl('inLevante').value = d.levante || '';
+        if (hEl('inAcoste'))  hEl('inAcoste').value  = d.acoste  || '';
+        if (hEl('hsSueno'))   hEl('hsSueno').textContent = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
         if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
         if (hEl('habNotas'))   hEl('habNotas').value = '';
         setSlider('habAvance', 'avanceVal', d.avance);
@@ -591,31 +591,38 @@
     box.innerHTML = html;
   }
 
-  // --- Botones de hora ---
-  function bindTimeBtn(btnId, field, valId) {
-    var b = hEl(btnId);
-    if (!b) return;
-    b.addEventListener('click', function() {
+  // --- Horas: input editable + botón "ahora" ---
+  function saveTime(field, hm, label) {
+    if (!hm) return;
+    var payload = { date: habitState.date };
+    payload[field] = hm;
+    habStatus('Guardando ' + hm + '...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
+            hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
+          }
+          habStatus('✓ ' + label + ' ' + hm, 'ok');
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .habitDaySafe(payload);
+  }
+
+  function bindTime(inputId, btnId, field, label) {
+    var inp = hEl(inputId), btn = hEl(btnId);
+    // Editar el input guarda al confirmar el valor
+    if (inp) inp.addEventListener('change', function() { saveTime(field, inp.value, label); });
+    // "ahora" completa el input con la hora actual y guarda
+    if (btn) btn.addEventListener('click', function() {
       var hm = nowHM();
-      var payload = { date: habitState.date };
-      payload[field] = hm;
-      habStatus('Guardando ' + hm + '...', 'loading');
-      google.script.run
-        .withSuccessHandler(function(r) {
-          if (r && r.ok) {
-            if (hEl(valId)) hEl(valId).textContent = hm;
-            if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
-              hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
-            }
-            habStatus('✓ ' + (field === 'levante' ? 'Levantada' : 'Acostada') + ' ' + hm, 'ok');
-          } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
-        })
-        .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-        .habitDaySafe(payload);
+      if (inp) inp.value = hm;
+      saveTime(field, hm, label);
     });
   }
-  bindTimeBtn('btnLevante', 'levante', 'valLevante');
-  bindTimeBtn('btnAcoste',  'acoste',  'valAcoste');
+  bindTime('inLevante', 'btnLevante', 'levante', 'Levantada:');
+  bindTime('inAcoste',  'btnAcoste',  'acoste',  'Acostada:');
 
   // --- Comidas rápidas ---
   (function() {
@@ -691,16 +698,35 @@
   }
   if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter('mast', 1, 'mastVal', 'Contador'); });
   if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter('mast', -1, 'mastVal', 'Contador'); });
-  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click', function() { bumpCounter('agua', 1, 'aguaVal', 'Agua'); });
-  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpCounter('agua', -1, 'aguaVal', 'Agua'); });
+  var AGUA_STEP = 250;   // ml por tap en +/-
+  var AGUA_META = 2000;  // objetivo diario en ml
+  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click', function() { bumpCounter('agua', AGUA_STEP, 'aguaVal', 'Agua (ml)'); });
+  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpCounter('agua', -AGUA_STEP, 'aguaVal', 'Agua (ml)'); });
 
-  // --- Agua: vasitos visuales (meta 8) ---
+  // Botones de cantidad exacta
+  (function() {
+    var ab = document.querySelectorAll('#quickAgua button');
+    for (var i = 0; i < ab.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var ml = parseInt(btn.getAttribute('data-ml'), 10) || 0;
+          if (ml) bumpCounter('agua', ml, 'aguaVal', 'Agua (ml)');
+        });
+      })(ab[i]);
+    }
+  })();
+
+  // --- Agua: barra por vasos de 250 ml (meta 2000) ---
   function renderAgua() {
+    var n = habitState.agua || 0;
+    if (hEl('aguaVal')) hEl('aguaVal').textContent = n;
+    var sub = hEl('aguaSub');
+    if (sub) sub.textContent = n >= AGUA_META ? 'ml · meta ✓' : ('ml de ' + AGUA_META);
     var box = hEl('aguaBar');
-    if (hEl('aguaVal')) hEl('aguaVal').textContent = habitState.agua || 0;
     if (!box) return;
-    var n = habitState.agua || 0, meta = Math.max(8, n), html = '';
-    for (var i = 0; i < meta; i++) html += '<i class="' + (i < n ? 'on' : '') + '"></i>';
+    var segs = Math.max(Math.ceil(AGUA_META / AGUA_STEP), Math.ceil(n / AGUA_STEP));
+    var full = Math.floor(n / AGUA_STEP), html = '';
+    for (var i = 0; i < segs; i++) html += '<i class="' + (i < full ? 'on' : '') + '"></i>';
     box.innerHTML = html;
   }
 
@@ -809,7 +835,7 @@
       '<div class="hkpi"><div class="hkpi-l">Racha avance 4+</div><div class="hkpi-v">' + d.streak + ' d</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Comidas log</div><div class="hkpi-v">' + d.totalMeals + '</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Días ejercicio</div><div class="hkpi-v">' + (t.ejercicioDias || 0) + '</div></div>' +
-      '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + nn(a.agua, ' vasos') + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + (a.agua == null ? '—' : Math.round(a.agua) + ' ml') + '</div></div>' +
     '</div>';
 
     // Correlaciones (solo si hay muestra suficiente)

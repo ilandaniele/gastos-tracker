@@ -36,7 +36,7 @@ const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú
 
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
-const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (vasos)','Mast.','Notas'];
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (ml)','Mast.','Notas'];
 
 // Mapa campo del form -> nombre de header en la hoja.
 // Las columnas se resuelven POR NOMBRE, no por posición: si movés o insertás
@@ -50,7 +50,7 @@ const HABIT_FIELD_MAP = {
   animo:        'Ánimo',
   ejercicio:    'Ejercicio',
   ejercicioMin: 'Min ejerc.',
-  agua:         'Agua (vasos)',
+  agua:         'Agua (ml)',
   mast:         'Mast.',
   notas:        'Notas'
 };
@@ -824,7 +824,7 @@ function _buildHabitsEmailSection(expenseMonth) {
       kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + ' (' + pctEx + '%)']);
       if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
     }
-    if (a.agua != null) kpis.push(['💧 Agua promedio', a.agua + ' vasos/día']);
+    if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día']);
     for (const k of kpis) {
       h += '<tr>';
       h += '<td style="padding:9px;border-bottom:1px solid #e5e5e5;">' + k[0] + '</td>';
@@ -910,8 +910,8 @@ function _buildHabitsEmailSection(expenseMonth) {
                                 ' días</b> (' + pctEx + '%). Subir a 3-4 días por semana es un objetivo concreto.</li>');
       else tips.push('<li>Buen ritmo de ejercicio: <b>' + pctEx + '%</b> de los días registrados.</li>');
     }
-    if (a.agua != null && a.agua < 6) {
-      tips.push('<li>Promedio de <b>' + a.agua + ' vasos de agua</b> por día. Apuntar a 8 es el objetivo típico.</li>');
+    if (a.agua != null && a.agua < 2000) {
+      tips.push('<li>Promedio de <b>' + Math.round(a.agua) + ' ml de agua</b> por día. El objetivo típico son 2000 ml.</li>');
     }
     if (t.trabajo != null && d.daysTracked >= 10) {
       const perDay = Math.round(t.trabajo / d.daysTracked * 10) / 10;
@@ -1763,6 +1763,25 @@ function _habitColOf(hmap, field) {
 // Agrega a una hoja existente las columnas de HABIT_DAY_HEADERS que falten.
 // Idempotente: si ya están todas, no toca nada.
 function migrateHabitSheet(sheet) {
+  // Rename 'Agua (vasos)' -> 'Agua (ml)' convirtiendo los valores (1 vaso = 250 ml).
+  // Se hace antes de calcular los faltantes para no duplicar la columna.
+  const pre = _habitHeaderMap(sheet);
+  const oldAgua = pre[_stripAccents('Agua (vasos)')];
+  if (oldAgua !== undefined && pre[_stripAccents('Agua (ml)')] === undefined) {
+    const col = oldAgua + 1;
+    sheet.getRange(HABIT_DAY_HEADER_ROW, col).setValue('Agua (ml)');
+    const rng = sheet.getRange(HABIT_DAY_FIRST_ROW, col, 40, 1);
+    const vals = rng.getValues();
+    let touched = false;
+    const out = vals.map(r => {
+      const v = toNumber(r[0]);
+      // Sólo convertir valores que parezcan cantidad de vasos (<= 30), no ml ya cargados
+      if (v != null && v > 0 && v <= 30) { touched = true; return [v * 250]; }
+      return [r[0]];
+    });
+    if (touched) rng.setValues(out);
+  }
+
   const hmap = _habitHeaderMap(sheet);
   const missing = HABIT_DAY_HEADERS.filter(h => hmap[_stripAccents(h)] === undefined);
   if (!missing.length) return { added: [] };
@@ -1845,6 +1864,18 @@ function upsertHabitDay(p) {
   // --- Horas (texto plano para esquivar el offset LMT de 1899) ---
   if (p.levante) { if (setCell('levante', p.levante, true)) written.levante = p.levante; }
   if (p.acoste)  { if (setCell('acoste',  p.acoste,  true)) written.acoste  = p.acoste;  }
+
+  // --- Si se edita "acosté", recalcular el sueño del día SIGUIENTE ---
+  if (p.acoste) {
+    const cLev = colOf('levante'), cSue = colOf('hsSueno');
+    if (cLev > 0 && cSue > 0) {
+      const nextLev = _readHM(sheet.getRange(row + 1, cLev).getValue());
+      if (nextLev) {
+        const hsNext = _calcSleepHours(p.acoste, nextLev);
+        if (hsNext != null) sheet.getRange(row + 1, cSue).setValue(hsNext);
+      }
+    }
+  }
 
   // --- Hs sueño: acosté de AYER + levanté de HOY ---
   if (p.levante) {

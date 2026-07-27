@@ -116,9 +116,15 @@
   <!-- SUEÑO -->
   <div class="hcard">
     <div class="hcard-title">😴 Sueño</div>
-    <div class="hrow2">
-      <button type="button" class="hbig" id="btnLevante">☀️ Me levanté<span class="hval" id="valLevante">—</span></button>
-      <button type="button" class="hbig" id="btnAcoste">🌙 Me acosté<span class="hval" id="valAcoste">—</span></button>
+    <div class="htime-row">
+      <span class="htime-lbl">☀️ Me levanté</span>
+      <input type="time" id="inLevante">
+      <button type="button" class="hnow" id="btnLevante">ahora</button>
+    </div>
+    <div class="htime-row">
+      <span class="htime-lbl">🌙 Me acosté</span>
+      <input type="time" id="inAcoste">
+      <button type="button" class="hnow" id="btnAcoste">ahora</button>
     </div>
     <div class="hsleep" id="hsSueno"></div>
   </div>
@@ -189,10 +195,18 @@
     <div class="hcard-title">💧 Agua</div>
     <div class="hcounter">
       <button type="button" id="aguaMinus">−</button>
-      <div class="hcounter-val"><span id="aguaVal">0</span><small>vasos</small></div>
+      <div class="hcounter-val"><span id="aguaVal">0</span><small id="aguaSub">ml de 2000</small></div>
       <button type="button" id="aguaPlus">+</button>
     </div>
     <div class="hwater" id="aguaBar"></div>
+    <div class="quick-scroll agua" id="quickAgua">
+      <button type="button" data-ml="200">+200</button>
+      <button type="button" data-ml="250">+250</button>
+      <button type="button" data-ml="330">+330</button>
+      <button type="button" data-ml="500">+500</button>
+      <button type="button" data-ml="750">+750</button>
+      <button type="button" data-ml="1000">+1L</button>
+    </div>
   </div>
 
   <!-- CONTADOR -->
