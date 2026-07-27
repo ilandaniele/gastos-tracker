@@ -164,6 +164,34 @@
       <input type="time" id="mealHora">
       <button type="button" id="btnAddMeal">+</button>
     </div>
+    <input type="file" id="mealPhoto" accept="image/*" capture="environment" style="display:none">
+    <button type="button" id="btnScanMeal" class="hphoto">📷 Sacar foto a la comida</button>
+
+    <div id="mealScanBox">
+      <div class="hscan-head">
+        <span id="scanConf" class="hscan-conf"></span>
+        <span>Revisá antes de agregar</span>
+      </div>
+      <label class="hlabel">Plato</label>
+      <input type="text" id="scNombre" autocomplete="off">
+      <label class="hlabel">Ingredientes</label>
+      <input type="text" id="scIngr" autocomplete="off">
+      <div class="hscan-row">
+        <div><label class="hlabel">Macro</label><input type="text" id="scMacro" list="macroList" autocomplete="off"></div>
+        <div><label class="hlabel">kcal</label><input type="text" id="scKcal" inputmode="numeric" pattern="[0-9]*"></div>
+      </div>
+      <div class="hscan-row">
+        <div><label class="hlabel">Procesado</label>
+          <select id="scProc"><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+        </div>
+        <div><label class="hlabel">Hora</label><input type="time" id="scHora"></div>
+      </div>
+      <div class="hscan-actions">
+        <button type="button" id="scCancel" class="hsecondary">Descartar</button>
+        <button type="button" id="scSave">Agregar comida</button>
+      </div>
+    </div>
+
     <div id="mealList" class="hmeal-list"></div>
   </div>
 

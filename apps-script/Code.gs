@@ -55,7 +55,7 @@ const HABIT_FIELD_MAP = {
   notas:        'Notas'
 };
 const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas y agua)';
-const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml'];
+const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml','kcal','Ingredientes'];
 
 // Envases de agua. El label se elige por cantidad cuando se carga un ml libre.
 const WATER_GOAL_ML = 2400;   // objetivo diario de agua
@@ -1974,19 +1974,25 @@ function addMealEntry(p) {
 
   const cls = classifyMeal(comida, hora);
   const tipo = p.tipo || cls.tipo;
+  // La foto (o una correccion manual) puede traer su propia clasificacion
+  const macro     = (p.macro     !== undefined && p.macro     !== '') ? String(p.macro)     : cls.macro;
+  const procesado = (p.procesado !== undefined && p.procesado !== '') ? String(p.procesado) : cls.procesado;
+  const kcal      = (p.kcal      !== undefined && p.kcal      !== '') ? (toNumber(p.kcal) || '') : '';
+  const ingr      = (p.ingredientes !== undefined) ? String(p.ingredientes || '') : '';
 
   const insertAt = _nextLogRow(sheet);
 
   // Formato ANTES de escribir: hora como texto plano (ver nota en getOrCreateHabitTab)
   sheet.getRange(insertAt, 2).setNumberFormat('@');
   sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
-    parseLocalDate(dateStr), hora, comida, cls.macro, tipo, cls.procesado, 'Comida', ''
+    parseLocalDate(dateStr), hora, comida, macro, tipo, procesado, 'Comida', '', kcal, ingr
   ]]);
   sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
 
   return { ok: true, tab: tabName, row: insertAt,
-           written: { comida: comida, hora: hora, macro: cls.macro, tipo: tipo,
-                      procesado: cls.procesado, source: cls.source } };
+           written: { comida: comida, hora: hora, macro: macro, tipo: tipo,
+                      procesado: procesado, kcal: kcal, ingredientes: ingr,
+                      source: (p.macro ? 'foto/manual' : cls.source) } };
 }
 
 // Estado de un día (para pre-cargar el form). Sin argumento = hoy.
@@ -2038,7 +2044,8 @@ function getHabitDay(dateOpt) {
                         tipo: String(r[2] || ''), ml: toNumber(r[7]) || 0 });
         } else {
           meals.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]), comida: String(r[2] || ''),
-                       macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '') });
+                       macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || ''),
+                       kcal: toNumber(r[8]), ingredientes: String(r[9] || '') });
         }
       }
     }
@@ -2092,7 +2099,8 @@ function readHabitMonth(tabName) {
       meals.push({
         date: d ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
         hora: _readHM(r[1]), comida: String(r[2] || ''),
-        macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '')
+        macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || ''),
+        kcal: toNumber(r[8])
       });
     }
   }
@@ -2366,6 +2374,95 @@ function habitPending(opts) {
   }
 }
 
+
+// Analiza una foto de comida con Gemini Vision y devuelve que es y que tiene.
+// No guarda nada: el form muestra el resultado para revisar antes de agregar.
+function scanMeal(base64Image, horaOpt) {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty('GEMINI_KEY');
+    if (!key) return { ok: false, error: 'No hay GEMINI_KEY configurada' };
+    if (!base64Image) return { ok: false, error: 'No se recibió imagen' };
+
+    const prompt = 'Analizá esta foto de comida o bebida. Devolvé: ' +
+      'nombre (nombre corto del plato en español rioplatense, máximo 45 chars, ej "Milanesa con puré y ensalada"), ' +
+      'ingredientes (lista de los componentes visibles, separados por coma, máximo 8), ' +
+      'macro (uno o varios de: Proteína, Carbo, Verdura, Fruta, Ultraprocesado, Bebida — separados por " + ", ordenados por peso en el plato), ' +
+      'procesado (Bajo si es comida casera/natural, Medio si tiene algo procesado, Alto si es ultraprocesado/frito/snack), ' +
+      'kcal (estimación de calorías totales del plato tal como se ve en la porción de la foto, número entero), ' +
+      'confianza (Alta, Media o Baja según qué tan seguro estás de identificar el plato). ' +
+      'REGLAS: ' +
+      '1. Estimá la porción por lo que se ve, no por una porción estándar. ' +
+      '2. Si hay varios platos en la foto, describilos juntos como una sola comida. ' +
+      '3. Si no es comida ni bebida, devolvé nombre "" y confianza "Baja". ' +
+      '4. No inventes ingredientes que no se ven. ' +
+      'Devolvé SOLO JSON válido.';
+
+    const body = {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: 'image/jpeg', data: base64Image } }
+        ]
+      }],
+      generationConfig: {
+        response_mime_type: 'application/json',
+        response_schema: {
+          type: 'object',
+          properties: {
+            nombre: { type: 'string' },
+            ingredientes: { type: 'string' },
+            macro: { type: 'string' },
+            procesado: { type: 'string' },
+            kcal: { type: 'number' },
+            confianza: { type: 'string' }
+          },
+          required: ['nombre', 'ingredientes', 'macro', 'procesado', 'kcal', 'confianza']
+        },
+        temperature: 0.1
+      }
+    };
+
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key);
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify(body), muteHttpExceptions: true
+    });
+    if (resp.getResponseCode() !== 200) {
+      return { ok: false, error: 'Gemini HTTP ' + resp.getResponseCode() };
+    }
+    const parsed = JSON.parse(resp.getContentText());
+    let txt = parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content &&
+              parsed.candidates[0].content.parts[0].text;
+    if (!txt) return { ok: false, error: 'Respuesta vacía de Gemini' };
+    const r = JSON.parse(txt.replace(/```json|```/g, '').trim());
+
+    if (!String(r.nombre || '').trim()) {
+      return { ok: false, error: 'No se reconoció comida en la foto. Probá otra foto o escribilo a mano.' };
+    }
+
+    const hora = horaOpt || Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm');
+    return {
+      ok: true,
+      nombre: String(r.nombre).trim(),
+      ingredientes: String(r.ingredientes || '').trim(),
+      macro: String(r.macro || 'Otros').trim(),
+      procesado: String(r.procesado || 'Medio').trim(),
+      kcal: Math.round(Number(r.kcal) || 0),
+      confianza: String(r.confianza || 'Media').trim(),
+      tipo: _mealTypeByHour(hora),
+      hora: hora
+    };
+  } catch (err) {
+    Logger.log('scanMeal error: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+function scanMealSafe(base64Image, hora) {
+  try { return scanMeal(base64Image, hora); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
 // ---- AGUA como registro de tomas -------------------------------------------
 
 // Etiqueta segun la cantidad (para cuando se carga un ml libre)
@@ -2426,7 +2523,7 @@ function addWaterEntry(p) {
   const insertAt = _nextLogRow(sheet);
   sheet.getRange(insertAt, 2).setNumberFormat('@');
   sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
-    parseLocalDate(dateStr), hora, tipo, '', 'Agua', '', 'Agua', ml
+    parseLocalDate(dateStr), hora, tipo, '', 'Agua', '', 'Agua', ml, '', ''
   ]]);
   sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
 
@@ -2514,6 +2611,15 @@ function migrateLogTable(sheet) {
   }
   if (norm[7] !== 'ml') {
     sheet.getRange(HABIT_MEAL_HEADER_ROW, 8).setValue('ml').setFontWeight('bold').setBackground('#fef3c7');
+    changed = true;
+  }
+  if (norm[8] !== 'kcal') {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 9).setValue('kcal').setFontWeight('bold').setBackground('#fef3c7');
+    changed = true;
+  }
+  if (norm[9] !== 'ingredientes') {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 10).setValue('Ingredientes').setFontWeight('bold').setBackground('#fef3c7');
+    sheet.setColumnWidth(10, 260);
     changed = true;
   }
   sheet.getRange(HABIT_MEAL_TITLE_ROW, 1).setValue(HABIT_MEAL_TITLE);

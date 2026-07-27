@@ -694,6 +694,84 @@
   if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click',  function() { bumpField('mastInput',  1); });
   if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpField('mastInput', -1); });
 
+  // ---------- Foto de comida (Gemini Vision) ----------
+  if (hEl('btnScanMeal')) hEl('btnScanMeal').addEventListener('click', function() {
+    if (hEl('mealPhoto')) hEl('mealPhoto').click();
+  });
+
+  if (hEl('mealPhoto')) hEl('mealPhoto').addEventListener('change', function(ev) {
+    var file = ev.target.files[0];
+    if (!file) return;
+    habStatus('Procesando foto...', 'loading');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      // Reusa el resize del scan de tickets: menos peso, misma calidad util
+      resizeImage(e.target.result, 1280, function(dataUrl) {
+        var b64 = dataUrl.split(',')[1];
+        habStatus('Analizando la comida con AI...', 'loading');
+        var hora = (hEl('mealHora') && hEl('mealHora').value) || nowHM();
+        google.script.run
+          .withSuccessHandler(onMealScan)
+          .withFailureHandler(function(err) {
+            habStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+          })
+          .scanMealSafe(b64, hora);
+      });
+    };
+    reader.readAsDataURL(file);
+    ev.target.value = '';   // permite volver a elegir la misma foto
+  });
+
+  function onMealScan(r) {
+    if (!r || !r.ok) { habStatus('✗ ' + ((r && r.error) || 'error al analizar'), 'err'); return; }
+    habStatus('', '');
+    if (hEl('scNombre')) hEl('scNombre').value = r.nombre || '';
+    if (hEl('scIngr'))   hEl('scIngr').value   = r.ingredientes || '';
+    if (hEl('scMacro'))  hEl('scMacro').value  = r.macro || '';
+    if (hEl('scKcal'))   hEl('scKcal').value   = r.kcal || '';
+    if (hEl('scProc'))   hEl('scProc').value   = r.procesado || 'Medio';
+    if (hEl('scHora'))   hEl('scHora').value   = r.hora || nowHM();
+    var conf = hEl('scanConf');
+    if (conf) {
+      var c = String(r.confianza || 'Media');
+      conf.textContent = 'confianza ' + c.toLowerCase();
+      conf.className = 'hscan-conf ' + c.toLowerCase();
+    }
+    if (hEl('mealScanBox')) hEl('mealScanBox').classList.add('show');
+  }
+
+  function closeScanBox() {
+    if (hEl('mealScanBox')) hEl('mealScanBox').classList.remove('show');
+  }
+  if (hEl('scCancel')) hEl('scCancel').addEventListener('click', function() {
+    closeScanBox(); habStatus('Descartado', 'ok');
+  });
+
+  if (hEl('scSave')) hEl('scSave').addEventListener('click', function() {
+    var nombre = (hEl('scNombre') && hEl('scNombre').value.trim()) || '';
+    if (!nombre) { habStatus('Poné un nombre al plato', 'err'); return; }
+    habStatus('Guardando comida...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          closeScanBox();
+          var w = r.written || {};
+          habStatus('✓ ' + nombre + ' — ' + (w.macro || '') + (w.kcal ? ' · ' + w.kcal + ' kcal' : ''), 'ok');
+          reloadLog();
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .addMealSafe({
+        date: H.date,
+        comida: nombre,
+        hora: (hEl('scHora') && hEl('scHora').value) || nowHM(),
+        macro: (hEl('scMacro') && hEl('scMacro').value.trim()) || '',
+        procesado: (hEl('scProc') && hEl('scProc').value) || '',
+        kcal: (hEl('scKcal') && hEl('scKcal').value.replace(/\D/g, '')) || '',
+        ingredientes: (hEl('scIngr') && hEl('scIngr').value.trim()) || ''
+      });
+  });
+
   // ---------- Agua: registro de tomas (se guardan al instante) ----------
   function renderAgua() {
     var total = 0;
@@ -871,6 +949,7 @@
         '<span class="mt">' + esc(m.hora) + '</span>' +
         '<span class="mn">' + esc(m.comida) + '</span>' +
         '<span class="mm">' + esc(m.macro || '') + '</span>' +
+        (m.kcal ? '<span class="mk">' + m.kcal + ' kcal</span>' : '') +
       '</div>';
     }
     box.innerHTML = html;
