@@ -1142,6 +1142,10 @@
       '<div class="hkpi"><div class="hkpi-l">Días ejercicio</div><div class="hkpi-v">' + (t.ejercicioDias || 0) + '</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + (a.agua == null ? '—' : fmtMl(Math.round(a.agua)) + ' ml') + '</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Masturbación</div><div class="hkpi-v">' + (t.mast || 0) + '</div></div>' +
+      ((d.kcalInfo && d.kcalInfo.dias)
+        ? '<div class="hkpi"><div class="hkpi-l">kcal/día (con foto)</div><div class="hkpi-v">' +
+          fmtMl(Math.round(a.kcal)) + '</div></div>'
+        : '') +
     '</div>';
 
     var corr = [];

@@ -828,23 +828,28 @@ function _buildHabitsEmailSection(expenseMonth) {
     const nn = (v, suf) => (v == null ? '—' : v + (suf || ''));
 
     let h = '<h2 style="margin-top: 36px;">🧘 Hábitos del mes</h2>';
-    h += '<p style="color:#666;font-size:13px;margin-top:-8px;">' + d.daysTracked +
-         ' días registrados · ' + d.totalMeals + ' comidas en el log</p>';
+    h += '<p style="color:#666;font-size:13px;margin-top:-8px;">' + _plural(d.daysTracked, 'día registrado', 'días registrados') +
+         ' · ' + _plural(d.totalMeals, 'comida', 'comidas') + ' en el log</p>';
 
     h += '<table style="width:100%;border-collapse:collapse;margin-top:12px;">';
     const kpis = [
       ['😴 Sueño promedio', nn(a.sueno, ' hs')],
       ['💼 Trabajo total',  nn(t.trabajo, ' hs')],
       ['📈 Avance promedio', nn(a.avance, ' / 5')],
-      ['🔥 Racha avance 4+', d.streak + ' días']
+      ['🔥 Racha avance 4+', _plural(d.streak, 'día', 'días')]
     ];
     if (a.animo != null) kpis.push(['🙂 Ánimo promedio', a.animo + ' / 5']);
     if (t.ejercicioDias) {
       const pctEx = Math.round(t.ejercicioDias / d.daysTracked * 100);
-      kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + ' (' + pctEx + '%)']);
+      kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + '  (' + pctEx + '%)']);
       if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
     }
     if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día  (objetivo ' + WATER_GOAL_ML + ')']);
+    const ki = d.kcalInfo || {};
+    if (a.kcal != null && ki.dias) {
+      kpis.push(['🔥 Calorías', Math.round(a.kcal) + ' kcal/día sobre ' + ki.dias +
+                 ' día' + (ki.dias === 1 ? '' : 's') + ' con foto']);
+    }
     if (t.mast) {
       const perWeek = Math.round(t.mast / Math.max(d.daysTracked, 1) * 7 * 10) / 10;
       kpis.push(['📊 Masturbación', t.mast + ' en el mes (~' + perWeek + '/semana)']);
@@ -898,10 +903,17 @@ function _buildHabitsEmailSection(expenseMonth) {
         h += '<tr>';
         h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;">' + m.name + '</td>';
         h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;text-align:right;color:#666;font-size:12px;">' +
-             m.count + ' veces · ' + pct + '%</td>';
+             _plural(m.count, 'vez', 'veces') + ' · ' + pct + '%</td>';
         h += '</tr>';
       }
       h += '</table>';
+    }
+
+    // Aclaración sobre las calorías: sólo se cuentan las comidas con foto
+    if ((d.kcalInfo || {}).parcial && (d.kcalInfo || {}).comidas > 0) {
+      h += '<p style="font-size:11px;color:#888;margin-top:4px;">Las calorías salen sólo de las ' +
+           d.kcalInfo.comidas + ' comidas que cargaste con foto, de ' + d.kcalInfo.totalComidas +
+           ' en total — tomalas como referencia parcial, no como el total del día.</p>';
     }
 
     // Tipos de ejercicio
@@ -911,7 +923,7 @@ function _buildHabitsEmailSection(expenseMonth) {
       for (const e of d.byEjercicio) {
         h += '<tr><td style="padding:7px;border-bottom:1px solid #f0f0f0;">' + e.name + '</td>';
         h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;text-align:right;color:#666;font-size:12px;">' +
-             e.count + ' días</td></tr>';
+             _plural(e.count, 'día', 'días') + '</td></tr>';
       }
       h += '</table>';
     }
@@ -1660,16 +1672,37 @@ function _calcSleepHours(bedStr, wakeStr) {
   return Math.round((mins / 60) * 100) / 100;
 }
 
-// Tipo de comida según la hora
+// Tipo de comida según la hora.
+// Las franjas salen de horarios rioplatenses: se almuerza tarde y se cena
+// tarde. 'Media mañana' evita que un snack de las 11 quede como almuerzo.
 function _mealTypeByHour(hora) {
   const m = _parseHM(hora);
   if (m == null) return '';
   const h = m / 60;
-  if (h < 5) return 'Snack nocturno';
-  if (h < 11) return 'Desayuno';
-  if (h < 15) return 'Almuerzo';
-  if (h < 19) return 'Merienda';
+  if (h < 5)    return 'Snack nocturno';
+  if (h < 11)   return 'Desayuno';
+  if (h < 12)   return 'Media mañana';
+  if (h < 15.5) return 'Almuerzo';
+  if (h < 19.5) return 'Merienda';
   return 'Cena';
+}
+
+// Ventanas horarias para saber si ya comió, sin depender de la etiqueta
+// (que el usuario puede editar a mano).
+const MEAL_WINDOWS = {
+  desayuno: [5, 11.5],
+  almuerzo: [11.5, 16],
+  cena:     [19, 24]
+};
+
+function _hasMealInWindow(meals, win) {
+  for (const m of meals) {
+    const mm = _parseHM(m.hora);
+    if (mm == null) continue;
+    const h = mm / 60;
+    if (h >= win[0] && h < win[1]) return true;
+  }
+  return false;
 }
 
 // Clasifica una comida: regex primero, Gemini como fallback si no matchea.
@@ -2107,6 +2140,9 @@ function readHabitMonth(tabName) {
   return { tab: tabName, days: days, meals: meals };
 }
 
+// Plural simple: _plural(1,'vez','veces') -> '1 vez'
+function _plural(n, sing, plur) { return n + ' ' + (Math.abs(n) === 1 ? sing : plur); }
+
 function _avg(arr) {
   const v = arr.filter(x => x != null && isFinite(x));
   if (!v.length) return null;
@@ -2134,6 +2170,20 @@ function getHabitsData(monthOpt) {
     const withUp    = filled.filter(d => upDates[d.date] && d.avance != null);
     const withoutUp = filled.filter(d => !upDates[d.date] && d.avance != null);
 
+    // Calorías: sólo existen en las comidas cargadas con foto, así que el
+    // promedio se calcula sobre los días que tienen al menos una, y se
+    // etiqueta como parcial para no leerlo como el total real del día.
+    const kcalPorDia = {};
+    for (const m of data.meals) {
+      const k = toNumber(m.kcal);
+      if (k == null || k <= 0) continue;
+      kcalPorDia[m.date] = (kcalPorDia[m.date] || 0) + k;
+    }
+    const diasConKcal = Object.keys(kcalPorDia);
+    const kcalVals = diasConKcal.map(d => kcalPorDia[d]);
+    const kcalTotal = kcalVals.reduce((s, x) => s + x, 0);
+    const mealsConKcal = data.meals.filter(m => (toNumber(m.kcal) || 0) > 0).length;
+
     // Macros del mes
     const macroCount = {};
     for (const m of data.meals) {
@@ -2146,10 +2196,13 @@ function getHabitsData(monthOpt) {
       .map(k => ({ name: k, count: macroCount[k] }))
       .sort((a, b) => b.count - a.count);
 
-    // Racha actual de días con avance >= 4
+    // Racha actual de días con avance >= 4.
+    // Los días sin avance cargado se saltean en vez de cortar la racha:
+    // no haber registrado el dato no es lo mismo que haber tenido un mal día.
     let streak = 0;
     for (let i = filled.length - 1; i >= 0; i--) {
-      if (filled[i].avance != null && filled[i].avance >= 4) streak++;
+      if (filled[i].avance == null) continue;
+      if (filled[i].avance >= 4) streak++;
       else break;
     }
 
@@ -2181,14 +2234,22 @@ function getHabitsData(monthOpt) {
         trabajo: _avg(work),
         avance: _avg(adv),
         animo: _avg(filled.map(d => d.animo)),
-        agua: _avg(aguaVals)
+        agua: _avg(aguaVals),
+        kcal: _avg(kcalVals)
       },
       totals: {
         trabajo: Math.round(work.filter(x => x != null).reduce((s, x) => s + x, 0) * 100) / 100,
         mast: filled.map(d => d.mast).filter(x => x != null).reduce((s, x) => s + x, 0),
         agua: aguaVals.reduce((s, x) => s + x, 0),
         ejercicioMin: filled.map(d => d.ejercicioMin).filter(x => x != null).reduce((s, x) => s + x, 0),
-        ejercicioDias: exDays.length
+        ejercicioDias: exDays.length,
+        kcal: kcalTotal
+      },
+      kcalInfo: {
+        dias: diasConKcal.length,
+        comidas: mealsConKcal,
+        totalComidas: data.meals.length,
+        parcial: mealsConKcal < data.meals.length
       },
       streak: streak,
       byEjercicio: byEjercicio,
@@ -2334,12 +2395,12 @@ function habitPending(opts) {
                      ' (te faltan ~' + Math.ceil(faltan / 250) + ' vasos)');
     }
 
-    // --- Comidas segun la hora ---
-    const tipos = {};
-    for (const m of meals) tipos[String(m.tipo || '').toLowerCase()] = true;
-    if (tNow >= 11.5 && !tipos['desayuno']) faltantes.push('no cargaste el desayuno');
-    if (tNow >= 15.5 && !tipos['almuerzo']) faltantes.push('no cargaste el almuerzo');
-    if (tNow >= 22   && !tipos['cena'])     faltantes.push('no cargaste la cena');
+    // --- Comidas: se mira si hay algo cargado en la ventana horaria.
+    // Usar la hora y no la etiqueta evita falsos avisos cuando el tipo se
+    // editó a mano o cuando comió fuera del horario típico.
+    if (tNow >= 11.5 && !_hasMealInWindow(meals, MEAL_WINDOWS.desayuno)) faltantes.push('no cargaste el desayuno');
+    if (tNow >= 16   && !_hasMealInWindow(meals, MEAL_WINDOWS.almuerzo)) faltantes.push('no cargaste el almuerzo');
+    if (tNow >= 22   && !_hasMealInWindow(meals, MEAL_WINDOWS.cena))     faltantes.push('no cargaste la cena');
 
     // --- Cierre del día ---
     if (tNow >= 21) {
