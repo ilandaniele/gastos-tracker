@@ -1,8 +1,9 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><title>Agregar Gasto</title>
 <?!= include('form-styles') ?></head><body>
 <div class="tabs">
-  <button type="button" class="tab active" data-panel="addPanel">+ Agregar</button>
-  <button type="button" class="tab" data-panel="dashPanel">📊 Dashboard</button>
+  <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
+  <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
+  <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
 </div>
 
 <div id="addPanel" class="panel active">
@@ -107,6 +108,87 @@
   <h1 id="dashTitle">Dashboard</h1>
   <button type="button" id="refreshDash" class="dash-refresh">↻ Recargar</button>
   <div id="dashContent" class="dash-loader">Cargando datos...</div>
+</div>
+
+<div id="habitPanel" class="panel">
+  <h1>Hábitos <span id="habitDateLabel" class="hdate"></span></h1>
+
+  <!-- SUEÑO -->
+  <div class="hcard">
+    <div class="hcard-title">😴 Sueño</div>
+    <div class="hrow2">
+      <button type="button" class="hbig" id="btnLevante">☀️ Me levanté<span class="hval" id="valLevante">—</span></button>
+      <button type="button" class="hbig" id="btnAcoste">🌙 Me acosté<span class="hval" id="valAcoste">—</span></button>
+    </div>
+    <div class="hsleep" id="hsSueno"></div>
+  </div>
+
+  <!-- COMIDA -->
+  <div class="hcard">
+    <div class="hcard-title">🍽️ Comida</div>
+    <div class="quick-scroll meals" id="quickMeal">
+      <button type="button" data-meal="Café">☕Café</button>
+      <button type="button" data-meal="Mate">🧉Mate</button>
+      <button type="button" data-meal="Huevos revueltos">🍳Huevos</button>
+      <button type="button" data-meal="Tostadas con queso">🍞Tostadas</button>
+      <button type="button" data-meal="Yogur con avena">🥣Yogur</button>
+      <button type="button" data-meal="Ensalada">🥗Ensalada</button>
+      <button type="button" data-meal="Pollo con arroz">🍗Pollo</button>
+      <button type="button" data-meal="Milanesa con puré">🥩Milanesa</button>
+      <button type="button" data-meal="Pasta">🍝Pasta</button>
+      <button type="button" data-meal="Pizza">🍕Pizza</button>
+      <button type="button" data-meal="Sandwich">🥪Sandwich</button>
+      <button type="button" data-meal="Fruta">🍎Fruta</button>
+      <button type="button" data-meal="Vianda">🍱Vianda</button>
+      <button type="button" data-meal="Snack">🍫Snack</button>
+    </div>
+    <div class="hmeal-input">
+      <input type="text" id="mealText" placeholder="¿Qué comiste?" autocomplete="off">
+      <input type="time" id="mealHora">
+      <button type="button" id="btnAddMeal">+</button>
+    </div>
+    <div id="mealList" class="hmeal-list"></div>
+  </div>
+
+  <!-- TRABAJO Y AVANCE -->
+  <div class="hcard">
+    <div class="hcard-title">💼 Trabajo y avance</div>
+    <label class="hlabel">Horas trabajadas</label>
+    <input type="text" id="habTrabajo" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="ej: 6,5" autocomplete="off">
+    <label class="hlabel">Avance del día <span id="avanceVal" class="hbadge">—</span></label>
+    <input type="range" id="habAvance" min="0" max="5" step="1" value="0" class="hslider">
+    <div class="hscale"><span>sin datos</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+    <label class="hlabel">Ánimo <span id="animoVal" class="hbadge">—</span></label>
+    <input type="range" id="habAnimo" min="0" max="5" step="1" value="0" class="hslider">
+    <div class="hscale"><span>sin datos</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+  </div>
+
+  <!-- CONTADOR -->
+  <div class="hcard">
+    <div class="hcard-title">📊 Contador</div>
+    <div class="hcounter">
+      <button type="button" id="mastMinus">−</button>
+      <div class="hcounter-val"><span id="mastVal">0</span><small>hoy</small></div>
+      <button type="button" id="mastPlus">+</button>
+    </div>
+  </div>
+
+  <!-- NOTAS -->
+  <div class="hcard">
+    <div class="hcard-title">📝 Notas</div>
+    <input type="text" id="habNotas" placeholder="algo que quieras registrar" autocomplete="off">
+  </div>
+
+  <button type="button" id="saveHabit">Guardar día</button>
+  <div id="habStatus"></div>
+
+  <!-- RESUMEN DEL MES -->
+  <div class="hcard" style="margin-top:20px">
+    <div class="hcard-title">📈 Resumen del mes
+      <button type="button" id="refreshHabits" class="hmini">↻</button>
+    </div>
+    <div id="habitsSummary" class="dash-loader">Tocá ↻ para cargar</div>
+  </div>
 </div>
 
 <div id="loadingOverlay">

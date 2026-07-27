@@ -20,7 +20,7 @@
     // Disable all form inputs + quick buttons during save
     var f = document.getElementById('f');
     for (var i = 0; i < f.elements.length; i++) f.elements[i].disabled = locked;
-    var qbtns = document.querySelectorAll('.quick-scroll button');
+    var qbtns = document.querySelectorAll('#quickVar button, #quickFijo button');
     for (var j = 0; j < qbtns.length; j++) qbtns[j].disabled = locked;
     document.body.style.opacity = locked ? '0.6' : '1';
     document.body.style.pointerEvents = locked ? 'none' : 'auto';
@@ -104,7 +104,7 @@
     fijo_itau_cred:  { kind: 'fijo', item: 'Itaú Crédito',     currency: 'UYU', card: 'Débito UYU', category: 'Servicios' },
     fijo_oca:        { kind: 'fijo', item: 'Oca',              currency: 'UYU', card: 'Débito UYU', category: 'Servicios' }
   };
-  var btns = document.querySelectorAll('.quick-scroll button');
+  var btns = document.querySelectorAll('#quickVar button, #quickFijo button');
   for (var i = 0; i < btns.length; i++) {
     (function(btn){
       btn.addEventListener('click', function(){
@@ -380,6 +380,7 @@
       panels[j].classList.toggle('active', panels[j].id === panelId);
     }
     if (panelId === 'dashPanel' && !dashLoadedOnce) loadDashboard();
+    if (panelId === 'habitPanel' && !habitLoadedOnce) loadHabitToday();
     // Cada vez que se abre la pestaña de agregar, refrescar la fecha a "hoy"
     if (panelId === 'addPanel') refreshDateToToday();
   }
@@ -502,5 +503,268 @@
     }
 
     content.innerHTML = html;
+  }
+
+  // ==========================================================
+  // === HABITOS ==============================================
+  // ==========================================================
+  var habitLoadedOnce = false;
+  var habitState = { mast: 0, meals: [], date: '' };
+
+  function hEl(id) { return document.getElementById(id); }
+
+  function habStatus(text, cls) {
+    var el = hEl('habStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = text || '';
+    var ov = hEl('loadingOverlay');
+    if (ov) {
+      if (cls === 'loading') {
+        var t = hEl('loadingText'); if (t) t.textContent = text || 'Guardando...';
+        ov.classList.add('show');
+      } else { ov.classList.remove('show'); }
+    }
+  }
+
+  function nowHM() {
+    var d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function loadHabitToday() {
+    habStatus('Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        habStatus('', '');
+        habitLoadedOnce = true;
+        if (!r || !r.ok) { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        habitState.date = r.date || '';
+        habitState.meals = r.meals || [];
+        var lbl = hEl('habitDateLabel');
+        if (lbl && r.date) {
+          var parts = r.date.split('-');
+          lbl.textContent = '· ' + parts[2] + '/' + parts[1];
+        }
+        var d = r.day || {};
+        if (hEl('valLevante')) hEl('valLevante').textContent = d.levante || '—';
+        if (hEl('valAcoste'))  hEl('valAcoste').textContent  = d.acoste  || '—';
+        if (hEl('hsSueno'))    hEl('hsSueno').textContent    = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
+        if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
+        if (hEl('habNotas'))   hEl('habNotas').value = '';
+        setSlider('habAvance', 'avanceVal', d.avance);
+        setSlider('habAnimo',  'animoVal',  d.animo);
+        habitState.mast = d.mast || 0;
+        if (hEl('mastVal')) hEl('mastVal').textContent = habitState.mast;
+        if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
+        renderMeals();
+      })
+      .withFailureHandler(function(err) {
+        habStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .getHabitTodaySafe();
+  }
+
+  function setSlider(sliderId, badgeId, val) {
+    var s = hEl(sliderId), b = hEl(badgeId);
+    if (!s) return;
+    s.value = (val != null && isFinite(val)) ? val : 0;
+    if (b) b.textContent = (s.value === '0' || s.value === 0) ? '—' : s.value;
+  }
+
+  function renderMeals() {
+    var box = hEl('mealList');
+    if (!box) return;
+    if (!habitState.meals.length) { box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin comidas registradas hoy</div>'; return; }
+    var html = '';
+    for (var i = 0; i < habitState.meals.length; i++) {
+      var m = habitState.meals[i];
+      html += '<div class="hmeal-row">' +
+        '<span class="mt">' + esc(m.hora) + '</span>' +
+        '<span class="mn">' + esc(m.comida) + '</span>' +
+        '<span class="mm">' + esc(m.macro || '') + '</span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  // --- Botones de hora ---
+  function bindTimeBtn(btnId, field, valId) {
+    var b = hEl(btnId);
+    if (!b) return;
+    b.addEventListener('click', function() {
+      var hm = nowHM();
+      var payload = { date: habitState.date };
+      payload[field] = hm;
+      habStatus('Guardando ' + hm + '...', 'loading');
+      google.script.run
+        .withSuccessHandler(function(r) {
+          if (r && r.ok) {
+            if (hEl(valId)) hEl(valId).textContent = hm;
+            if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
+              hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
+            }
+            habStatus('✓ ' + (field === 'levante' ? 'Levantada' : 'Acostada') + ' ' + hm, 'ok');
+          } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+        })
+        .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+        .habitDaySafe(payload);
+    });
+  }
+  bindTimeBtn('btnLevante', 'levante', 'valLevante');
+  bindTimeBtn('btnAcoste',  'acoste',  'valAcoste');
+
+  // --- Comidas rápidas ---
+  (function() {
+    var mb = document.querySelectorAll('#quickMeal button');
+    for (var i = 0; i < mb.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var t = hEl('mealText');
+          if (t) { t.value = btn.getAttribute('data-meal') || ''; t.focus(); }
+        });
+      })(mb[i]);
+    }
+  })();
+
+  function submitMeal() {
+    var t = hEl('mealText');
+    var txt = t ? t.value.trim() : '';
+    if (!txt) { habStatus('Escribí qué comiste', 'err'); return; }
+    var hora = (hEl('mealHora') && hEl('mealHora').value) || nowHM();
+    habStatus('Guardando comida...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          habitState.meals.push({ hora: hora, comida: txt, macro: (r.written && r.written.macro) || '', tipo: (r.written && r.written.tipo) || '' });
+          habitState.meals.sort(function(a, b) { return String(a.hora).localeCompare(String(b.hora)); });
+          renderMeals();
+          if (t) t.value = '';
+          if (hEl('mealHora')) hEl('mealHora').value = nowHM();
+          habStatus('✓ ' + txt + ' — ' + ((r.written && r.written.macro) || '') + ' (' + ((r.written && r.written.tipo) || '') + ')', 'ok');
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .addMealSafe({ date: habitState.date, hora: hora, comida: txt });
+  }
+  if (hEl('btnAddMeal')) hEl('btnAddMeal').addEventListener('click', submitMeal);
+  if (hEl('mealText')) hEl('mealText').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitMeal(); }
+  });
+
+  // --- Sliders ---
+  (function() {
+    var pairs = [['habAvance', 'avanceVal'], ['habAnimo', 'animoVal']];
+    for (var i = 0; i < pairs.length; i++) {
+      (function(sid, bid) {
+        var s = hEl(sid);
+        if (!s) return;
+        s.addEventListener('input', function() {
+          var b = hEl(bid);
+          if (b) b.textContent = (s.value === '0') ? '—' : s.value;
+        });
+      })(pairs[i][0], pairs[i][1]);
+    }
+  })();
+
+  // --- Contador ---
+  function bumpCounter(delta) {
+    habStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          habitState.mast = (r.written && r.written.mast != null) ? r.written.mast : habitState.mast + delta;
+          if (habitState.mast < 0) habitState.mast = 0;
+          if (hEl('mastVal')) hEl('mastVal').textContent = habitState.mast;
+          habStatus('✓ Contador: ' + habitState.mast, 'ok');
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .habitDaySafe({ date: habitState.date, mastDelta: delta });
+  }
+  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter(1); });
+  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter(-1); });
+
+  // --- Guardar día completo ---
+  if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() {
+    var payload = { date: habitState.date };
+    var tr = hEl('habTrabajo');
+    if (tr && tr.value.trim()) payload.trabajo = normDec(tr.value);
+    var av = hEl('habAvance');
+    if (av && av.value !== '0') payload.avance = av.value;
+    var an = hEl('habAnimo');
+    if (an && an.value !== '0') payload.animo = an.value;
+    var nt = hEl('habNotas');
+    if (nt && nt.value.trim()) payload.notas = nt.value.trim();
+
+    var keys = Object.keys(payload).filter(function(k) { return k !== 'date'; });
+    if (!keys.length) { habStatus('No hay nada nuevo para guardar', 'err'); return; }
+
+    habStatus('Guardando día...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          habStatus('✓ Guardado · ' + keys.join(', '), 'ok');
+          if (nt) nt.value = '';
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .habitDaySafe(payload);
+  });
+
+  // --- Resumen del mes ---
+  function loadHabitsSummary() {
+    var box = hEl('habitsSummary');
+    if (!box) return;
+    box.className = 'dash-loader';
+    box.textContent = 'Cargando...';
+    google.script.run
+      .withSuccessHandler(renderHabitsSummary)
+      .withFailureHandler(function(err) { box.textContent = '✗ ' + (err && err.message ? err.message : err); })
+      .getHabitsDataSafe(null);
+  }
+  if (hEl('refreshHabits')) hEl('refreshHabits').addEventListener('click', loadHabitsSummary);
+
+  function renderHabitsSummary(d) {
+    var box = hEl('habitsSummary');
+    if (!box) return;
+    if (!d || !d.ok) { box.className = 'dash-loader'; box.textContent = '✗ ' + ((d && d.error) || 'error'); return; }
+    box.className = '';
+    var a = d.avg || {}, t = d.totals || {}, c = d.correlations || {};
+    var nn = function(v, suf) { return (v == null) ? '—' : (v + (suf || '')); };
+
+    var html = '<div class="hkpis">' +
+      '<div class="hkpi"><div class="hkpi-l">Días con datos</div><div class="hkpi-v">' + d.daysTracked + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Sueño promedio</div><div class="hkpi-v">' + nn(a.sueno, ' hs') + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Trabajo total</div><div class="hkpi-v">' + nn(t.trabajo, ' hs') + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Avance promedio</div><div class="hkpi-v">' + nn(a.avance) + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Racha avance 4+</div><div class="hkpi-v">' + d.streak + ' d</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Comidas log</div><div class="hkpi-v">' + d.totalMeals + '</div></div>' +
+    '</div>';
+
+    // Correlaciones (solo si hay muestra suficiente)
+    var corr = [];
+    if (c.sleepGood && c.sleepBad && c.sleepGood.n >= 3 && c.sleepBad.n >= 3) {
+      corr.push('😴 Con 7+ hs de sueño tu avance promedio es <b>' + c.sleepGood.avance +
+                '</b> (' + c.sleepGood.n + ' días) vs <b>' + c.sleepBad.avance +
+                '</b> con menos (' + c.sleepBad.n + ' días).');
+    }
+    if (c.withUltraprocesado && c.withoutUltraprocesado &&
+        c.withUltraprocesado.n >= 3 && c.withoutUltraprocesado.n >= 3) {
+      corr.push('🍫 Días con ultraprocesados: avance <b>' + c.withUltraprocesado.avance +
+                '</b> vs <b>' + c.withoutUltraprocesado.avance + '</b> sin ellos.');
+    }
+    if (corr.length) html += '<div class="hcorr">' + corr.join('<br>') + '</div>';
+    else html += '<div class="hcorr">Seguí cargando datos — las correlaciones aparecen con 3+ días en cada grupo.</div>';
+
+    if (d.byMacro && d.byMacro.length) {
+      html += '<div class="dash-section" style="margin-top:12px"><h2>Macros del mes</h2><div class="dash-list">';
+      for (var i = 0; i < d.byMacro.length; i++) {
+        html += '<div class="dash-list-row"><span class="name">' + esc(d.byMacro[i].name) +
+                '</span><span class="val">' + d.byMacro[i].count + '</span></div>';
+      }
+      html += '</div></div>';
+    }
+    box.innerHTML = html;
   }
 </script>

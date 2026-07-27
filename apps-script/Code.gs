@@ -34,6 +34,27 @@ const CATEGORIES = [
 
 const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD'];
 
+// === HABITOS: constantes ===
+const HABIT_PREFIX = 'Hábitos ';
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Mast.','Ánimo','Notas'];
+const HABIT_MEAL_TITLE = 'COMIDAS';
+const HABIT_MEAL_HEADERS = ['Fecha','Hora','Comida','Macro','Tipo','Procesado'];
+const HABIT_DAY_HEADER_ROW = 2;     // 1-indexed
+const HABIT_DAY_FIRST_ROW = 3;      // 1-indexed
+const HABIT_MEAL_TITLE_ROW = 36;    // 1-indexed (deja 31 dias + margen)
+const HABIT_MEAL_HEADER_ROW = 37;
+const HABIT_MEAL_FIRST_ROW = 38;
+
+// Reglas regex para clasificar comidas (accent-insensitive, lowercase)
+const MEAL_RULES = [
+  { macro: 'Proteína',       re: /carne|pollo|milanesa|milanga|huevo|pescado|atun|salmon|lomo|bife|asado|cerdo|jamon|queso|lenteja|garbanzo|poroto|yogur|proteina|whey|tofu|hamburguesa|churrasco|pechuga|nuez|almendra|mani/ },
+  { macro: 'Carbo',          re: /pan|arroz|pasta|fideo|tallarin|pure|papa|batata|tostada|cereal|avena|tortilla|pizza|empanada|noqui|nioqui|polenta|galleta|sandwich|wrap|medialuna|panqueque|budin|masa|harina|choclo/ },
+  { macro: 'Verdura',        re: /ensalada|verdura|tomate|lechuga|zanahoria|brocoli|espinaca|zapallo|pepino|morron|cebolla|acelga|repollo|remolacha|berenjena|zucchini|calabaza|rucula|palta/ },
+  { macro: 'Fruta',          re: /manzana|banana|naranja|frutilla|pera|uva|kiwi|mandarina|fruta|durazno|melon|sandia|anana|ciruela|higo|arandano|mango/ },
+  { macro: 'Ultraprocesado', re: /alfajor|helado|chocolate|snack|papita|gaseosa|coca|sprite|fanta|factura|bizcocho|galletita|dulce|torta|caramelo|chip|donut|oreo|chizito|palito|golosina|cheetos|nachos|pancho|hot ?dog|frita/ },
+  { macro: 'Bebida',         re: /^cafe|^mate|^te$|^agua|jugo|cerveza|vino|fernet|whisky|licuado|smoothie|gatorade|powerade|infusion|capuchino|latte/ }
+];
+
 // === doGet route table ===
 const ROUTES = {
   createMonth: p => {
@@ -53,6 +74,20 @@ const ROUTES = {
   },
   testRate: () => testRateSources(),
   dash: () => getDashboardData(),
+  // === HABITOS ===
+  habitsData: p => getHabitsData(p.month || currentHabitTab()),
+  habitDay: p => upsertHabitDay(p),
+  addMeal: p => addMealEntry(p),
+  habitToday: () => getHabitToday(),
+  createHabitMonth: p => {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const name = p.month || currentHabitTab();
+    getOrCreateHabitTab(ss, name);
+    return { ok: true, tab: name };
+  },
+  classifyMealTest: p => ({ ok: true, input: p.text, result: classifyMeal(p.text, p.hora) }),
+  repairHabits: p => repairHabitFormats(p.month),
+  resetHabits: p => resetHabitMonth(p.month, p.confirm),
   setKey: p => {
     if (!p.key) throw new Error('Falta param "key"');
     PropertiesService.getScriptProperties().setProperty('GEMINI_KEY', p.key);
@@ -729,10 +764,109 @@ function buildMonthlyReportHtml(currentMonth) {
   html += recs.join('');
   html += '</ul>';
 
+  // === Sección HÁBITOS (si hay hoja del mes) ===
+  html += _buildHabitsEmailSection(currentMonth);
+
   html += '<hr style="border: none; border-top: 1px solid #e5e5e5; margin: 32px 0 16px;">';
-  html += '<p style="font-size: 11px; color: #888;">Reporte generado por el webhook de gastos. Trigger automático: <code>?action=installReportTrigger</code> (día 28 a las 9am).</p>';
+  html += '<p style="font-size: 11px; color: #888;">Reporte generado por el webhook de gastos. Trigger automático: día 5 de cada mes a las 9am (reporta el mes anterior).</p>';
   html += '</body></html>';
   return html;
+}
+
+// Sección de hábitos para el email mensual. Devuelve '' si no hay datos —
+// nunca rompe el reporte de gastos.
+function _buildHabitsEmailSection(expenseMonth) {
+  try {
+    const habitTab = HABIT_PREFIX + String(expenseMonth || '').trim();
+    const d = getHabitsData(habitTab);
+    if (!d || !d.ok || !d.daysTracked) return '';
+
+    const a = d.avg || {}, t = d.totals || {}, c = d.correlations || {};
+    const nn = (v, suf) => (v == null ? '—' : v + (suf || ''));
+
+    let h = '<h2 style="margin-top: 36px;">🧘 Hábitos del mes</h2>';
+    h += '<p style="color:#666;font-size:13px;margin-top:-8px;">' + d.daysTracked +
+         ' días registrados · ' + d.totalMeals + ' comidas en el log</p>';
+
+    h += '<table style="width:100%;border-collapse:collapse;margin-top:12px;">';
+    const kpis = [
+      ['😴 Sueño promedio', nn(a.sueno, ' hs')],
+      ['💼 Trabajo total',  nn(t.trabajo, ' hs')],
+      ['📈 Avance promedio', nn(a.avance, ' / 5')],
+      ['🔥 Racha avance 4+', d.streak + ' días']
+    ];
+    if (a.animo != null) kpis.push(['🙂 Ánimo promedio', a.animo + ' / 5']);
+    for (const k of kpis) {
+      h += '<tr>';
+      h += '<td style="padding:9px;border-bottom:1px solid #e5e5e5;">' + k[0] + '</td>';
+      h += '<td style="padding:9px;border-bottom:1px solid #e5e5e5;text-align:right;"><b>' + k[1] + '</b></td>';
+      h += '</tr>';
+    }
+    h += '</table>';
+
+    // Correlaciones (solo con muestra suficiente en ambos grupos)
+    const corr = [];
+    if (c.sleepGood && c.sleepBad && c.sleepGood.n >= 3 && c.sleepBad.n >= 3 &&
+        c.sleepGood.avance != null && c.sleepBad.avance != null) {
+      const diff = c.sleepGood.avance - c.sleepBad.avance;
+      const arrow = diff > 0.4 ? ' — dormir más te está rindiendo' : (diff < -0.4 ? ' — la relación va al revés este mes' : ' — sin diferencia clara');
+      corr.push('<li>Con <b>7+ hs de sueño</b> tu avance promedio es <b>' + c.sleepGood.avance +
+                '</b> (' + c.sleepGood.n + ' días) vs <b>' + c.sleepBad.avance + '</b> con menos (' +
+                c.sleepBad.n + ' días)' + arrow + '.</li>');
+    }
+    if (c.withUltraprocesado && c.withoutUltraprocesado &&
+        c.withUltraprocesado.n >= 3 && c.withoutUltraprocesado.n >= 3 &&
+        c.withUltraprocesado.avance != null && c.withoutUltraprocesado.avance != null) {
+      corr.push('<li>Días <b>con ultraprocesados</b>: avance <b>' + c.withUltraprocesado.avance +
+                '</b> (' + c.withUltraprocesado.n + ' días) vs <b>' + c.withoutUltraprocesado.avance +
+                '</b> sin ellos (' + c.withoutUltraprocesado.n + ' días).</li>');
+    }
+    if (corr.length) {
+      h += '<h3 style="margin-top:24px;font-size:15px;">🔍 Correlaciones</h3>';
+      h += '<ul style="line-height:1.7;">' + corr.join('') + '</ul>';
+    }
+
+    // Macros
+    if (d.byMacro && d.byMacro.length) {
+      h += '<h3 style="margin-top:24px;font-size:15px;">🍽️ Composición de comidas</h3>';
+      h += '<table style="width:100%;border-collapse:collapse;">';
+      const totalM = d.byMacro.reduce((s, m) => s + m.count, 0) || 1;
+      for (const m of d.byMacro) {
+        const pct = Math.round(m.count / totalM * 100);
+        h += '<tr>';
+        h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;">' + m.name + '</td>';
+        h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;text-align:right;color:#666;font-size:12px;">' +
+             m.count + ' veces · ' + pct + '%</td>';
+        h += '</tr>';
+      }
+      h += '</table>';
+    }
+
+    // Ajustes sugeridos
+    const tips = [];
+    if (a.sueno != null && a.sueno < 7) {
+      tips.push('<li>Dormís <b>' + a.sueno + ' hs</b> en promedio. Subir a 7+ es la palanca más barata que tenés para el avance.</li>');
+    }
+    if (a.avance != null && a.avance < 3) {
+      tips.push('<li>Avance promedio <b>' + a.avance + '/5</b>. Mirá los días de 4-5 y qué tuvieron en común (sueño, horario de arranque, comidas).</li>');
+    }
+    const up = (d.byMacro || []).find(m => m.name === 'Ultraprocesado');
+    if (up && d.totalMeals && up.count / d.totalMeals > 0.25) {
+      tips.push('<li><b>' + Math.round(up.count / d.totalMeals * 100) + '%</b> de tus comidas son ultraprocesadas. Bajar a menos del 15% es un objetivo concreto para el mes que viene.</li>');
+    }
+    if (t.trabajo != null && d.daysTracked >= 10) {
+      const perDay = Math.round(t.trabajo / d.daysTracked * 10) / 10;
+      tips.push('<li>Promedio de <b>' + perDay + ' hs/día</b> trabajadas sobre ' + d.daysTracked + ' días registrados.</li>');
+    }
+    if (tips.length) {
+      h += '<h3 style="margin-top:24px;font-size:15px;">🎯 Ajustes para el mes que viene</h3>';
+      h += '<ul style="line-height:1.7;">' + tips.join('') + '</ul>';
+    }
+    return h;
+  } catch (e) {
+    Logger.log('_buildHabitsEmailSection error: ' + e.message);
+    return '';
+  }
 }
 
 function sendMonthlyReport(monthOpt, emailOpt) {
@@ -1381,4 +1515,534 @@ function _doAddExpense(p) {
     cotizSource: cotizSource,
     written: { item, amount: amt, currency, card, category: finalCategory, cotizacion: cotizacion || null, notes: notes || null }
   };
+}
+
+
+// ============================================================================
+// === HABITOS: tracker diario (sueño, trabajo, avance, comidas) ==============
+// ============================================================================
+
+function habitTabFor(date) {
+  const d = parseLocalDate(date) || new Date();
+  return HABIT_PREFIX + MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function currentHabitTab() { return habitTabFor(new Date()); }
+
+// Parsea 'Hábitos Julio 2026' -> { monthIdx: 6, year: 2026 }
+function _parseHabitTabName(tabName) {
+  const rest = String(tabName || '').replace(HABIT_PREFIX, '').trim();
+  const parts = rest.split(/\s+/);
+  if (parts.length < 2) return null;
+  const monthIdx = MONTH_NAMES.findIndex(m => _stripAccents(m) === _stripAccents(parts[0]));
+  const year = parseInt(parts[1], 10);
+  if (monthIdx < 0 || !isFinite(year)) return null;
+  return { monthIdx: monthIdx, year: year };
+}
+
+// 'HH:MM' -> minutos desde medianoche. null si invalido.
+function _parseHM(s) {
+  if (s == null) return null;
+  // Puede venir como Date (si Sheets lo interpretó como hora)
+  if (Object.prototype.toString.call(s) === '[object Date]') {
+    return s.getHours() * 60 + s.getMinutes();
+  }
+  const m = String(s).trim().match(/^(\d{1,2})[:.h](\d{2})/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+  if (!isFinite(h) || !isFinite(min) || h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function _fmtHM(mins) {
+  if (mins == null) return '';
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+// Horas dormidas: se acostó anoche (bedStr) y se levantó hoy (wakeStr).
+// Maneja acostarse antes de medianoche (23:30) y después (00:15).
+function _calcSleepHours(bedStr, wakeStr) {
+  const bed = _parseHM(bedStr), wake = _parseHM(wakeStr);
+  if (bed == null || wake == null) return null;
+  let mins;
+  if (bed >= 12 * 60) mins = (24 * 60 - bed) + wake;  // se acostó PM del día anterior
+  else mins = wake - bed;                              // se acostó AM (madrugada del mismo día)
+  if (mins < 0) mins += 24 * 60;
+  return Math.round((mins / 60) * 100) / 100;
+}
+
+// Tipo de comida según la hora
+function _mealTypeByHour(hora) {
+  const m = _parseHM(hora);
+  if (m == null) return '';
+  const h = m / 60;
+  if (h < 5) return 'Snack nocturno';
+  if (h < 11) return 'Desayuno';
+  if (h < 15) return 'Almuerzo';
+  if (h < 19) return 'Merienda';
+  return 'Cena';
+}
+
+// Clasifica una comida: regex primero, Gemini como fallback si no matchea.
+function classifyMeal(text, hora) {
+  const raw = String(text || '').trim();
+  const t = _stripAccents(raw);
+  const macros = [];
+  for (const rule of MEAL_RULES) {
+    if (rule.re.test(t)) macros.push(rule.macro);
+  }
+  const tipo = _mealTypeByHour(hora);
+  if (macros.length) {
+    const procesado = macros.indexOf('Ultraprocesado') >= 0 ? 'Alto'
+                    : (macros.indexOf('Verdura') >= 0 || macros.indexOf('Fruta') >= 0) ? 'Bajo'
+                    : 'Medio';
+    return { macro: macros.join(' + '), tipo: tipo, procesado: procesado, source: 'regex' };
+  }
+  // Fallback Gemini — nunca debe romper el guardado
+  try {
+    const g = _classifyMealGemini(raw);
+    if (g) return { macro: g.macro, tipo: tipo, procesado: g.procesado, source: 'gemini' };
+  } catch (e) {
+    Logger.log('classifyMeal gemini fallback failed: ' + e.message);
+  }
+  return { macro: 'Otros', tipo: tipo, procesado: 'Medio', source: 'default' };
+}
+
+function _classifyMealGemini(text) {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_KEY');
+  if (!key || !text) return null;
+  const prompt = 'Clasifica esta comida en JSON estricto sin markdown. ' +
+    'Campos: macro (uno o varios de: Proteína, Carbo, Verdura, Fruta, Ultraprocesado, Bebida, separados por " + ") ' +
+    'y procesado (Bajo, Medio o Alto). Comida: "' + text + '". ' +
+    'Responde SOLO el JSON, ejemplo: {"macro":"Proteína + Carbo","procesado":"Medio"}';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key;
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    muteHttpExceptions: true,
+    payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+  });
+  if (resp.getResponseCode() !== 200) return null;
+  const body = JSON.parse(resp.getContentText());
+  let txt = body.candidates && body.candidates[0] && body.candidates[0].content &&
+            body.candidates[0].content.parts[0].text;
+  if (!txt) return null;
+  txt = txt.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(txt);
+  if (!parsed || !parsed.macro) return null;
+  return { macro: String(parsed.macro), procesado: String(parsed.procesado || 'Medio') };
+}
+
+// Crea (o devuelve) la hoja de hábitos del mes, con las dos tablas listas.
+function getOrCreateHabitTab(ss, tabName) {
+  let sheet = ss.getSheetByName(tabName);
+  if (sheet) return sheet;
+
+  sheet = ss.insertSheet(tabName);
+  const parsed = _parseHabitTabName(tabName) || { monthIdx: new Date().getMonth(), year: new Date().getFullYear() };
+  const daysInMonth = new Date(parsed.year, parsed.monthIdx + 1, 0).getDate();
+
+  // --- Título + tabla diaria ---
+  sheet.getRange(1, 1).setValue('HÁBITOS — ' + tabName.replace(HABIT_PREFIX, ''))
+       .setFontWeight('bold').setFontSize(13);
+  sheet.getRange(HABIT_DAY_HEADER_ROW, 1, 1, HABIT_DAY_HEADERS.length)
+       .setValues([HABIT_DAY_HEADERS])
+       .setFontWeight('bold').setBackground('#e8f0ee');
+
+  // Pre-cargar las fechas del mes
+  const dates = [];
+  for (let d = 1; d <= daysInMonth; d++) dates.push([new Date(parsed.year, parsed.monthIdx, d)]);
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 1, dates.length, 1)
+       .setValues(dates).setNumberFormat('dd/MM/yyyy');
+
+  // --- Tabla de comidas ---
+  sheet.getRange(HABIT_MEAL_TITLE_ROW, 1).setValue(HABIT_MEAL_TITLE)
+       .setFontWeight('bold').setFontSize(12);
+  sheet.getRange(HABIT_MEAL_HEADER_ROW, 1, 1, HABIT_MEAL_HEADERS.length)
+       .setValues([HABIT_MEAL_HEADERS])
+       .setFontWeight('bold').setBackground('#fef3c7');
+
+  // CRÍTICO: forzar formato TEXTO en las columnas de hora. Si se dejan en
+  // formato automático, Sheets interpreta "07:15" como un Date de 1899 y al
+  // releerlo aplica el offset LMT de Montevideo (-03:44:51) → devuelve 07:46.
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2).setNumberFormat('@');
+  sheet.getRange(HABIT_MEAL_FIRST_ROW, 2, 600, 1).setNumberFormat('@');
+
+  // Formato
+  sheet.setColumnWidth(1, 95);
+  sheet.setColumnWidth(3, 220);
+  sheet.setColumnWidth(9, 260);
+  sheet.setFrozenRows(HABIT_DAY_HEADER_ROW);
+  return sheet;
+}
+
+// Encuentra la fila 1-indexed de una fecha en la tabla diaria. -1 si no está.
+function _habitFindDayRow(sheet, dateStr) {
+  const target = parseLocalDate(dateStr);
+  if (!target) return -1;
+  const tKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+  const n = 31;
+  const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, n, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    const v = vals[i][0];
+    if (!v) continue;
+    const d = Object.prototype.toString.call(v) === '[object Date]' ? v : parseLocalDate(v);
+    if (!d) continue;
+    if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() === tKey) return HABIT_DAY_FIRST_ROW + i;
+  }
+  return -1;
+}
+
+// Upsert de la fila del día: solo escribe los campos que vienen con valor.
+// p: { date, levante, acoste, trabajo, avance, mast, animo, notas, mastDelta }
+function upsertHabitDay(p) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const tabName = p.month || habitTabFor(dateStr);
+  const sheet = getOrCreateHabitTab(ss, tabName);
+
+  let row = _habitFindDayRow(sheet, dateStr);
+  if (row < 0) {
+    // Fecha fuera del rango pre-cargado — la agregamos al final de la tabla diaria
+    row = HABIT_DAY_FIRST_ROW;
+    const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, 1).getValues();
+    for (let i = 0; i < vals.length; i++) { if (!vals[i][0]) { row = HABIT_DAY_FIRST_ROW + i; break; } }
+    sheet.getRange(row, 1).setValue(parseLocalDate(dateStr)).setNumberFormat('dd/MM/yyyy');
+  }
+
+  const current = sheet.getRange(row, 1, 1, HABIT_DAY_HEADERS.length).getValues()[0];
+  const written = {};
+
+  // col 2 Levanté | col 3 Acosté | col 4 Hs sueño | col 5 Hs trabajo
+  // col 6 Avance  | col 7 Mast.  | col 8 Ánimo    | col 9 Notas
+  if (p.levante) { sheet.getRange(row, 2).setNumberFormat('@').setValue(p.levante); written.levante = p.levante; current[1] = p.levante; }
+  if (p.acoste)  { sheet.getRange(row, 3).setNumberFormat('@').setValue(p.acoste);  written.acoste = p.acoste;  current[2] = p.acoste; }
+
+  // Hs sueño: acosté de AYER + levanté de HOY
+  if (p.levante) {
+    let prevBed = null;
+    if (row > HABIT_DAY_FIRST_ROW) prevBed = sheet.getRange(row - 1, 3).getValue();
+    const hs = _calcSleepHours(prevBed, p.levante);
+    if (hs != null) { sheet.getRange(row, 4).setValue(hs); written.hsSueno = hs; }
+  }
+
+  if (p.trabajo !== undefined && p.trabajo !== '' && p.trabajo !== null) {
+    const v = toNumber(String(p.trabajo).replace(',', '.'));
+    if (v != null) { sheet.getRange(row, 5).setValue(v); written.trabajo = v; }
+  }
+  if (p.avance !== undefined && p.avance !== '' && p.avance !== null) {
+    const v = toNumber(p.avance);
+    if (v != null) { sheet.getRange(row, 6).setValue(v); written.avance = v; }
+  }
+  // mastDelta: incremento (+1). mast: valor absoluto.
+  if (p.mastDelta !== undefined && p.mastDelta !== '' && p.mastDelta !== null) {
+    const prev = toNumber(current[6]) || 0;
+    const next = prev + (toNumber(p.mastDelta) || 0);
+    sheet.getRange(row, 7).setValue(next < 0 ? 0 : next);
+    written.mast = next < 0 ? 0 : next;
+  } else if (p.mast !== undefined && p.mast !== '' && p.mast !== null) {
+    const v = toNumber(p.mast);
+    if (v != null) { sheet.getRange(row, 7).setValue(v); written.mast = v; }
+  }
+  if (p.animo !== undefined && p.animo !== '' && p.animo !== null) {
+    const v = toNumber(p.animo);
+    if (v != null) { sheet.getRange(row, 8).setValue(v); written.animo = v; }
+  }
+  if (p.notas) {
+    const prev = String(current[8] || '').trim();
+    const val = prev ? prev + ' · ' + p.notas : p.notas;
+    sheet.getRange(row, 9).setValue(val); written.notas = val;
+  }
+
+  return { ok: true, tab: tabName, row: row, date: dateStr, written: written };
+}
+
+// Agrega una comida al log. p: { date, hora, comida, tipo }
+function addMealEntry(p) {
+  const comida = String(p.comida || p.item || '').trim();
+  if (!comida) throw new Error('Falta el texto de la comida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const hora = p.hora || Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm');
+  const tabName = p.month || habitTabFor(dateStr);
+  const sheet = getOrCreateHabitTab(ss, tabName);
+
+  const cls = classifyMeal(comida, hora);
+  const tipo = p.tipo || cls.tipo;
+
+  // Primera fila libre del log de comidas
+  let insertAt = HABIT_MEAL_FIRST_ROW;
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
+    const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, n, 1).getValues();
+    insertAt = HABIT_MEAL_FIRST_ROW + n;
+    for (let i = 0; i < vals.length; i++) {
+      if (!String(vals[i][0] || '').trim()) { insertAt = HABIT_MEAL_FIRST_ROW + i; break; }
+    }
+  }
+
+  // Formato ANTES de escribir: hora como texto plano (ver nota en getOrCreateHabitTab)
+  sheet.getRange(insertAt, 2).setNumberFormat('@');
+  sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+    parseLocalDate(dateStr), hora, comida, cls.macro, tipo, cls.procesado
+  ]]);
+  sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+
+  return { ok: true, tab: tabName, row: insertAt,
+           written: { comida: comida, hora: hora, macro: cls.macro, tipo: tipo,
+                      procesado: cls.procesado, source: cls.source } };
+}
+
+// Estado del día de hoy (para pre-cargar el form)
+function getHabitToday() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const dateStr = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+    const tabName = currentHabitTab();
+    const sheet = ss.getSheetByName(tabName);
+    if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [] };
+    const row = _habitFindDayRow(sheet, dateStr);
+    let day = null;
+    if (row > 0) {
+      const v = sheet.getRange(row, 1, 1, HABIT_DAY_HEADERS.length).getValues()[0];
+      day = {
+        levante: _readHM(v[1]),
+        acoste:  _readHM(v[2]),
+        hsSueno: toNumber(v[3]), trabajo: toNumber(v[4]), avance: toNumber(v[5]),
+        mast: toNumber(v[6]) || 0, animo: toNumber(v[7]), notas: String(v[8] || '')
+      };
+    }
+    // Comidas de hoy
+    const meals = [];
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+      const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
+      const today = parseLocalDate(dateStr);
+      const tKey = today.getFullYear() + '-' + today.getMonth() + '-' + today.getDate();
+      for (const r of vals) {
+        if (!r[0]) continue;
+        const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+        if (!d) continue;
+        if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() !== tKey) continue;
+        meals.push({ hora: _readHM(r[1]), comida: String(r[2] || ''),
+                     macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '') });
+      }
+    }
+    return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day, meals: meals };
+  } catch (err) {
+    Logger.log('getHabitToday error: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Lee y agrega todos los datos del mes de hábitos
+function readHabitMonth(tabName) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return null;
+
+  const days = [];
+  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, HABIT_DAY_HEADERS.length).getValues();
+  for (const v of dayVals) {
+    if (!v[0]) continue;
+    const d = Object.prototype.toString.call(v[0]) === '[object Date]' ? v[0] : parseLocalDate(v[0]);
+    if (!d) continue;
+    const hasData = v[1] || v[2] || v[4] !== '' || v[5] !== '' || v[6] !== '';
+    days.push({
+      date: Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd'),
+      dayNum: d.getDate(),
+      levante: _readHM(v[1]), acoste: _readHM(v[2]),
+      hsSueno: toNumber(v[3]), trabajo: toNumber(v[4]), avance: toNumber(v[5]),
+      mast: toNumber(v[6]), animo: toNumber(v[7]), notas: String(v[8] || ''),
+      hasData: !!hasData
+    });
+  }
+
+  const meals = [];
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const mv = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
+    for (const r of mv) {
+      if (!r[0] || !String(r[2] || '').trim()) continue;
+      const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+      meals.push({
+        date: d ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
+        hora: _readHM(r[1]), comida: String(r[2] || ''),
+        macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '')
+      });
+    }
+  }
+  return { tab: tabName, days: days, meals: meals };
+}
+
+function _avg(arr) {
+  const v = arr.filter(x => x != null && isFinite(x));
+  if (!v.length) return null;
+  return Math.round((v.reduce((s, x) => s + x, 0) / v.length) * 100) / 100;
+}
+
+// KPIs + correlaciones del mes
+function getHabitsData(monthOpt) {
+  try {
+    const tabName = monthOpt || currentHabitTab();
+    const data = readHabitMonth(tabName);
+    if (!data) return { ok: false, error: 'Hoja "' + tabName + '" no existe todavía' };
+
+    const filled = data.days.filter(d => d.hasData);
+    const sleep = filled.map(d => d.hsSueno);
+    const work  = filled.map(d => d.trabajo);
+    const adv   = filled.map(d => d.avance);
+
+    // Correlación: sueño >= 7hs vs < 7hs -> avance promedio
+    const goodSleep = filled.filter(d => d.hsSueno != null && d.hsSueno >= 7 && d.avance != null);
+    const badSleep  = filled.filter(d => d.hsSueno != null && d.hsSueno < 7  && d.avance != null);
+    // Correlación: días con ultraprocesados vs sin
+    const upDates = {};
+    for (const m of data.meals) if (m.procesado === 'Alto') upDates[m.date] = true;
+    const withUp    = filled.filter(d => upDates[d.date] && d.avance != null);
+    const withoutUp = filled.filter(d => !upDates[d.date] && d.avance != null);
+
+    // Macros del mes
+    const macroCount = {};
+    for (const m of data.meals) {
+      for (const part of String(m.macro || '').split('+')) {
+        const k = part.trim();
+        if (k) macroCount[k] = (macroCount[k] || 0) + 1;
+      }
+    }
+    const byMacro = Object.keys(macroCount)
+      .map(k => ({ name: k, count: macroCount[k] }))
+      .sort((a, b) => b.count - a.count);
+
+    // Racha actual de días con avance >= 4
+    let streak = 0;
+    for (let i = filled.length - 1; i >= 0; i--) {
+      if (filled[i].avance != null && filled[i].avance >= 4) streak++;
+      else break;
+    }
+
+    return {
+      ok: true,
+      tab: tabName,
+      daysTracked: filled.length,
+      totalMeals: data.meals.length,
+      avg: {
+        sueno: _avg(sleep),
+        trabajo: _avg(work),
+        avance: _avg(adv),
+        animo: _avg(filled.map(d => d.animo))
+      },
+      totals: {
+        trabajo: Math.round(work.filter(x => x != null).reduce((s, x) => s + x, 0) * 100) / 100,
+        mast: filled.map(d => d.mast).filter(x => x != null).reduce((s, x) => s + x, 0)
+      },
+      streak: streak,
+      correlations: {
+        sleepGood: { n: goodSleep.length, avance: _avg(goodSleep.map(d => d.avance)) },
+        sleepBad:  { n: badSleep.length,  avance: _avg(badSleep.map(d => d.avance)) },
+        withUltraprocesado:    { n: withUp.length,    avance: _avg(withUp.map(d => d.avance)) },
+        withoutUltraprocesado: { n: withoutUp.length, avance: _avg(withoutUp.map(d => d.avance)) }
+      },
+      byMacro: byMacro,
+      days: filled.map(d => ({ dayNum: d.dayNum, hsSueno: d.hsSueno, trabajo: d.trabajo, avance: d.avance })),
+      recentMeals: data.meals.slice(-10).reverse()
+    };
+  } catch (err) {
+    Logger.log('getHabitsData error: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Lee una celda de hora tolerando que Sheets la haya guardado como Date.
+// Usa getHours/getMinutes en UTC para esquivar el offset LMT de 1899.
+function _readHM(v) {
+  if (v == null || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'UTC', 'HH:mm');
+  }
+  return String(v).trim();
+}
+
+// Repara una hoja de hábitos existente: pone las columnas de hora en formato
+// texto y reescribe los valores que quedaron como Date.
+function repairHabitFormats(monthOpt) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = monthOpt || currentHabitTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
+
+  let fixed = 0;
+  // Tabla diaria: cols 2 y 3
+  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2);
+  const dayVals = dayRange.getValues();
+  const outDay = dayVals.map(r => r.map(v => {
+    if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return _readHM(v); }
+    return v === '' ? '' : String(v);
+  }));
+  dayRange.setNumberFormat('@');
+  dayRange.setValues(outDay);
+
+  // Log de comidas: col 2
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
+    const mr = sheet.getRange(HABIT_MEAL_FIRST_ROW, 2, n, 1);
+    const mv = mr.getValues();
+    const outMeal = mv.map(r => {
+      const v = r[0];
+      if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return [_readHM(v)]; }
+      return [v === '' ? '' : String(v)];
+    });
+    mr.setNumberFormat('@');
+    mr.setValues(outMeal);
+  }
+  return { ok: true, tab: tabName, cellsFixed: fixed };
+}
+
+// Limpia los datos de una hoja de hábitos conservando estructura y fechas.
+// Requiere confirm=SI para evitar borrados accidentales.
+function resetHabitMonth(monthOpt, confirm) {
+  if (String(confirm || '').toUpperCase() !== 'SI') {
+    return { ok: false, error: 'Agregá &confirm=SI para confirmar el borrado' };
+  }
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = monthOpt || currentHabitTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
+
+  // Tabla diaria: limpiar cols 2..9, conservar fechas (col 1)
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, HABIT_DAY_HEADERS.length - 1).clearContent();
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2).setNumberFormat('@');
+
+  // Log de comidas: limpiar todo
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).clearContent();
+  }
+  sheet.getRange(HABIT_MEAL_FIRST_ROW, 2, 600, 1).setNumberFormat('@');
+  return { ok: true, tab: tabName, msg: 'Datos limpiados (estructura y fechas conservadas)' };
+}
+
+// === Wrappers para google.script.run (siempre devuelven objeto plano) ===
+function habitDaySafe(data) {
+  try { return upsertHabitDay(data || {}); }
+  catch (err) { Logger.log('habitDaySafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function addMealSafe(data) {
+  try { return addMealEntry(data || {}); }
+  catch (err) { Logger.log('addMealSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function getHabitsDataSafe(month) {
+  try { return getHabitsData(month); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+function getHabitTodaySafe() {
+  try { return getHabitToday(); }
+  catch (err) { return { ok: false, error: err.message }; }
 }
