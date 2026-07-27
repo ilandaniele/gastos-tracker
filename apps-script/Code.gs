@@ -54,8 +54,19 @@ const HABIT_FIELD_MAP = {
   mast:         'Masturbación',
   notas:        'Notas'
 };
-const HABIT_MEAL_TITLE = 'COMIDAS';
-const HABIT_MEAL_HEADERS = ['Fecha','Hora','Comida','Macro','Tipo','Procesado'];
+const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas y agua)';
+const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml'];
+
+// Envases de agua. El label se elige por cantidad cuando se carga un ml libre.
+const WATER_PRESETS = [
+  { label: 'Taza',           ml: 200,  icon: '☕' },
+  { label: 'Vaso',           ml: 250,  icon: '🥛' },
+  { label: 'Vaso grande',    ml: 350,  icon: '🥛' },
+  { label: 'Media botella',  ml: 500,  icon: '🍶' },
+  { label: 'Botella',        ml: 750,  icon: '🍶' },
+  { label: 'Botella 1L',     ml: 1000, icon: '💧' },
+  { label: 'Botella 1,5L',   ml: 1500, icon: '💧' }
+];
 const HABIT_DAY_HEADER_ROW = 2;     // 1-indexed
 const HABIT_DAY_FIRST_ROW = 3;      // 1-indexed
 const HABIT_MEAL_TITLE_ROW = 36;    // 1-indexed (deja 31 dias + margen)
@@ -98,6 +109,9 @@ const ROUTES = {
   habitToday: p => getHabitDay(p.date || null),
   updateMeal: p => updateMealRow(p),
   deleteMeal: p => deleteMealRow(p),
+  addWater: p => addWaterEntry(p),
+  updateWater: p => updateWaterEntry(p),
+  deleteWater: p => deleteWaterEntry(p),
   clearHabitDay: p => clearHabitDay(p.date, p.confirm),
   createHabitMonth: p => {
     const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1705,7 +1719,8 @@ function getOrCreateHabitTab(ss, tabName) {
   let sheet = ss.getSheetByName(tabName);
   if (sheet) {
     // Hoja de un mes anterior a que existieran algunas columnas: las agrega.
-    try { migrateHabitSheet(sheet); } catch (e) { Logger.log('migrate: ' + e.message); }
+    try { migrateHabitSheet(sheet); } catch (e) { Logger.log('migrate day: ' + e.message); }
+    try { migrateLogTable(sheet); } catch (e) { Logger.log('migrate log: ' + e.message); }
     return sheet;
   }
 
@@ -1952,22 +1967,12 @@ function addMealEntry(p) {
   const cls = classifyMeal(comida, hora);
   const tipo = p.tipo || cls.tipo;
 
-  // Primera fila libre del log de comidas
-  let insertAt = HABIT_MEAL_FIRST_ROW;
-  const lastRow = sheet.getLastRow();
-  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
-    const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
-    const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, n, 1).getValues();
-    insertAt = HABIT_MEAL_FIRST_ROW + n;
-    for (let i = 0; i < vals.length; i++) {
-      if (!String(vals[i][0] || '').trim()) { insertAt = HABIT_MEAL_FIRST_ROW + i; break; }
-    }
-  }
+  const insertAt = _nextLogRow(sheet);
 
   // Formato ANTES de escribir: hora como texto plano (ver nota en getOrCreateHabitTab)
   sheet.getRange(insertAt, 2).setNumberFormat('@');
   sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
-    parseLocalDate(dateStr), hora, comida, cls.macro, tipo, cls.procesado
+    parseLocalDate(dateStr), hora, comida, cls.macro, tipo, cls.procesado, 'Comida', ''
   ]]);
   sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
 
@@ -1983,7 +1988,7 @@ function getHabitDay(dateOpt) {
     const dateStr = dateOpt || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     const tabName = habitTabFor(dateStr);
     const sheet = ss.getSheetByName(tabName);
-    if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [] };
+    if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [], waters: [] };
     const row = _habitFindDayRow(sheet, dateStr);
     let day = null;
     if (row > 0) {
@@ -2005,8 +2010,8 @@ function getHabitDay(dateOpt) {
         notas: String(g('notas') || '')
       };
     }
-    // Comidas del día
-    const meals = [];
+    // Log del día: comidas y agua
+    const meals = [], waters = [];
     const lastRow = sheet.getLastRow();
     if (lastRow >= HABIT_MEAL_FIRST_ROW) {
       const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
@@ -2019,11 +2024,17 @@ function getHabitDay(dateOpt) {
         if (!d) continue;
         if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() !== tKey) continue;
         // row = fila real en la hoja, sirve como id estable para editar/borrar
-        meals.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]), comida: String(r[2] || ''),
-                     macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '') });
+        const reg = String(r[6] || '').trim().toLowerCase();
+        if (reg === 'agua') {
+          waters.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]),
+                        tipo: String(r[2] || ''), ml: toNumber(r[7]) || 0 });
+        } else {
+          meals.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]), comida: String(r[2] || ''),
+                       macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || '') });
+        }
       }
     }
-    return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day, meals: meals };
+    return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day, meals: meals, waters: waters };
   } catch (err) {
     Logger.log('getHabitDay error: ' + err.message);
     return { ok: false, error: err.message };
@@ -2068,6 +2079,7 @@ function readHabitMonth(tabName) {
     const mv = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
     for (const r of mv) {
       if (!r[0] || !String(r[2] || '').trim()) continue;
+      if (String(r[6] || '').trim().toLowerCase() === 'agua') continue; // el agua no es comida
       const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
       meals.push({
         date: d ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
@@ -2262,6 +2274,177 @@ function resetHabitMonth(monthOpt, confirm) {
 }
 
 
+
+// ---- AGUA como registro de tomas -------------------------------------------
+
+// Etiqueta segun la cantidad (para cuando se carga un ml libre)
+function _waterLabel(ml) {
+  const n = Number(ml) || 0;
+  if (n <= 150) return 'Sorbo';
+  if (n <= 220) return 'Taza';
+  if (n <= 300) return 'Vaso';
+  if (n <= 420) return 'Vaso grande';
+  if (n <= 600) return 'Media botella';
+  if (n <= 880) return 'Botella';
+  if (n <= 1200) return 'Botella 1L';
+  return 'Botella grande';
+}
+
+// Recalcula el total de agua del dia sumando el log y lo escribe en la
+// columna "Agua (ml)" de la tabla diaria.
+function _recalcWaterTotal(sheet, dateStr) {
+  const target = parseLocalDate(dateStr);
+  if (!target) return 0;
+  const tKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+
+  let total = 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
+    for (const r of vals) {
+      if (!r[0]) continue;
+      if (String(r[6] || '').trim().toLowerCase() !== 'agua') continue;
+      const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+      if (!d) continue;
+      if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() !== tKey) continue;
+      total += toNumber(r[7]) || 0;
+    }
+  }
+
+  const hmap = _habitHeaderMap(sheet);
+  const col = _habitColOf(hmap, 'agua');
+  if (col > 0) {
+    let row = _habitFindDayRow(sheet, dateStr);
+    if (row > 0) sheet.getRange(row, col).setValue(total);
+  }
+  return total;
+}
+
+// Agrega una toma de agua. p: { date, ml, tipo, hora }
+function addWaterEntry(p) {
+  const ml = toNumber(String(p.ml != null ? p.ml : '').replace(',', '.'));
+  if (ml == null || ml <= 0) throw new Error('Cantidad de agua inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const hora = p.hora || Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm');
+  const tabName = p.month || habitTabFor(dateStr);
+  const sheet = getOrCreateHabitTab(ss, tabName);
+  const tipo = String(p.tipo || '').trim() || _waterLabel(ml);
+
+  const insertAt = _nextLogRow(sheet);
+  sheet.getRange(insertAt, 2).setNumberFormat('@');
+  sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+    parseLocalDate(dateStr), hora, tipo, '', 'Agua', '', 'Agua', ml
+  ]]);
+  sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+
+  const total = _recalcWaterTotal(sheet, dateStr);
+  return { ok: true, tab: tabName, row: insertAt, total: total,
+           written: { ml: ml, tipo: tipo, hora: hora } };
+}
+
+// Edita una toma. p: { row, ml, tipo, hora, date }
+function updateWaterEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < HABIT_MEAL_FIRST_ROW) throw new Error('Fila inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || (p.date ? habitTabFor(p.date) : currentHabitTab());
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
+
+  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  if (String(cur[6] || '').trim().toLowerCase() !== 'agua') throw new Error('Esa fila no es un registro de agua');
+
+  let ml = (p.ml !== undefined && p.ml !== '') ? toNumber(String(p.ml).replace(',', '.')) : toNumber(cur[7]);
+  if (ml == null || ml <= 0) throw new Error('Cantidad inválida');
+  const hora = (p.hora !== undefined && p.hora !== '') ? String(p.hora).trim() : _readHM(cur[1]);
+  const mlChanged = ml !== toNumber(cur[7]);
+  const tipo = (p.tipo !== undefined && p.tipo !== '') ? String(p.tipo).trim()
+             : (mlChanged ? _waterLabel(ml) : String(cur[2] || ''));
+
+  sheet.getRange(row, 2).setNumberFormat('@');
+  sheet.getRange(row, 2, 1, 7).setValues([[hora, tipo, '', 'Agua', '', 'Agua', ml]]);
+
+  const dateStr = p.date || Utilities.formatDate(
+    Object.prototype.toString.call(cur[0]) === '[object Date]' ? cur[0] : parseLocalDate(cur[0]),
+    'America/Montevideo', 'yyyy-MM-dd');
+  const total = _recalcWaterTotal(sheet, dateStr);
+  return { ok: true, tab: tabName, row: row, total: total, written: { ml: ml, tipo: tipo, hora: hora } };
+}
+
+// Borra una toma de agua.
+function deleteWaterEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < HABIT_MEAL_FIRST_ROW) throw new Error('Fila inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || (p.date ? habitTabFor(p.date) : currentHabitTab());
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
+
+  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  if (String(cur[6] || '').trim().toLowerCase() !== 'agua') throw new Error('Esa fila no es un registro de agua');
+
+  const d = Object.prototype.toString.call(cur[0]) === '[object Date]' ? cur[0] : parseLocalDate(cur[0]);
+  const dateStr = p.date || Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd');
+  const ml = toNumber(cur[7]) || 0;
+  const tipo = String(cur[2] || '');
+
+  sheet.deleteRow(row);
+  const total = _recalcWaterTotal(sheet, dateStr);
+  return { ok: true, tab: tabName, deleted: tipo + ' (' + ml + ' ml)', total: total };
+}
+
+// Primera fila libre del log (mira la col A, que la usan comidas y agua)
+function _nextLogRow(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < HABIT_MEAL_FIRST_ROW) return HABIT_MEAL_FIRST_ROW;
+  const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
+  const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, n, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (!String(vals[i][0] || '').trim()) return HABIT_MEAL_FIRST_ROW + i;
+  }
+  return HABIT_MEAL_FIRST_ROW + n;
+}
+
+// Agrega al log las columnas Registro/ml si la hoja es de antes del cambio,
+// y marca como "Comida" las filas viejas.
+function migrateLogTable(sheet) {
+  const hdrs = sheet.getRange(HABIT_MEAL_HEADER_ROW, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  const norm = hdrs.map(h => _stripAccents(String(h || '').trim()));
+  let changed = false;
+
+  if (norm[2] === 'comida') { sheet.getRange(HABIT_MEAL_HEADER_ROW, 3).setValue('Detalle'); changed = true; }
+  if (norm[6] !== 'registro') {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 7).setValue('Registro').setFontWeight('bold').setBackground('#fef3c7');
+    changed = true;
+  }
+  if (norm[7] !== 'ml') {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 8).setValue('ml').setFontWeight('bold').setBackground('#fef3c7');
+    changed = true;
+  }
+  sheet.getRange(HABIT_MEAL_TITLE_ROW, 1).setValue(HABIT_MEAL_TITLE);
+
+  // Backfill: filas con detalle pero sin Registro -> son comidas viejas
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
+    const rng = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, n, HABIT_MEAL_HEADERS.length);
+    const vals = rng.getValues();
+    let touched = false;
+    const out = vals.map(r => {
+      if (r[0] && String(r[2] || '').trim() && !String(r[6] || '').trim()) {
+        r[6] = 'Comida'; touched = true;
+      }
+      return r;
+    });
+    if (touched) { rng.setValues(out); changed = true; }
+  }
+  return changed;
+}
+
 // Edita una comida ya cargada. p: { row, comida, hora, macro, tipo, month }
 // - si cambia el texto y no mandan macro -> reclasifica
 // - si cambia la hora -> recalcula el tipo (desayuno/almuerzo/...)
@@ -2395,6 +2578,21 @@ function updateMealSafe(data) {
 function deleteMealSafe(data) {
   try { return deleteMealRow(data || {}); }
   catch (err) { Logger.log('deleteMealSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function addWaterSafe(data) {
+  try { return addWaterEntry(data || {}); }
+  catch (err) { Logger.log('addWaterSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function updateWaterSafe(data) {
+  try { return updateWaterEntry(data || {}); }
+  catch (err) { Logger.log('updateWaterSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+function deleteWaterSafe(data) {
+  try { return deleteWaterEntry(data || {}); }
+  catch (err) { Logger.log('deleteWaterSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 function clearHabitDaySafe(dateStr) {

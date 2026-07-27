@@ -201,22 +201,23 @@
 
   <!-- AGUA -->
   <div class="hcard">
-    <div class="hcard-title">💧 Agua <span class="hhint">total del día</span></div>
-    <div class="hnum-row">
-      <button type="button" class="hnumbtn" id="aguaMinus">−</button>
-      <input type="text" id="aguaInput" inputmode="numeric" pattern="[0-9]*" value="0">
-      <span class="hunit">ml</span>
-      <button type="button" class="hnumbtn" id="aguaPlus">+</button>
-    </div>
+    <div class="hcard-title">💧 Agua <span class="hhint" id="aguaTot">0 ml</span></div>
     <div class="hwater" id="aguaBar"></div>
     <div class="quick-scroll agua" id="quickAgua">
-      <button type="button" data-ml="200">+200</button>
-      <button type="button" data-ml="250">+250</button>
-      <button type="button" data-ml="330">+330</button>
-      <button type="button" data-ml="500">+500</button>
-      <button type="button" data-ml="750">+750</button>
-      <button type="button" data-ml="1000">+1L</button>
+      <button type="button" data-ml="200"  data-tipo="Taza">☕200</button>
+      <button type="button" data-ml="250"  data-tipo="Vaso">🥛 Vaso</button>
+      <button type="button" data-ml="350"  data-tipo="Vaso grande">🥛 350</button>
+      <button type="button" data-ml="500"  data-tipo="Media botella">🍶½ bot</button>
+      <button type="button" data-ml="750"  data-tipo="Botella">🍶 Botella</button>
+      <button type="button" data-ml="1000" data-tipo="Botella 1L">💧 1L</button>
+      <button type="button" data-ml="1500" data-tipo="Botella 1,5L">💧 1,5L</button>
     </div>
+    <div class="hmeal-input">
+      <input type="text" id="aguaMl" inputmode="numeric" pattern="[0-9]*" placeholder="otra cantidad (ml)">
+      <input type="time" id="aguaHora">
+      <button type="button" id="btnAddAgua">+</button>
+    </div>
+    <div id="aguaList" class="hmeal-list"></div>
   </div>
 
   <!-- MASTURBACION -->
@@ -276,6 +277,34 @@
       <button type="button" id="edDelete" class="hdanger">Borrar</button>
       <button type="button" id="edCancel" class="hsecondary">Cancelar</button>
       <button type="button" id="edSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR AGUA -->
+<div id="waterModal">
+  <div class="hmodal-box">
+    <h3>Editar toma de agua</h3>
+    <label class="hlabel">Cantidad (ml)</label>
+    <input type="text" id="wdMl" inputmode="numeric" pattern="[0-9]*">
+    <label class="hlabel">Envase</label>
+    <input type="text" id="wdTipo" list="waterList" autocomplete="off">
+    <datalist id="waterList">
+      <option value="Sorbo"></option>
+      <option value="Taza"></option>
+      <option value="Vaso"></option>
+      <option value="Vaso grande"></option>
+      <option value="Media botella"></option>
+      <option value="Botella"></option>
+      <option value="Botella 1L"></option>
+      <option value="Botella grande"></option>
+    </datalist>
+    <label class="hlabel">Hora</label>
+    <input type="time" id="wdHora">
+    <div class="hmodal-actions">
+      <button type="button" id="wdDelete" class="hdanger">Borrar</button>
+      <button type="button" id="wdCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="wdSave">Guardar</button>
     </div>
   </div>
 </div>

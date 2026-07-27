@@ -514,7 +514,7 @@
 
   // Estado local del dia que se esta editando. NADA se guarda hasta
   // que se toca "Guardar dia" (salvo las comidas, que son un log aparte).
-  var H = { date: '', meals: [], saved: {}, dirty: false, editingRow: null };
+  var H = { date: '', meals: [], waters: [], saved: {}, dirty: false, editingRow: null, editingWater: null };
 
   function hEl(id) { return document.getElementById(id); }
 
@@ -599,10 +599,12 @@
         if (!r || !r.ok) { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         H.date = r.date || d;
         H.meals = r.meals || [];
+        H.waters = r.waters || [];
         H.saved = r.day || {};
         if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
         paintDay(H.saved);
         renderMeals();
+        renderWaters();
         clearDirty();
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
@@ -620,9 +622,8 @@
     if (hEl('ejerMin'))    hEl('ejerMin').value    = d.ejercicioMin != null ? String(d.ejercicioMin) : '';
     setSlider('habAvance', 'avanceVal', d.avance);
     setSlider('habAnimo',  'animoVal',  d.animo);
-    if (hEl('aguaInput')) hEl('aguaInput').value = d.agua != null ? d.agua : 0;
     if (hEl('mastInput')) hEl('mastInput').value = d.mast != null ? d.mast : 0;
-    renderAgua();
+    if (hEl('aguaHora') && !hEl('aguaHora').value) hEl('aguaHora').value = nowHM();
     if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
   }
 
@@ -653,7 +654,7 @@
 
   // ---------- Marcar cambios ----------
   ['levH','levM','acoH','acoM','habTrabajo','habAvance','habAnimo','habNotas',
-   'ejerText','ejerMin','aguaInput','mastInput'].forEach(function(id) {
+   'ejerText','ejerMin','mastInput'].forEach(function(id) {
     var el = hEl(id);
     if (!el) return;
     el.addEventListener('change', markDirty);
@@ -690,36 +691,139 @@
     markDirty();
     if (after) after();
   }
-  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click',  function() { bumpField('aguaInput',  AGUA_STEP, renderAgua); });
-  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpField('aguaInput', -AGUA_STEP, renderAgua); });
   if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click',  function() { bumpField('mastInput',  1); });
   if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpField('mastInput', -1); });
-  if (hEl('aguaInput')) hEl('aguaInput').addEventListener('input', renderAgua);
+
+  // ---------- Agua: registro de tomas (se guardan al instante) ----------
+  function renderAgua() {
+    var total = 0;
+    for (var i = 0; i < H.waters.length; i++) total += (H.waters[i].ml || 0);
+    var lbl = hEl('aguaTot');
+    if (lbl) lbl.textContent = fmtMl(total) + ' ml' + (total >= AGUA_META ? ' · meta ✓' : ' de ' + fmtMl(AGUA_META));
+    var box = hEl('aguaBar');
+    if (!box) return;
+    var segs = Math.ceil(AGUA_META / AGUA_STEP);
+    var full = Math.min(Math.floor(total / AGUA_STEP), segs);
+    var html = '';
+    for (var j = 0; j < segs; j++) html += '<i class="' + (j < full ? 'on' : '') + '"></i>';
+    box.innerHTML = html;
+  }
+
+  function renderWaters() {
+    var box = hEl('aguaList');
+    renderAgua();
+    if (!box) return;
+    if (!H.waters.length) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin tomas registradas este día</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < H.waters.length; i++) {
+      var w = H.waters[i];
+      html += '<div class="hmeal-row" data-row="' + w.row + '">' +
+        '<span class="mt">' + esc(w.hora) + '</span>' +
+        '<span class="mn">' + esc(w.tipo) + '</span>' +
+        '<span class="mm">' + fmtMl(w.ml) + ' ml</span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('.hmeal-row');
+    for (var k = 0; k < rows.length; k++) {
+      (function(el) {
+        el.addEventListener('click', function() { openWaterModal(parseInt(el.getAttribute('data-row'), 10)); });
+      })(rows[k]);
+    }
+  }
+
+  function addWater(ml, tipo) {
+    if (!ml || ml <= 0) { habStatus('Poné una cantidad válida', 'err'); return; }
+    var hora = (hEl('aguaHora') && hEl('aguaHora').value) || nowHM();
+    habStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          if (hEl('aguaMl')) hEl('aguaMl').value = '';
+          if (hEl('aguaHora')) hEl('aguaHora').value = nowHM();
+          habStatus('✓ ' + (r.written && r.written.tipo) + ' · ' + fmtMl(ml) + ' ml — total ' + fmtMl(r.total) + ' ml', 'ok');
+          reloadLog();
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .addWaterSafe({ date: H.date, ml: ml, tipo: tipo || '', hora: hora });
+  }
 
   (function() {
     var ab = document.querySelectorAll('#quickAgua button');
     for (var i = 0; i < ab.length; i++) {
       (function(btn) {
         btn.addEventListener('click', function() {
-          var ml = parseInt(btn.getAttribute('data-ml'), 10) || 0;
-          if (ml) bumpField('aguaInput', ml, renderAgua);
+          addWater(parseInt(btn.getAttribute('data-ml'), 10) || 0, btn.getAttribute('data-tipo') || '');
         });
       })(ab[i]);
     }
   })();
 
-  function renderAgua() {
-    var el = hEl('aguaInput');
-    var n = el ? (parseInt(String(el.value).replace(/\D/g, ''), 10) || 0) : 0;
-    var box = hEl('aguaBar');
-    if (!box) return;
-    var segs = Math.ceil(AGUA_META / AGUA_STEP);
-    var full = Math.min(Math.floor(n / AGUA_STEP), segs);
-    var html = '';
-    for (var i = 0; i < segs; i++) html += '<i class="' + (i < full ? 'on' : '') + '"></i>';
-    if (n >= AGUA_META) html += '<span style="font-size:11px;color:#0369a1;margin-left:6px;align-self:center">meta ✓</span>';
-    box.innerHTML = html;
+  if (hEl('btnAddAgua')) hEl('btnAddAgua').addEventListener('click', function() {
+    var el = hEl('aguaMl');
+    addWater(parseInt(String(el ? el.value : '').replace(/\D/g, ''), 10) || 0, '');
+  });
+  if (hEl('aguaMl')) hEl('aguaMl').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); if (hEl('btnAddAgua')) hEl('btnAddAgua').click(); }
+  });
+
+  // Modal de edicion de agua
+  function openWaterModal(row) {
+    var w = null;
+    for (var i = 0; i < H.waters.length; i++) if (H.waters[i].row === row) { w = H.waters[i]; break; }
+    if (!w) return;
+    H.editingWater = row;
+    if (hEl('wdMl'))   hEl('wdMl').value   = w.ml || '';
+    if (hEl('wdTipo')) hEl('wdTipo').value = w.tipo || '';
+    if (hEl('wdHora')) hEl('wdHora').value = w.hora || '';
+    if (hEl('waterModal')) hEl('waterModal').classList.add('show');
   }
+  function closeWaterModal() {
+    H.editingWater = null;
+    if (hEl('waterModal')) hEl('waterModal').classList.remove('show');
+  }
+  if (hEl('wdCancel')) hEl('wdCancel').addEventListener('click', closeWaterModal);
+  if (hEl('waterModal')) hEl('waterModal').addEventListener('click', function(ev) {
+    if (ev.target === hEl('waterModal')) closeWaterModal();
+  });
+
+  if (hEl('wdSave')) hEl('wdSave').addEventListener('click', function() {
+    if (H.editingWater == null) return;
+    var ml = parseInt(String(hEl('wdMl') ? hEl('wdMl').value : '').replace(/\D/g, ''), 10);
+    if (!isFinite(ml) || ml <= 0) { habStatus('Cantidad inválida', 'err'); return; }
+    habStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        closeWaterModal();
+        if (r && r.ok) { habStatus('✓ Actualizado — total ' + fmtMl(r.total) + ' ml', 'ok'); reloadLog(); }
+        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(err) { closeWaterModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .updateWaterSafe({
+        row: H.editingWater, date: H.date, ml: ml,
+        tipo: (hEl('wdTipo') && hEl('wdTipo').value.trim()) || '',
+        hora: (hEl('wdHora') && hEl('wdHora').value) || ''
+      });
+  });
+
+  if (hEl('wdDelete')) hEl('wdDelete').addEventListener('click', function() {
+    if (H.editingWater == null) return;
+    if (!confirm('¿Borrar esta toma?')) return;
+    var row = H.editingWater;
+    habStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        closeWaterModal();
+        if (r && r.ok) { habStatus('✓ Borrada: ' + r.deleted, 'ok'); reloadLog(); }
+        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(err) { closeWaterModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .deleteWaterSafe({ row: row, date: H.date });
+  });
 
   // ---------- Ejercicio: atajos ----------
   (function() {
@@ -790,7 +894,7 @@
           if (t) t.value = '';
           if (hEl('mealHora')) hEl('mealHora').value = nowHM();
           habStatus('✓ ' + txt + ' — ' + ((r.written && r.written.macro) || ''), 'ok');
-          reloadMeals();
+          reloadLog();
         } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
@@ -801,11 +905,16 @@
     if (ev.key === 'Enter') { ev.preventDefault(); submitMeal(); }
   });
 
-  // Recarga solo la lista de comidas, sin pisar lo que el usuario este editando
-  function reloadMeals() {
+  // Recarga el log (comidas + agua) sin pisar lo que el usuario este editando arriba
+  function reloadLog() {
     google.script.run
       .withSuccessHandler(function(r) {
-        if (r && r.ok) { H.meals = r.meals || []; renderMeals(); }
+        if (r && r.ok) {
+          H.meals = r.meals || [];
+          H.waters = r.waters || [];
+          renderMeals();
+          renderWaters();
+        }
       })
       .withFailureHandler(function() {})
       .getHabitDaySafe(H.date);
@@ -845,7 +954,7 @@
     google.script.run
       .withSuccessHandler(function(r) {
         closeMealModal();
-        if (r && r.ok) { habStatus('✓ Comida actualizada', 'ok'); reloadMeals(); }
+        if (r && r.ok) { habStatus('✓ Comida actualizada', 'ok'); reloadLog(); }
         else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
       })
       .withFailureHandler(function(err) { closeMealModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
@@ -860,7 +969,7 @@
     google.script.run
       .withSuccessHandler(function(r) {
         closeMealModal();
-        if (r && r.ok) { habStatus('✓ Borrada: ' + r.deleted, 'ok'); reloadMeals(); }
+        if (r && r.ok) { habStatus('✓ Borrada: ' + r.deleted, 'ok'); reloadLog(); }
         else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
       })
       .withFailureHandler(function(err) { closeMealModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
@@ -889,9 +998,7 @@
     var nt = hEl('habNotas');
     if (nt && nt.value.trim()) { payload.notas = nt.value.trim(); campos.push('notas'); }
 
-    // Numericos: se mandan como valor absoluto (el campo muestra el total)
-    var ag = hEl('aguaInput');
-    if (ag) { var agv = parseInt(String(ag.value).replace(/\D/g,''),10); if (isFinite(agv)) { payload.agua = agv; campos.push('agua'); } }
+    // El agua NO va acá: se lleva como registro de tomas, con su propio guardado
     var ms = hEl('mastInput');
     if (ms) { var msv = parseInt(String(ms.value).replace(/\D/g,''),10); if (isFinite(msv)) { payload.mast = msv; campos.push('contador'); } }
 

@@ -163,12 +163,14 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show { display: flex; }
+  #mealModal, #waterModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
   .hmodal-actions button { margin: 0; padding: 12px 4px; font-size: 14px; }
   .hmeal-row { cursor: pointer; }
   .hmeal-row:active { background: #fafafa; }
+  .hwater { min-height: 24px; }
+  #aguaList .hmeal-row .mm { background: #f0f9ff; color: #0369a1; }
 </style>
