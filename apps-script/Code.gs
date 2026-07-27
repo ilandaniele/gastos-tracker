@@ -36,7 +36,24 @@ const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú
 
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
-const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Mast.','Ánimo','Notas'];
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (vasos)','Mast.','Notas'];
+
+// Mapa campo del form -> nombre de header en la hoja.
+// Las columnas se resuelven POR NOMBRE, no por posición: si movés o insertás
+// columnas a mano en el Sheet, el código las sigue encontrando.
+const HABIT_FIELD_MAP = {
+  levante:      'Levanté',
+  acoste:       'Acosté',
+  hsSueno:      'Hs sueño',
+  trabajo:      'Hs trabajo',
+  avance:       'Avance',
+  animo:        'Ánimo',
+  ejercicio:    'Ejercicio',
+  ejercicioMin: 'Min ejerc.',
+  agua:         'Agua (vasos)',
+  mast:         'Mast.',
+  notas:        'Notas'
+};
 const HABIT_MEAL_TITLE = 'COMIDAS';
 const HABIT_MEAL_HEADERS = ['Fecha','Hora','Comida','Macro','Tipo','Procesado'];
 const HABIT_DAY_HEADER_ROW = 2;     // 1-indexed
@@ -88,6 +105,12 @@ const ROUTES = {
   classifyMealTest: p => ({ ok: true, input: p.text, result: classifyMeal(p.text, p.hora) }),
   repairHabits: p => repairHabitFormats(p.month),
   resetHabits: p => resetHabitMonth(p.month, p.confirm),
+  migrateHabits: p => {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(p.month || currentHabitTab());
+    if (!sheet) return { ok: false, error: 'Hoja no existe' };
+    return { ok: true, ...migrateHabitSheet(sheet) };
+  },
   setKey: p => {
     if (!p.key) throw new Error('Falta param "key"');
     PropertiesService.getScriptProperties().setProperty('GEMINI_KEY', p.key);
@@ -796,6 +819,12 @@ function _buildHabitsEmailSection(expenseMonth) {
       ['🔥 Racha avance 4+', d.streak + ' días']
     ];
     if (a.animo != null) kpis.push(['🙂 Ánimo promedio', a.animo + ' / 5']);
+    if (t.ejercicioDias) {
+      const pctEx = Math.round(t.ejercicioDias / d.daysTracked * 100);
+      kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + ' (' + pctEx + '%)']);
+      if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
+    }
+    if (a.agua != null) kpis.push(['💧 Agua promedio', a.agua + ' vasos/día']);
     for (const k of kpis) {
       h += '<tr>';
       h += '<td style="padding:9px;border-bottom:1px solid #e5e5e5;">' + k[0] + '</td>';
@@ -821,6 +850,15 @@ function _buildHabitsEmailSection(expenseMonth) {
                 '</b> (' + c.withUltraprocesado.n + ' días) vs <b>' + c.withoutUltraprocesado.avance +
                 '</b> sin ellos (' + c.withoutUltraprocesado.n + ' días).</li>');
     }
+    if (c.withEjercicio && c.withoutEjercicio &&
+        c.withEjercicio.n >= 3 && c.withoutEjercicio.n >= 3 &&
+        c.withEjercicio.avance != null && c.withoutEjercicio.avance != null) {
+      corr.push('<li>Días <b>con ejercicio</b>: avance <b>' + c.withEjercicio.avance +
+                '</b> (' + c.withEjercicio.n + ' días) vs <b>' + c.withoutEjercicio.avance +
+                '</b> sin entrenar (' + c.withoutEjercicio.n + ' días)' +
+                (c.withEjercicio.animo != null && c.withoutEjercicio.animo != null
+                  ? ' · ánimo ' + c.withEjercicio.animo + ' vs ' + c.withoutEjercicio.animo : '') + '.</li>');
+    }
     if (corr.length) {
       h += '<h3 style="margin-top:24px;font-size:15px;">🔍 Correlaciones</h3>';
       h += '<ul style="line-height:1.7;">' + corr.join('') + '</ul>';
@@ -842,6 +880,18 @@ function _buildHabitsEmailSection(expenseMonth) {
       h += '</table>';
     }
 
+    // Tipos de ejercicio
+    if (d.byEjercicio && d.byEjercicio.length) {
+      h += '<h3 style="margin-top:24px;font-size:15px;">🏃 Ejercicio</h3>';
+      h += '<table style="width:100%;border-collapse:collapse;">';
+      for (const e of d.byEjercicio) {
+        h += '<tr><td style="padding:7px;border-bottom:1px solid #f0f0f0;">' + e.name + '</td>';
+        h += '<td style="padding:7px;border-bottom:1px solid #f0f0f0;text-align:right;color:#666;font-size:12px;">' +
+             e.count + ' días</td></tr>';
+      }
+      h += '</table>';
+    }
+
     // Ajustes sugeridos
     const tips = [];
     if (a.sueno != null && a.sueno < 7) {
@@ -853,6 +903,15 @@ function _buildHabitsEmailSection(expenseMonth) {
     const up = (d.byMacro || []).find(m => m.name === 'Ultraprocesado');
     if (up && d.totalMeals && up.count / d.totalMeals > 0.25) {
       tips.push('<li><b>' + Math.round(up.count / d.totalMeals * 100) + '%</b> de tus comidas son ultraprocesadas. Bajar a menos del 15% es un objetivo concreto para el mes que viene.</li>');
+    }
+    if (t.ejercicioDias != null && d.daysTracked >= 10) {
+      const pctEx = Math.round(t.ejercicioDias / d.daysTracked * 100);
+      if (pctEx < 40) tips.push('<li>Entrenaste <b>' + t.ejercicioDias + ' de ' + d.daysTracked +
+                                ' días</b> (' + pctEx + '%). Subir a 3-4 días por semana es un objetivo concreto.</li>');
+      else tips.push('<li>Buen ritmo de ejercicio: <b>' + pctEx + '%</b> de los días registrados.</li>');
+    }
+    if (a.agua != null && a.agua < 6) {
+      tips.push('<li>Promedio de <b>' + a.agua + ' vasos de agua</b> por día. Apuntar a 8 es el objetivo típico.</li>');
     }
     if (t.trabajo != null && d.daysTracked >= 10) {
       const perDay = Math.round(t.trabajo / d.daysTracked * 10) / 10;
@@ -1637,7 +1696,11 @@ function _classifyMealGemini(text) {
 // Crea (o devuelve) la hoja de hábitos del mes, con las dos tablas listas.
 function getOrCreateHabitTab(ss, tabName) {
   let sheet = ss.getSheetByName(tabName);
-  if (sheet) return sheet;
+  if (sheet) {
+    // Hoja de un mes anterior a que existieran algunas columnas: las agrega.
+    try { migrateHabitSheet(sheet); } catch (e) { Logger.log('migrate: ' + e.message); }
+    return sheet;
+  }
 
   sheet = ss.insertSheet(tabName);
   const parsed = _parseHabitTabName(tabName) || { monthIdx: new Date().getMonth(), year: new Date().getFullYear() };
@@ -1677,6 +1740,56 @@ function getOrCreateHabitTab(ss, tabName) {
   return sheet;
 }
 
+// Lee la fila de headers de la tabla diaria y devuelve { headerNormalizado: colIdx0 }
+function _habitHeaderMap(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+  const hdrs = sheet.getRange(HABIT_DAY_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  const map = {};
+  for (let i = 0; i < hdrs.length; i++) {
+    const key = _stripAccents(String(hdrs[i] || '').trim());
+    if (key) map[key] = i;
+  }
+  return map;
+}
+
+// Columna 1-indexed de un campo lógico. -1 si el header no existe.
+function _habitColOf(hmap, field) {
+  const header = HABIT_FIELD_MAP[field];
+  if (!header) return -1;
+  const idx = hmap[_stripAccents(header)];
+  return (idx === undefined) ? -1 : idx + 1;
+}
+
+// Agrega a una hoja existente las columnas de HABIT_DAY_HEADERS que falten.
+// Idempotente: si ya están todas, no toca nada.
+function migrateHabitSheet(sheet) {
+  const hmap = _habitHeaderMap(sheet);
+  const missing = HABIT_DAY_HEADERS.filter(h => hmap[_stripAccents(h)] === undefined);
+  if (!missing.length) return { added: [] };
+
+  // Insertar antes de "Notas" si existe, si no al final
+  const notasIdx = hmap[_stripAccents('Notas')];
+  let insertAt = (notasIdx === undefined)
+    ? Object.keys(hmap).length + 1
+    : notasIdx + 1;
+
+  for (const h of missing) {
+    if (_stripAccents(h) === _stripAccents('Notas')) continue; // Notas se maneja aparte
+    sheet.insertColumnBefore(insertAt);
+    sheet.getRange(HABIT_DAY_HEADER_ROW, insertAt)
+         .setValue(h).setFontWeight('bold').setBackground('#e8f0ee');
+    insertAt++;
+  }
+  // Si faltaba Notas, agregarla al final
+  if (missing.some(h => _stripAccents(h) === _stripAccents('Notas'))) {
+    const col = _habitHeaderMap(sheet);
+    const last = Object.keys(col).length + 1;
+    sheet.getRange(HABIT_DAY_HEADER_ROW, last)
+         .setValue('Notas').setFontWeight('bold').setBackground('#e8f0ee');
+  }
+  return { added: missing };
+}
+
 // Encuentra la fila 1-indexed de una fecha en la tabla diaria. -1 si no está.
 function _habitFindDayRow(sheet, dateStr) {
   const target = parseLocalDate(dateStr);
@@ -1701,58 +1814,85 @@ function upsertHabitDay(p) {
   const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const tabName = p.month || habitTabFor(dateStr);
   const sheet = getOrCreateHabitTab(ss, tabName);
+  const hmap = _habitHeaderMap(sheet);
 
   let row = _habitFindDayRow(sheet, dateStr);
   if (row < 0) {
-    // Fecha fuera del rango pre-cargado — la agregamos al final de la tabla diaria
     row = HABIT_DAY_FIRST_ROW;
     const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, 1).getValues();
     for (let i = 0; i < vals.length; i++) { if (!vals[i][0]) { row = HABIT_DAY_FIRST_ROW + i; break; } }
     sheet.getRange(row, 1).setValue(parseLocalDate(dateStr)).setNumberFormat('dd/MM/yyyy');
   }
 
-  const current = sheet.getRange(row, 1, 1, HABIT_DAY_HEADERS.length).getValues()[0];
+  const nCols = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+  const current = sheet.getRange(row, 1, 1, nCols).getValues()[0];
   const written = {};
+  const colOf = f => _habitColOf(hmap, f);
 
-  // col 2 Levanté | col 3 Acosté | col 4 Hs sueño | col 5 Hs trabajo
-  // col 6 Avance  | col 7 Mast.  | col 8 Ánimo    | col 9 Notas
-  if (p.levante) { sheet.getRange(row, 2).setNumberFormat('@').setValue(p.levante); written.levante = p.levante; current[1] = p.levante; }
-  if (p.acoste)  { sheet.getRange(row, 3).setNumberFormat('@').setValue(p.acoste);  written.acoste = p.acoste;  current[2] = p.acoste; }
+  const setCell = (field, value, asText) => {
+    const col = colOf(field);
+    if (col < 0) return false;
+    const rng = sheet.getRange(row, col);
+    if (asText) rng.setNumberFormat('@');
+    rng.setValue(value);
+    return true;
+  };
+  const readCur = field => {
+    const col = colOf(field);
+    return col > 0 ? current[col - 1] : '';
+  };
 
-  // Hs sueño: acosté de AYER + levanté de HOY
+  // --- Horas (texto plano para esquivar el offset LMT de 1899) ---
+  if (p.levante) { if (setCell('levante', p.levante, true)) written.levante = p.levante; }
+  if (p.acoste)  { if (setCell('acoste',  p.acoste,  true)) written.acoste  = p.acoste;  }
+
+  // --- Hs sueño: acosté de AYER + levanté de HOY ---
   if (p.levante) {
+    const acosteCol = colOf('acoste');
     let prevBed = null;
-    if (row > HABIT_DAY_FIRST_ROW) prevBed = sheet.getRange(row - 1, 3).getValue();
-    const hs = _calcSleepHours(prevBed, p.levante);
-    if (hs != null) { sheet.getRange(row, 4).setValue(hs); written.hsSueno = hs; }
+    if (row > HABIT_DAY_FIRST_ROW && acosteCol > 0) prevBed = sheet.getRange(row - 1, acosteCol).getValue();
+    const hs = _calcSleepHours(_readHM(prevBed), p.levante);
+    if (hs != null && setCell('hsSueno', hs)) written.hsSueno = hs;
   }
 
-  if (p.trabajo !== undefined && p.trabajo !== '' && p.trabajo !== null) {
-    const v = toNumber(String(p.trabajo).replace(',', '.'));
-    if (v != null) { sheet.getRange(row, 5).setValue(v); written.trabajo = v; }
+  // --- Numéricos simples ---
+  const numFields = [
+    ['trabajo', p.trabajo], ['avance', p.avance], ['animo', p.animo],
+    ['ejercicioMin', p.ejercicioMin]
+  ];
+  for (const [field, raw] of numFields) {
+    if (raw === undefined || raw === '' || raw === null) continue;
+    const v = toNumber(String(raw).replace(',', '.'));
+    if (v != null && setCell(field, v)) written[field] = v;
   }
-  if (p.avance !== undefined && p.avance !== '' && p.avance !== null) {
-    const v = toNumber(p.avance);
-    if (v != null) { sheet.getRange(row, 6).setValue(v); written.avance = v; }
+
+  // --- Ejercicio (texto). Si ya hay algo distinto, se concatena. ---
+  if (p.ejercicio) {
+    const prev = String(readCur('ejercicio') || '').trim();
+    const val = (!prev) ? p.ejercicio
+              : (prev.toLowerCase().indexOf(String(p.ejercicio).toLowerCase()) >= 0 ? prev : prev + ' + ' + p.ejercicio);
+    if (setCell('ejercicio', val)) written.ejercicio = val;
   }
-  // mastDelta: incremento (+1). mast: valor absoluto.
-  if (p.mastDelta !== undefined && p.mastDelta !== '' && p.mastDelta !== null) {
-    const prev = toNumber(current[6]) || 0;
-    const next = prev + (toNumber(p.mastDelta) || 0);
-    sheet.getRange(row, 7).setValue(next < 0 ? 0 : next);
-    written.mast = next < 0 ? 0 : next;
-  } else if (p.mast !== undefined && p.mast !== '' && p.mast !== null) {
-    const v = toNumber(p.mast);
-    if (v != null) { sheet.getRange(row, 7).setValue(v); written.mast = v; }
+
+  // --- Contadores con delta (agua, mast) ---
+  const counters = [['agua', p.aguaDelta, p.agua], ['mast', p.mastDelta, p.mast]];
+  for (const [field, delta, absolute] of counters) {
+    if (delta !== undefined && delta !== '' && delta !== null) {
+      const prev = toNumber(readCur(field)) || 0;
+      let next = prev + (toNumber(delta) || 0);
+      if (next < 0) next = 0;
+      if (setCell(field, next)) written[field] = next;
+    } else if (absolute !== undefined && absolute !== '' && absolute !== null) {
+      const v = toNumber(absolute);
+      if (v != null && setCell(field, v)) written[field] = v;
+    }
   }
-  if (p.animo !== undefined && p.animo !== '' && p.animo !== null) {
-    const v = toNumber(p.animo);
-    if (v != null) { sheet.getRange(row, 8).setValue(v); written.animo = v; }
-  }
+
+  // --- Notas (se acumulan) ---
   if (p.notas) {
-    const prev = String(current[8] || '').trim();
+    const prev = String(readCur('notas') || '').trim();
     const val = prev ? prev + ' · ' + p.notas : p.notas;
-    sheet.getRange(row, 9).setValue(val); written.notas = val;
+    if (setCell('notas', val)) written.notas = val;
   }
 
   return { ok: true, tab: tabName, row: row, date: dateStr, written: written };
@@ -1807,12 +1947,22 @@ function getHabitToday() {
     const row = _habitFindDayRow(sheet, dateStr);
     let day = null;
     if (row > 0) {
-      const v = sheet.getRange(row, 1, 1, HABIT_DAY_HEADERS.length).getValues()[0];
+      const hmap = _habitHeaderMap(sheet);
+      const nCols = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+      const v = sheet.getRange(row, 1, 1, nCols).getValues()[0];
+      const g = f => { const col = _habitColOf(hmap, f); return col > 0 ? v[col - 1] : ''; };
       day = {
-        levante: _readHM(v[1]),
-        acoste:  _readHM(v[2]),
-        hsSueno: toNumber(v[3]), trabajo: toNumber(v[4]), avance: toNumber(v[5]),
-        mast: toNumber(v[6]) || 0, animo: toNumber(v[7]), notas: String(v[8] || '')
+        levante: _readHM(g('levante')),
+        acoste:  _readHM(g('acoste')),
+        hsSueno: toNumber(g('hsSueno')),
+        trabajo: toNumber(g('trabajo')),
+        avance:  toNumber(g('avance')),
+        animo:   toNumber(g('animo')),
+        ejercicio: String(g('ejercicio') || ''),
+        ejercicioMin: toNumber(g('ejercicioMin')),
+        agua: toNumber(g('agua')) || 0,
+        mast: toNumber(g('mast')) || 0,
+        notas: String(g('notas') || '')
       };
     }
     // Comidas de hoy
@@ -1844,21 +1994,28 @@ function readHabitMonth(tabName) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) return null;
 
+  const hmap = _habitHeaderMap(sheet);
+  const nCols = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
   const days = [];
-  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, HABIT_DAY_HEADERS.length).getValues();
+  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, nCols).getValues();
   for (const v of dayVals) {
     if (!v[0]) continue;
     const d = Object.prototype.toString.call(v[0]) === '[object Date]' ? v[0] : parseLocalDate(v[0]);
     if (!d) continue;
-    const hasData = v[1] || v[2] || v[4] !== '' || v[5] !== '' || v[6] !== '';
-    days.push({
+    const g = f => { const col = _habitColOf(hmap, f); return col > 0 ? v[col - 1] : ''; };
+    const row = {
       date: Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd'),
       dayNum: d.getDate(),
-      levante: _readHM(v[1]), acoste: _readHM(v[2]),
-      hsSueno: toNumber(v[3]), trabajo: toNumber(v[4]), avance: toNumber(v[5]),
-      mast: toNumber(v[6]), animo: toNumber(v[7]), notas: String(v[8] || ''),
-      hasData: !!hasData
-    });
+      levante: _readHM(g('levante')), acoste: _readHM(g('acoste')),
+      hsSueno: toNumber(g('hsSueno')), trabajo: toNumber(g('trabajo')),
+      avance: toNumber(g('avance')), animo: toNumber(g('animo')),
+      ejercicio: String(g('ejercicio') || ''), ejercicioMin: toNumber(g('ejercicioMin')),
+      agua: toNumber(g('agua')), mast: toNumber(g('mast')),
+      notas: String(g('notas') || '')
+    };
+    row.hasData = !!(row.levante || row.acoste || row.trabajo != null || row.avance != null ||
+                     row.animo != null || row.ejercicio || row.agua != null || row.mast != null);
+    days.push(row);
   }
 
   const meals = [];
@@ -1924,6 +2081,24 @@ function getHabitsData(monthOpt) {
       else break;
     }
 
+    // Correlación: días con ejercicio vs sin
+    const withEx    = filled.filter(d => (d.ejercicio || (d.ejercicioMin || 0) > 0) && d.avance != null);
+    const withoutEx = filled.filter(d => !d.ejercicio && !(d.ejercicioMin > 0) && d.avance != null);
+    const exDays = filled.filter(d => d.ejercicio || (d.ejercicioMin || 0) > 0);
+    const aguaVals = filled.map(d => d.agua).filter(x => x != null && x > 0);
+
+    // Tipos de ejercicio más frecuentes
+    const exCount = {};
+    for (const d of exDays) {
+      for (const part of String(d.ejercicio || '').split('+')) {
+        const k = part.trim();
+        if (k) exCount[k] = (exCount[k] || 0) + 1;
+      }
+    }
+    const byEjercicio = Object.keys(exCount)
+      .map(k => ({ name: k, count: exCount[k] }))
+      .sort((a, b) => b.count - a.count);
+
     return {
       ok: true,
       tab: tabName,
@@ -1933,21 +2108,28 @@ function getHabitsData(monthOpt) {
         sueno: _avg(sleep),
         trabajo: _avg(work),
         avance: _avg(adv),
-        animo: _avg(filled.map(d => d.animo))
+        animo: _avg(filled.map(d => d.animo)),
+        agua: _avg(aguaVals)
       },
       totals: {
         trabajo: Math.round(work.filter(x => x != null).reduce((s, x) => s + x, 0) * 100) / 100,
-        mast: filled.map(d => d.mast).filter(x => x != null).reduce((s, x) => s + x, 0)
+        mast: filled.map(d => d.mast).filter(x => x != null).reduce((s, x) => s + x, 0),
+        agua: aguaVals.reduce((s, x) => s + x, 0),
+        ejercicioMin: filled.map(d => d.ejercicioMin).filter(x => x != null).reduce((s, x) => s + x, 0),
+        ejercicioDias: exDays.length
       },
       streak: streak,
+      byEjercicio: byEjercicio,
       correlations: {
         sleepGood: { n: goodSleep.length, avance: _avg(goodSleep.map(d => d.avance)) },
         sleepBad:  { n: badSleep.length,  avance: _avg(badSleep.map(d => d.avance)) },
         withUltraprocesado:    { n: withUp.length,    avance: _avg(withUp.map(d => d.avance)) },
-        withoutUltraprocesado: { n: withoutUp.length, avance: _avg(withoutUp.map(d => d.avance)) }
+        withoutUltraprocesado: { n: withoutUp.length, avance: _avg(withoutUp.map(d => d.avance)) },
+        withEjercicio:    { n: withEx.length,    avance: _avg(withEx.map(d => d.avance)),    animo: _avg(withEx.map(d => d.animo)) },
+        withoutEjercicio: { n: withoutEx.length, avance: _avg(withoutEx.map(d => d.avance)), animo: _avg(withoutEx.map(d => d.animo)) }
       },
       byMacro: byMacro,
-      days: filled.map(d => ({ dayNum: d.dayNum, hsSueno: d.hsSueno, trabajo: d.trabajo, avance: d.avance })),
+      days: filled.map(d => ({ dayNum: d.dayNum, hsSueno: d.hsSueno, trabajo: d.trabajo, avance: d.avance, agua: d.agua, ejercicioMin: d.ejercicioMin })),
       recentMeals: data.meals.slice(-10).reverse()
     };
   } catch (err) {
@@ -1975,8 +2157,12 @@ function repairHabitFormats(monthOpt) {
   if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
 
   let fixed = 0;
-  // Tabla diaria: cols 2 y 3
-  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2);
+  // Tabla diaria: columnas de hora, resueltas por nombre
+  const hmapR = _habitHeaderMap(sheet);
+  const cLev = _habitColOf(hmapR, 'levante');
+  const cAco = _habitColOf(hmapR, 'acoste');
+  const firstHour = Math.min(cLev > 0 ? cLev : 2, cAco > 0 ? cAco : 3);
+  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, firstHour, 40, 2);
   const dayVals = dayRange.getValues();
   const outDay = dayVals.map(r => r.map(v => {
     if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return _readHM(v); }
@@ -2013,9 +2199,14 @@ function resetHabitMonth(monthOpt, confirm) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
 
-  // Tabla diaria: limpiar cols 2..9, conservar fechas (col 1)
-  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, HABIT_DAY_HEADERS.length - 1).clearContent();
-  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2).setNumberFormat('@');
+  // Tabla diaria: limpiar todo menos la columna de fechas
+  const nC = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, nC - 1).clearContent();
+  const hm = _habitHeaderMap(sheet);
+  for (const f of ['levante', 'acoste']) {
+    const col = _habitColOf(hm, f);
+    if (col > 0) sheet.getRange(HABIT_DAY_FIRST_ROW, col, 40, 1).setNumberFormat('@');
+  }
 
   // Log de comidas: limpiar todo
   const lastRow = sheet.getLastRow();

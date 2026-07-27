@@ -509,7 +509,7 @@
   // === HABITOS ==============================================
   // ==========================================================
   var habitLoadedOnce = false;
-  var habitState = { mast: 0, meals: [], date: '' };
+  var habitState = { mast: 0, agua: 0, meals: [], date: '' };
 
   function hEl(id) { return document.getElementById(id); }
 
@@ -556,6 +556,9 @@
         setSlider('habAnimo',  'animoVal',  d.animo);
         habitState.mast = d.mast || 0;
         if (hEl('mastVal')) hEl('mastVal').textContent = habitState.mast;
+        habitState.agua = d.agua || 0;
+        renderAgua();
+        renderEjercicio(d.ejercicio, d.ejercicioMin);
         if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
         renderMeals();
       })
@@ -668,22 +671,87 @@
   })();
 
   // --- Contador ---
-  function bumpCounter(delta) {
+  function bumpCounter(field, delta, valId, label) {
+    var payload = { date: habitState.date };
+    payload[field + 'Delta'] = delta;
     habStatus('Guardando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
-          habitState.mast = (r.written && r.written.mast != null) ? r.written.mast : habitState.mast + delta;
-          if (habitState.mast < 0) habitState.mast = 0;
-          if (hEl('mastVal')) hEl('mastVal').textContent = habitState.mast;
-          habStatus('✓ Contador: ' + habitState.mast, 'ok');
+          var next = (r.written && r.written[field] != null) ? r.written[field] : habitState[field] + delta;
+          if (next < 0) next = 0;
+          habitState[field] = next;
+          if (hEl(valId)) hEl(valId).textContent = next;
+          if (field === 'agua') renderAgua();
+          habStatus('✓ ' + label + ': ' + next, 'ok');
         } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .habitDaySafe({ date: habitState.date, mastDelta: delta });
+      .habitDaySafe(payload);
   }
-  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter(1); });
-  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter(-1); });
+  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter('mast', 1, 'mastVal', 'Contador'); });
+  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter('mast', -1, 'mastVal', 'Contador'); });
+  if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click', function() { bumpCounter('agua', 1, 'aguaVal', 'Agua'); });
+  if (hEl('aguaMinus')) hEl('aguaMinus').addEventListener('click', function() { bumpCounter('agua', -1, 'aguaVal', 'Agua'); });
+
+  // --- Agua: vasitos visuales (meta 8) ---
+  function renderAgua() {
+    var box = hEl('aguaBar');
+    if (hEl('aguaVal')) hEl('aguaVal').textContent = habitState.agua || 0;
+    if (!box) return;
+    var n = habitState.agua || 0, meta = Math.max(8, n), html = '';
+    for (var i = 0; i < meta; i++) html += '<i class="' + (i < n ? 'on' : '') + '"></i>';
+    box.innerHTML = html;
+  }
+
+  // --- Ejercicio ---
+  function renderEjercicio(txt, min) {
+    var box = hEl('ejerHoy');
+    if (!box) return;
+    if (!txt && !min) { box.textContent = ''; return; }
+    box.textContent = '🏃 ' + (txt || 'Ejercicio') + (min ? ' · ' + min + ' min' : '');
+  }
+
+  (function() {
+    var eb = document.querySelectorAll('#quickEjer button');
+    for (var i = 0; i < eb.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var t = hEl('ejerText');
+          if (t) { t.value = btn.getAttribute('data-ejer') || ''; }
+          var m = hEl('ejerMin');
+          if (m && !m.value) m.focus();
+        });
+      })(eb[i]);
+    }
+  })();
+
+  function submitEjercicio() {
+    var t = hEl('ejerText'), m = hEl('ejerMin');
+    var txt = t ? t.value.trim() : '';
+    var min = m ? m.value.trim() : '';
+    if (!txt && !min) { habStatus('Elegí un ejercicio o poné los minutos', 'err'); return; }
+    var payload = { date: habitState.date };
+    if (txt) payload.ejercicio = txt;
+    if (min) payload.ejercicioMin = normDec(min);
+    habStatus('Guardando ejercicio...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          var w = r.written || {};
+          renderEjercicio(w.ejercicio || txt, w.ejercicioMin || min);
+          if (t) t.value = '';
+          if (m) m.value = '';
+          habStatus('✓ ' + (w.ejercicio || txt) + (w.ejercicioMin ? ' · ' + w.ejercicioMin + ' min' : ''), 'ok');
+        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .habitDaySafe(payload);
+  }
+  if (hEl('btnAddEjer')) hEl('btnAddEjer').addEventListener('click', submitEjercicio);
+  if (hEl('ejerMin')) hEl('ejerMin').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitEjercicio(); }
+  });
 
   // --- Guardar día completo ---
   if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() {
@@ -740,6 +808,8 @@
       '<div class="hkpi"><div class="hkpi-l">Avance promedio</div><div class="hkpi-v">' + nn(a.avance) + '</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Racha avance 4+</div><div class="hkpi-v">' + d.streak + ' d</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Comidas log</div><div class="hkpi-v">' + d.totalMeals + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Días ejercicio</div><div class="hkpi-v">' + (t.ejercicioDias || 0) + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + nn(a.agua, ' vasos') + '</div></div>' +
     '</div>';
 
     // Correlaciones (solo si hay muestra suficiente)
@@ -753,6 +823,10 @@
         c.withUltraprocesado.n >= 3 && c.withoutUltraprocesado.n >= 3) {
       corr.push('🍫 Días con ultraprocesados: avance <b>' + c.withUltraprocesado.avance +
                 '</b> vs <b>' + c.withoutUltraprocesado.avance + '</b> sin ellos.');
+    }
+    if (c.withEjercicio && c.withoutEjercicio && c.withEjercicio.n >= 3 && c.withoutEjercicio.n >= 3) {
+      corr.push('🏃 Días con ejercicio: avance <b>' + c.withEjercicio.avance +
+                '</b> vs <b>' + c.withoutEjercicio.avance + '</b> sin entrenar.');
     }
     if (corr.length) html += '<div class="hcorr">' + corr.join('<br>') + '</div>';
     else html += '<div class="hcorr">Seguí cargando datos — las correlaciones aparecen con 3+ días en cada grupo.</div>';

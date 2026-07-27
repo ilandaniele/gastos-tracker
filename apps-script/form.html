@@ -163,6 +163,38 @@
     <div class="hscale"><span>sin datos</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
   </div>
 
+  <!-- EJERCICIO -->
+  <div class="hcard">
+    <div class="hcard-title">🏃 Ejercicio</div>
+    <div class="quick-scroll ejer" id="quickEjer">
+      <button type="button" data-ejer="Gimnasio">🏋️Gym</button>
+      <button type="button" data-ejer="Correr">🏃Correr</button>
+      <button type="button" data-ejer="Fútbol">⚽Fútbol</button>
+      <button type="button" data-ejer="Bici">🚴Bici</button>
+      <button type="button" data-ejer="Caminata">🚶Caminar</button>
+      <button type="button" data-ejer="Natación">🏊Natación</button>
+      <button type="button" data-ejer="Yoga">🧘Yoga</button>
+      <button type="button" data-ejer="Funcional">🤸Funcional</button>
+    </div>
+    <div class="hmeal-input">
+      <input type="text" id="ejerText" placeholder="¿Qué hiciste?" autocomplete="off">
+      <input type="text" id="ejerMin" inputmode="numeric" pattern="[0-9]*" placeholder="min">
+      <button type="button" id="btnAddEjer">+</button>
+    </div>
+    <div class="hsleep" id="ejerHoy"></div>
+  </div>
+
+  <!-- AGUA -->
+  <div class="hcard">
+    <div class="hcard-title">💧 Agua</div>
+    <div class="hcounter">
+      <button type="button" id="aguaMinus">−</button>
+      <div class="hcounter-val"><span id="aguaVal">0</span><small>vasos</small></div>
+      <button type="button" id="aguaPlus">+</button>
+    </div>
+    <div class="hwater" id="aguaBar"></div>
+  </div>
+
   <!-- CONTADOR -->
   <div class="hcard">
     <div class="hcard-title">📊 Contador</div>
