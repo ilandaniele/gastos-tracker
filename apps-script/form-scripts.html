@@ -696,8 +696,8 @@
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
       .habitDaySafe(payload);
   }
-  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter('mast', 1, 'mastVal', 'Contador'); });
-  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter('mast', -1, 'mastVal', 'Contador'); });
+  if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click', function() { bumpCounter('mast', 1, 'mastVal', 'Masturbación'); });
+  if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpCounter('mast', -1, 'mastVal', 'Masturbación'); });
   var AGUA_STEP = 250;   // ml por tap en +/-
   var AGUA_META = 2000;  // objetivo diario en ml
   if (hEl('aguaPlus'))  hEl('aguaPlus').addEventListener('click', function() { bumpCounter('agua', AGUA_STEP, 'aguaVal', 'Agua (ml)'); });
@@ -717,15 +717,25 @@
   })();
 
   // --- Agua: barra por vasos de 250 ml (meta 2000) ---
+  function fmtMl(n) {
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
   function renderAgua() {
     var n = habitState.agua || 0;
-    if (hEl('aguaVal')) hEl('aguaVal').textContent = n;
+    if (hEl('aguaVal')) hEl('aguaVal').textContent = fmtMl(n);
     var sub = hEl('aguaSub');
-    if (sub) sub.textContent = n >= AGUA_META ? 'ml · meta ✓' : ('ml de ' + AGUA_META);
+    if (sub) {
+      sub.textContent = n >= AGUA_META
+        ? ('ml · meta ✓ (+' + fmtMl(n - AGUA_META) + ')')
+        : ('ml de ' + fmtMl(AGUA_META));
+    }
     var box = hEl('aguaBar');
     if (!box) return;
-    var segs = Math.max(Math.ceil(AGUA_META / AGUA_STEP), Math.ceil(n / AGUA_STEP));
-    var full = Math.floor(n / AGUA_STEP), html = '';
+    // La barra siempre muestra los 8 vasos de la meta; lo que pasa de ahí no
+    // agrega segmentos (evita una fila interminable si tomás 3 litros).
+    var segs = Math.ceil(AGUA_META / AGUA_STEP);
+    var full = Math.min(Math.floor(n / AGUA_STEP), segs);
+    var html = '';
     for (var i = 0; i < segs; i++) html += '<i class="' + (i < full ? 'on' : '') + '"></i>';
     box.innerHTML = html;
   }
@@ -835,7 +845,8 @@
       '<div class="hkpi"><div class="hkpi-l">Racha avance 4+</div><div class="hkpi-v">' + d.streak + ' d</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Comidas log</div><div class="hkpi-v">' + d.totalMeals + '</div></div>' +
       '<div class="hkpi"><div class="hkpi-l">Días ejercicio</div><div class="hkpi-v">' + (t.ejercicioDias || 0) + '</div></div>' +
-      '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + (a.agua == null ? '—' : Math.round(a.agua) + ' ml') + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Agua promedio</div><div class="hkpi-v">' + (a.agua == null ? '—' : fmtMl(Math.round(a.agua)) + ' ml') + '</div></div>' +
+      '<div class="hkpi"><div class="hkpi-l">Masturbación</div><div class="hkpi-v">' + (t.mast || 0) + '</div></div>' +
     '</div>';
 
     // Correlaciones (solo si hay muestra suficiente)

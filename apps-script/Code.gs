@@ -36,7 +36,7 @@ const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú
 
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
-const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (ml)','Mast.','Notas'];
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (ml)','Masturbación','Notas'];
 
 // Mapa campo del form -> nombre de header en la hoja.
 // Las columnas se resuelven POR NOMBRE, no por posición: si movés o insertás
@@ -51,7 +51,7 @@ const HABIT_FIELD_MAP = {
   ejercicio:    'Ejercicio',
   ejercicioMin: 'Min ejerc.',
   agua:         'Agua (ml)',
-  mast:         'Mast.',
+  mast:         'Masturbación',
   notas:        'Notas'
 };
 const HABIT_MEAL_TITLE = 'COMIDAS';
@@ -825,6 +825,10 @@ function _buildHabitsEmailSection(expenseMonth) {
       if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
     }
     if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día']);
+    if (t.mast) {
+      const perWeek = Math.round(t.mast / Math.max(d.daysTracked, 1) * 7 * 10) / 10;
+      kpis.push(['📊 Masturbación', t.mast + ' en el mes (~' + perWeek + '/semana)']);
+    }
     for (const k of kpis) {
       h += '<tr>';
       h += '<td style="padding:9px;border-bottom:1px solid #e5e5e5;">' + k[0] + '</td>';
@@ -1780,6 +1784,13 @@ function migrateHabitSheet(sheet) {
       return [r[0]];
     });
     if (touched) rng.setValues(out);
+  }
+
+  // Rename 'Mast.' -> 'Masturbación' (mismo dato, solo la etiqueta)
+  const pre2 = _habitHeaderMap(sheet);
+  const oldMast = pre2[_stripAccents('Mast.')];
+  if (oldMast !== undefined && pre2[_stripAccents('Masturbación')] === undefined) {
+    sheet.getRange(HABIT_DAY_HEADER_ROW, oldMast + 1).setValue('Masturbación');
   }
 
   const hmap = _habitHeaderMap(sheet);
