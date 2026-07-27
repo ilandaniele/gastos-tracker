@@ -58,6 +58,8 @@ const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas y agua)';
 const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml'];
 
 // Envases de agua. El label se elige por cantidad cuando se carga un ml libre.
+const WATER_GOAL_ML = 2400;   // objetivo diario de agua
+
 const WATER_PRESETS = [
   { label: 'Taza',           ml: 200,  icon: '☕' },
   { label: 'Vaso',           ml: 250,  icon: '🥛' },
@@ -109,6 +111,7 @@ const ROUTES = {
   habitToday: p => getHabitDay(p.date || null),
   updateMeal: p => updateMealRow(p),
   deleteMeal: p => deleteMealRow(p),
+  habitPending: p => habitPending(p),
   addWater: p => addWaterEntry(p),
   updateWater: p => updateWaterEntry(p),
   deleteWater: p => deleteWaterEntry(p),
@@ -841,7 +844,7 @@ function _buildHabitsEmailSection(expenseMonth) {
       kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + ' (' + pctEx + '%)']);
       if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
     }
-    if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día']);
+    if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día  (objetivo ' + WATER_GOAL_ML + ')']);
     if (t.mast) {
       const perWeek = Math.round(t.mast / Math.max(d.daysTracked, 1) * 7 * 10) / 10;
       kpis.push(['📊 Masturbación', t.mast + ' en el mes (~' + perWeek + '/semana)']);
@@ -931,8 +934,13 @@ function _buildHabitsEmailSection(expenseMonth) {
                                 ' días</b> (' + pctEx + '%). Subir a 3-4 días por semana es un objetivo concreto.</li>');
       else tips.push('<li>Buen ritmo de ejercicio: <b>' + pctEx + '%</b> de los días registrados.</li>');
     }
-    if (a.agua != null && a.agua < 2000) {
-      tips.push('<li>Promedio de <b>' + Math.round(a.agua) + ' ml de agua</b> por día. El objetivo típico son 2000 ml.</li>');
+    if (a.agua != null && a.agua < WATER_GOAL_ML) {
+      const falta = WATER_GOAL_ML - Math.round(a.agua);
+      tips.push('<li>Promedio de <b>' + Math.round(a.agua) + ' ml de agua</b> por día — te faltan <b>' +
+                falta + ' ml</b> para los ' + WATER_GOAL_ML + ' ml que te propusiste (unos ' +
+                Math.ceil(falta / 250) + ' vasos más por día).</li>');
+    } else if (a.agua != null) {
+      tips.push('<li>Agua: <b>' + Math.round(a.agua) + ' ml/día</b> de promedio, por encima de tu objetivo de ' + WATER_GOAL_ML + ' ml. ✓</li>');
     }
     if (t.trabajo != null && d.daysTracked >= 10) {
       const perDay = Math.round(t.trabajo / d.daysTracked * 10) / 10;
@@ -2274,6 +2282,89 @@ function resetHabitMonth(monthOpt, confirm) {
 }
 
 
+
+
+// Devuelve si hay algo sin cargar en el dia, segun la hora.
+// Pensado para que un atajo del celular lo consulte y solo muestre la
+// notificacion cuando pending = true.
+function habitPending(opts) {
+  try {
+    const now = new Date();
+    const dateStr = Utilities.formatDate(now, 'America/Montevideo', 'yyyy-MM-dd');
+    const hourNow = parseInt(Utilities.formatDate(now, 'America/Montevideo', 'HH'), 10);
+    const minNow  = parseInt(Utilities.formatDate(now, 'America/Montevideo', 'mm'), 10);
+    const tNow = hourNow + minNow / 60;
+
+    const desde = (opts && opts.desde != null) ? Number(opts.desde) : 9;   // no molestar antes
+    const hasta = (opts && opts.hasta != null) ? Number(opts.hasta) : 23;  // ni después
+
+    const base = { ok: true, date: dateStr, hora: Utilities.formatDate(now, 'America/Montevideo', 'HH:mm') };
+    if (tNow < desde || tNow > hasta) {
+      return Object.assign(base, { pending: false, pendingNum: 0, title: '', msg: 'Fuera de la franja horaria' });
+    }
+
+    const day = getHabitDay(dateStr);
+    if (!day || !day.ok) return Object.assign(base, { pending: false, pendingNum: 0, title: '', msg: 'Sin datos' });
+
+    const d = day.day || {};
+    const meals = day.meals || [];
+    const waters = day.waters || [];
+    const faltantes = [];
+
+    // --- Sueño ---
+    if (tNow >= 10 && !d.levante) faltantes.push('marcá a qué hora te levantaste');
+
+    // --- Agua: ritmo esperado entre las 8 y las 22 ---
+    const totalAgua = waters.reduce((s, w) => s + (w.ml || 0), 0);
+    const ini = 8, fin = 22;
+    let esperado = 0;
+    if (tNow > ini) esperado = Math.round(WATER_GOAL_ML * Math.min((tNow - ini) / (fin - ini), 1));
+    // Margen de un vaso para no ser molesto
+    if (totalAgua < esperado - 250) {
+      const faltan = esperado - totalAgua;
+      faltantes.push('vas ' + totalAgua + ' ml de agua, deberías ir por ' + esperado +
+                     ' (te faltan ~' + Math.ceil(faltan / 250) + ' vasos)');
+    }
+
+    // --- Comidas segun la hora ---
+    const tipos = {};
+    for (const m of meals) tipos[String(m.tipo || '').toLowerCase()] = true;
+    if (tNow >= 11.5 && !tipos['desayuno']) faltantes.push('no cargaste el desayuno');
+    if (tNow >= 15.5 && !tipos['almuerzo']) faltantes.push('no cargaste el almuerzo');
+    if (tNow >= 22   && !tipos['cena'])     faltantes.push('no cargaste la cena');
+
+    // --- Cierre del día ---
+    if (tNow >= 21) {
+      if (d.avance == null)  faltantes.push('falta el avance del día');
+      if (d.trabajo == null) faltantes.push('faltan las horas trabajadas');
+    }
+
+    const pending = faltantes.length > 0;
+    let title = '', msg = '';
+    if (pending) {
+      title = faltantes.length === 1 ? '🧘 Te falta algo' : '🧘 Te faltan ' + faltantes.length + ' cosas';
+      // Mayúscula inicial en el primero
+      msg = faltantes.map((f, i) => i === 0 ? f.charAt(0).toUpperCase() + f.slice(1) : f).join(' · ');
+    } else {
+      msg = 'Todo al día ✓';
+    }
+
+    return Object.assign(base, {
+      pending: pending,
+      pendingNum: pending ? 1 : 0,   // 1/0 para que el atajo lo compare fácil
+      count: faltantes.length,
+      title: title,
+      msg: msg,
+      faltantes: faltantes,
+      agua: totalAgua,
+      aguaEsperado: esperado,
+      aguaObjetivo: WATER_GOAL_ML
+    });
+  } catch (err) {
+    Logger.log('habitPending error: ' + err.message);
+    return { ok: false, pending: false, pendingNum: 0, error: err.message };
+  }
+}
 
 // ---- AGUA como registro de tomas -------------------------------------------
 
