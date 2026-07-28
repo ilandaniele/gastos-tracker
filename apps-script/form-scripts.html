@@ -644,7 +644,12 @@
     goToDay(iso);
   }
   function goToDay(iso) {
-    if (H.dirty && !confirm('Tenés cambios sin guardar en este día. ¿Cambiar de día igual?')) return;
+    if (H.dirty) {
+      if (confirm('Tenés cambios sin guardar.\n\nAceptar = guardarlos y cambiar de día\nCancelar = cambiar sin guardar')) {
+        saveDay({ silent: true, then: function() { loadDay(iso); } });
+        return;
+      }
+    }
     loadDay(iso);
   }
   if (hEl('dayPrev'))  hEl('dayPrev').addEventListener('click', function() { shiftDay(-1); });
@@ -1056,7 +1061,10 @@
   });
 
   // ---------- Guardar el dia ----------
-  if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() {
+  // Un solo camino de guardado para el boton manual y para el autoguardado.
+  // opts: { silent: no muestra spinner, then: callback al terminar }
+  function saveDay(opts) {
+    opts = opts || {};
     var payload = { date: H.date };
     var campos = [];
 
@@ -1077,13 +1085,17 @@
     var nt = hEl('habNotas');
     if (nt && nt.value.trim()) { payload.notas = nt.value.trim(); campos.push('notas'); }
 
-    // El agua NO va acá: se lleva como registro de tomas, con su propio guardado
+    // El agua no va acá: se lleva como registro de tomas, con su propio guardado
     var ms = hEl('mastInput');
     if (ms) { var msv = parseInt(String(ms.value).replace(/\D/g,''),10); if (isFinite(msv)) { payload.mast = msv; campos.push('contador'); } }
 
-    if (!campos.length) { habStatus('No hay nada para guardar', 'err'); return; }
+    if (!campos.length) {
+      if (!opts.silent) habStatus('No hay nada para guardar', 'err');
+      if (opts.then) opts.then(false);
+      return;
+    }
 
-    habStatus('Guardando día...', 'loading');
+    if (!opts.silent) habStatus('Guardando día...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
@@ -1091,11 +1103,72 @@
           if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
             hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
           }
-          habStatus('✓ Guardado · ' + campos.join(', '), 'ok');
-        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+          habStatus((opts.silent ? '✓ Guardado automático · ' : '✓ Guardado · ') + campos.join(', '), 'ok');
+        } else {
+          habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+        }
+        if (opts.then) opts.then(!!(r && r.ok));
       })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .withFailureHandler(function(err) {
+        habStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        if (opts.then) opts.then(false);
+      })
       .habitDaySafe(payload);
+  }
+
+  if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() { saveDay(); });
+
+  // ---------- Autoguardado y cambio de día ----------
+  // El form vive en el celular hasta que se guarda, asi que la red de
+  // seguridad tiene que correr acá y no en un trigger del servidor.
+  var rolloverTimer = null;
+
+  // Guarda lo pendiente y pasa al dia nuevo con el form limpio.
+  function rolloverDay() {
+    // Si nunca se abrió la pestaña no hay nada que rotar: H.date está vacío
+    // y cargar el día acá dispararía una llamada al server al pedo.
+    if (!habitLoadedOnce) { programarMedianoche(); return; }
+    var siguiente = todayISO();
+    if (H.dirty) {
+      saveDay({ silent: true, then: function() { loadDay(siguiente); } });
+    } else if (H.date !== siguiente) {
+      loadDay(siguiente);
+    }
+    programarMedianoche();
+  }
+
+  // Timer hasta las 00:00:05 del dia siguiente (5s de gracia para no
+  // pelearse con el reloj). Se reprograma solo despues de cada disparo.
+  function programarMedianoche() {
+    if (rolloverTimer) clearTimeout(rolloverTimer);
+    var ahora = new Date();
+    var proxima = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1, 0, 0, 5);
+    var ms = proxima.getTime() - ahora.getTime();
+    // setTimeout revienta arriba de ~24.8 dias; acá nunca pasa de 24 hs.
+    rolloverTimer = setTimeout(rolloverDay, ms);
+  }
+  programarMedianoche();
+
+  // Si la app se va a segundo plano con cambios sin guardar, guardarlos.
+  // En iOS 'visibilitychange' a hidden es mucho mas confiable que beforeunload.
+  document.addEventListener('visibilitychange', function() {
+    // No se filtra por pestaña visible: si hay cambios de hábitos sin guardar
+    // hay que rescatarlos aunque el usuario esté parado en Gastos.
+    if (!habitLoadedOnce) return;
+
+    if (document.visibilityState === 'hidden') {
+      if (H.dirty) saveDay({ silent: true });
+    } else {
+      // Al volver: si cambio el dia (quedo abierta toda la noche), rotar.
+      if (H.date !== todayISO()) rolloverDay();
+      else programarMedianoche();
+    }
+  });
+
+  // Ultimo recurso al cerrar la pestaña. No siempre llega a completarse,
+  // pero no cuesta nada intentarlo.
+  window.addEventListener('pagehide', function() {
+    if (habitLoadedOnce && H.dirty) saveDay({ silent: true });
   });
 
   // ---------- Borrar el dia ----------
