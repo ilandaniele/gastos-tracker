@@ -580,18 +580,17 @@
     if (!h || !m) return;
     if (!hm) { h.value = ''; m.value = ''; return; }
     var parts = String(hm).split(':');
-    h.value = (parts[0] || '').padStart(2, '0');
-    // Redondear los minutos al múltiplo de 5 más cercano (las ruedas van de a 5)
+    var hh = parseInt(parts[0] || '0', 10);
     var mm = parseInt(parts[1] || '0', 10);
+    if (!isFinite(hh)) hh = 0;
     if (!isFinite(mm)) mm = 0;
-    var rounded = String(Math.round(mm / 5) * 5 % 60).padStart(2, '0');
-    m.value = rounded;
-    // Si el valor exacto no está en la lista, agregarlo para no perderlo
-    if (m.value !== rounded) {
-      var opt = document.createElement('option');
-      opt.value = rounded; opt.textContent = rounded;
-      m.appendChild(opt); m.value = rounded;
-    }
+    // Redondear al múltiplo de 5 más cercano. Si redondea a 60 hay que subir
+    // la hora: antes 07:58 quedaba en 07:00, una hora para atrás, y eso se
+    // metía directo en el cálculo de horas dormidas.
+    var r = Math.round(mm / 5) * 5;
+    if (r >= 60) { r = 0; hh = (hh + 1) % 24; }
+    h.value = String(hh).padStart(2, '0');
+    m.value = String(r).padStart(2, '0');
   }
 
   // ---------- Carga de un dia ----------
@@ -1139,9 +1138,13 @@
     var nt = hEl('habNotas');
     poner('notas', nt ? nt.value.trim() : '', 'notas');
 
-    // El agua no va acá: se lleva como registro de tomas, con su propio guardado
+    // El agua no va acá: se lleva como registro de tomas, con su propio guardado.
+    // El contador pasa por poner() como el resto: antes se mandaba SIEMPRE, así
+    // que un autoguardado con H.saved a medio cargar escribía 0 encima del
+    // valor real, y además 'campos' nunca quedaba vacío.
     var ms = hEl('mastInput');
-    if (ms) { var msv = parseInt(String(ms.value).replace(/\D/g,''),10); if (isFinite(msv)) { payload.mast = msv; campos.push('contador'); } }
+    var msv = ms ? parseInt(String(ms.value).replace(/\D/g,''), 10) : NaN;
+    poner('mast', (isFinite(msv) && msv > 0) ? msv : '', 'contador');
 
     if (borrar.length) payload.clear = borrar.join(',');
 

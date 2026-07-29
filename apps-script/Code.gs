@@ -1630,7 +1630,10 @@ function _doAddExpense(p) {
 // ============================================================================
 
 function habitTabFor(date) {
-  const d = parseLocalDate(date) || new Date();
+  // parseLocalDate devuelve Invalid Date (que no es falsy) ante basura, asi
+  // que hay que chequear getTime. Sin esto se crea "Hábitos undefined NaN".
+  let d = parseLocalDate(date);
+  if (!d || isNaN(d.getTime())) d = new Date();
   return HABIT_PREFIX + MONTH_NAMES[d.getMonth()] + ' ' + d.getFullYear();
 }
 
@@ -1867,25 +1870,18 @@ function migrateHabitSheet(sheet) {
   const missing = HABIT_DAY_HEADERS.filter(h => hmap[_stripAccents(h)] === undefined);
   if (!missing.length) return { added: [] };
 
-  // Insertar antes de "Notas" si existe, si no al final
-  const notasIdx = hmap[_stripAccents('Notas')];
-  let insertAt = (notasIdx === undefined)
-    ? Object.keys(hmap).length + 1
-    : notasIdx + 1;
+  // NUNCA insertar columnas: insertColumnBefore corre TODA la hoja, y el log
+  // de comidas/agua vive abajo en la misma hoja leyendose por posicion fija.
+  // Insertar en el medio desplazaria Registro/ml/kcal y el agua dejaria de
+  // encontrarse (el total del dia se escribiria en 0). Las columnas que
+  // falten se agregan al final, que no mueve nada.
+  let siguiente = 1;
+  for (const k of Object.keys(hmap)) siguiente = Math.max(siguiente, hmap[k] + 2);
 
   for (const h of missing) {
-    if (_stripAccents(h) === _stripAccents('Notas')) continue; // Notas se maneja aparte
-    sheet.insertColumnBefore(insertAt);
-    sheet.getRange(HABIT_DAY_HEADER_ROW, insertAt)
+    sheet.getRange(HABIT_DAY_HEADER_ROW, siguiente)
          .setValue(h).setFontWeight('bold').setBackground('#e8f0ee');
-    insertAt++;
-  }
-  // Si faltaba Notas, agregarla al final
-  if (missing.some(h => _stripAccents(h) === _stripAccents('Notas'))) {
-    const col = _habitHeaderMap(sheet);
-    const last = Object.keys(col).length + 1;
-    sheet.getRange(HABIT_DAY_HEADER_ROW, last)
-         .setValue('Notas').setFontWeight('bold').setBackground('#e8f0ee');
+    siguiente++;
   }
   return { added: missing };
 }
@@ -1913,14 +1909,27 @@ function upsertHabitDay(p) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const tabName = p.month || habitTabFor(dateStr);
+  // Si mandan month a mano, tiene que ser el mes de la fecha. Sin este chequeo
+  // una fecha de julio con month=Junio terminaba escrita en una fila libre de
+  // la hoja de junio, ensuciando el mes equivocado.
+  if (p.month && p.month !== habitTabFor(dateStr)) {
+    throw new Error('La fecha ' + dateStr + ' no pertenece a "' + p.month + '"');
+  }
   const sheet = getOrCreateHabitTab(ss, tabName);
   const hmap = _habitHeaderMap(sheet);
 
   let row = _habitFindDayRow(sheet, dateStr);
   if (row < 0) {
-    row = HABIT_DAY_FIRST_ROW;
+    // Buscar una fila de fecha vacia. Si no hay ninguna NO se puede asumir
+    // nada: caer a la primera fila pisaria los datos del dia 1 en silencio.
+    let libre = -1;
     const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, HABIT_DAY_ROWS, 1).getValues();
-    for (let i = 0; i < vals.length; i++) { if (!vals[i][0]) { row = HABIT_DAY_FIRST_ROW + i; break; } }
+    for (let i = 0; i < vals.length; i++) { if (!vals[i][0]) { libre = HABIT_DAY_FIRST_ROW + i; break; } }
+    if (libre < 0) {
+      throw new Error('No se encontró la fila del ' + dateStr + ' en "' + tabName +
+                      '" y no hay filas libres. Revisá que la fecha corresponda a ese mes.');
+    }
+    row = libre;
     sheet.getRange(row, 1).setValue(parseLocalDate(dateStr)).setNumberFormat('dd/MM/yyyy');
   }
 
@@ -2032,11 +2041,9 @@ function addMealEntry(p) {
   const comida = String(p.comida || p.item || '').trim();
   if (!comida) throw new Error('Falta el texto de la comida');
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
   const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const hora = p.hora || Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm');
   const tabName = p.month || habitTabFor(dateStr);
-  const sheet = getOrCreateHabitTab(ss, tabName);
 
   const cls = classifyMeal(comida, hora);
   const tipo = p.tipo || cls.tipo;
@@ -2046,14 +2053,27 @@ function addMealEntry(p) {
   const kcal      = (p.kcal      !== undefined && p.kcal      !== '') ? (toNumber(p.kcal) || '') : '';
   const ingr      = (p.ingredientes !== undefined) ? String(p.ingredientes || '') : '';
 
-  const insertAt = _nextLogRow(sheet);
-
-  // Formato ANTES de escribir: hora como texto plano (ver nota en getOrCreateHabitTab)
-  sheet.getRange(insertAt, 2).setNumberFormat('@');
-  sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
-    parseLocalDate(dateStr), hora, comida, macro, tipo, procesado, 'Comida', '', kcal, ingr
-  ]]);
-  sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+  // Lock alrededor de TODO: abrir la hoja, resolver la fila libre y escribir.
+  // SpreadsheetApp cachea el estado del momento en que se abre el archivo, así
+  // que abrirlo antes del lock hace que _nextLogRow lea un snapshot viejo y dos
+  // altas simultáneas resuelvan la misma fila (comprobado: 6 altas en paralelo
+  // devolvían filas 54,55,54,55,56,55 y se pisaban entre sí).
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let insertAt, sheet;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    sheet = getOrCreateHabitTab(ss, tabName);
+    insertAt = _nextLogRow(sheet);
+    sheet.getRange(insertAt, 2).setNumberFormat('@');
+    sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+      parseLocalDate(dateStr), hora, comida, macro, tipo, procesado, 'Comida', '', kcal, ingr
+    ]]);
+    sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
 
   return { ok: true, tab: tabName, row: insertAt,
            written: { comida: comida, hora: hora, macro: macro, tipo: tipo,
@@ -2149,8 +2169,12 @@ function readHabitMonth(tabName) {
       agua: toNumber(g('agua')), mast: toNumber(g('mast')),
       notas: String(g('notas') || '')
     };
+    // agua y mast se comparan contra > 0: _recalcWaterTotal escribe 0 al
+    // borrar la ultima toma, y un 0 no debe marcar el dia como registrado
+    // (inflaba daysTracked y con eso todos los porcentajes del reporte).
     row.hasData = !!(row.levante || row.acoste || row.trabajo != null || row.avance != null ||
-                     row.animo != null || row.ejercicio || row.agua != null || row.mast != null);
+                     row.animo != null || row.ejercicio || (row.ejercicioMin > 0) ||
+                     (row.agua > 0) || (row.mast > 0));
     days.push(row);
   }
 
@@ -2309,7 +2333,12 @@ function getHabitsData(monthOpt) {
 function _readHM(v) {
   if (v == null || v === '') return '';
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return Utilities.formatDate(v, 'UTC', 'HH:mm');
+    // Sheets guarda una hora suelta como Date del 1899-12-30 EN LA ZONA DEL
+    // SPREADSHEET. Formatear en UTC le sumaba el offset (~3h45 de LMT
+    // Montevideo) en vez de cancelarlo: 07:15 se leia 10:59. Hay que
+    // formatear en la misma zona, que ademas coincide con lo que hace
+    // _parseHM (getHours/getMinutes sobre la zona del script).
+    return Utilities.formatDate(v, 'America/Montevideo', 'HH:mm');
   }
   return String(v).trim();
 }
@@ -2323,19 +2352,24 @@ function repairHabitFormats(monthOpt) {
   if (!sheet) return { ok: false, error: 'Hoja "' + tabName + '" no existe' };
 
   let fixed = 0;
-  // Tabla diaria: columnas de hora, resueltas por nombre
+  // Tabla diaria: cada columna de hora se procesa POR SEPARADO. Antes se
+  // tomaba un bloque de 2 columnas desde la menor, asumiendo que Levanté y
+  // Acosté eran adyacentes; si el usuario movia una, la del medio (por
+  // ejemplo "Hs sueño") se convertia a texto y quedaba inutilizable.
   const hmapR = _habitHeaderMap(sheet);
-  const cLev = _habitColOf(hmapR, 'levante');
-  const cAco = _habitColOf(hmapR, 'acoste');
-  const firstHour = Math.min(cLev > 0 ? cLev : 2, cAco > 0 ? cAco : 3);
-  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, firstHour, HABIT_DAY_ROWS, 2);
-  const dayVals = dayRange.getValues();
-  const outDay = dayVals.map(r => r.map(v => {
-    if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return _readHM(v); }
-    return v === '' ? '' : String(v);
-  }));
-  dayRange.setNumberFormat('@');
-  dayRange.setValues(outDay);
+  for (const campo of ['levante', 'acoste']) {
+    const col = _habitColOf(hmapR, campo);
+    if (col < 0) continue;
+    const rng = sheet.getRange(HABIT_DAY_FIRST_ROW, col, HABIT_DAY_ROWS, 1);
+    const vals = rng.getValues();
+    const out = vals.map(r => {
+      const v = r[0];
+      if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return [_readHM(v)]; }
+      return [v === '' ? '' : String(v)];
+    });
+    rng.setNumberFormat('@');
+    rng.setValues(out);
+  }
 
   // Log de comidas: col 2
   const lastRow = sheet.getLastRow();
@@ -2733,21 +2767,32 @@ function addWaterEntry(p) {
   const ml = toNumber(String(p.ml != null ? p.ml : '').replace(',', '.'));
   if (ml == null || ml <= 0) throw new Error('Cantidad de agua inválida');
 
-  const ss = SpreadsheetApp.openById(SHEET_ID);
   const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const hora = p.hora || Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm');
   const tabName = p.month || habitTabFor(dateStr);
-  const sheet = getOrCreateHabitTab(ss, tabName);
   const tipo = String(p.tipo || '').trim() || _waterLabel(ml);
 
-  const insertAt = _nextLogRow(sheet);
-  sheet.getRange(insertAt, 2).setNumberFormat('@');
-  sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
-    parseLocalDate(dateStr), hora, tipo, '', 'Agua', '', 'Agua', ml, '', ''
-  ]]);
-  sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
-
-  const total = _recalcWaterTotal(sheet, dateStr);
+  // Mismo lock que en addMealEntry, y por el mismo motivo: comidas y agua
+  // comparten el log y compiten por la misma fila libre. El recalculo del
+  // total tambien va adentro para que no lo pise otra alta en curso.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let insertAt, sheet, total;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    sheet = getOrCreateHabitTab(ss, tabName);
+    insertAt = _nextLogRow(sheet);
+    sheet.getRange(insertAt, 2).setNumberFormat('@');
+    sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+      parseLocalDate(dateStr), hora, tipo, '', 'Agua', '', 'Agua', ml, '', ''
+    ]]);
+    sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+    total = _recalcWaterTotal(sheet, dateStr);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
   return { ok: true, tab: tabName, row: insertAt, total: total,
            written: { ml: ml, tipo: tipo, hora: hora } };
 }
@@ -2762,8 +2807,7 @@ function updateWaterEntry(p) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
 
-  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
-  if (String(cur[6] || '').trim().toLowerCase() !== 'agua') throw new Error('Esa fila no es un registro de agua');
+  const cur = _assertLogRow(sheet, row, p.date, 'agua');
 
   let ml = (p.ml !== undefined && p.ml !== '') ? toNumber(String(p.ml).replace(',', '.')) : toNumber(cur[7]);
   if (ml == null || ml <= 0) throw new Error('Cantidad inválida');
@@ -2792,8 +2836,7 @@ function deleteWaterEntry(p) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
 
-  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
-  if (String(cur[6] || '').trim().toLowerCase() !== 'agua') throw new Error('Esa fila no es un registro de agua');
+  const cur = _assertLogRow(sheet, row, p.date, 'agua');
 
   const d = Object.prototype.toString.call(cur[0]) === '[object Date]' ? cur[0] : parseLocalDate(cur[0]);
   const dateStr = p.date || Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd');
@@ -2871,6 +2914,32 @@ function migrateLogTable(sheet) {
   return changed;
 }
 
+
+// Verifica que una fila del log sea del dia que dice el cliente y del tipo
+// esperado. Sin esto un indice desactualizado (por ejemplo tras un borrado
+// que corrio las filas) edita o borra el registro del vecino en silencio.
+function _assertLogRow(sheet, row, dateStr, registroEsperado) {
+  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  if (!cur[0]) throw new Error('Esa fila está vacía — recargá el día e intentá de nuevo');
+
+  const reg = String(cur[6] || '').trim().toLowerCase() || 'comida';
+  if (reg !== registroEsperado) {
+    throw new Error('Esa fila es un registro de "' + reg + '" y esperaba "' + registroEsperado +
+                    '" — recargá el día e intentá de nuevo');
+  }
+  if (dateStr) {
+    const target = parseLocalDate(dateStr);
+    const d = Object.prototype.toString.call(cur[0]) === '[object Date]' ? cur[0] : parseLocalDate(cur[0]);
+    if (target && d && !isNaN(target.getTime()) && !isNaN(d.getTime())) {
+      const k = x => x.getFullYear() + '-' + x.getMonth() + '-' + x.getDate();
+      if (k(target) !== k(d)) {
+        throw new Error('Esa fila es de otro día — recargá el día e intentá de nuevo');
+      }
+    }
+  }
+  return cur;
+}
+
 // Edita una comida ya cargada. p: { row, comida, hora, macro, tipo, month }
 // - si cambia el texto y no mandan macro -> reclasifica
 // - si cambia la hora -> recalcula el tipo (desayuno/almuerzo/...)
@@ -2883,7 +2952,7 @@ function updateMealRow(p) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
 
-  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  const cur = _assertLogRow(sheet, row, p.date, 'comida');
   if (!String(cur[2] || '').trim()) throw new Error('Esa fila no tiene una comida cargada');
 
   const comida = (p.comida !== undefined && p.comida !== '') ? String(p.comida).trim() : String(cur[2]);
@@ -2920,7 +2989,7 @@ function deleteMealRow(p) {
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('Hoja "' + tabName + '" no existe');
 
-  const cur = sheet.getRange(row, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
+  const cur = _assertLogRow(sheet, row, p.date, 'comida');
   const comida = String(cur[2] || '').trim();
   if (!comida) throw new Error('Esa fila ya está vacía');
 
