@@ -1991,6 +1991,28 @@ function upsertHabitDay(p) {
     if (setCell('notas', p.notas)) written.notas = p.notas;
   }
 
+  // --- Vaciar campos explícitamente ---
+  // El merge normal ignora los campos vacíos para no pisar lo ya cargado.
+  // Eso hace imposible corregir un dato mal puesto, así que el form manda
+  // en 'clear' los campos que el usuario dejó en blanco a propósito.
+  if (p.clear) {
+    const pedidos = String(p.clear).split(',').map(s => s.trim()).filter(s => s);
+    const vaciados = [];
+    for (const f of pedidos) {
+      if (!HABIT_FIELD_MAP[f]) continue;
+      const col = colOf(f);
+      if (col < 0) continue;
+      sheet.getRange(row, col).clearContent();
+      vaciados.push(f);
+      // Vaciar la hora de levantada invalida las horas de sueño calculadas
+      if (f === 'levante') {
+        const cs = colOf('hsSueno');
+        if (cs > 0) { sheet.getRange(row, cs).clearContent(); vaciados.push('hsSueno'); }
+      }
+    }
+    if (vaciados.length) written.cleared = vaciados;
+  }
+
   return { ok: true, tab: tabName, row: row, date: dateStr, written: written };
 }
 

@@ -380,7 +380,13 @@
       panels[j].classList.toggle('active', panels[j].id === panelId);
     }
     if (panelId === 'dashPanel' && !dashLoadedOnce) loadDashboard();
-    if (panelId === 'habitPanel' && !habitLoadedOnce) loadHabitToday();
+    // Recargar siempre al entrar: si guardaste y volviste, tenés que ver lo
+    // que quedó en la hoja y no el form viejo. Si hay cambios sin guardar se
+    // respetan y no se pisan.
+    if (panelId === 'habitPanel') {
+      if (!habitLoadedOnce) loadHabitToday();
+      else if (!H.dirty) loadDay(H.date || todayISO());
+    }
     // Cada vez que se abre la pestaña de agregar, refrescar la fecha a "hoy"
     if (panelId === 'addPanel') refreshDateToToday();
   }
@@ -605,10 +611,42 @@
         paintDay(H.saved);
         renderMeals();
         renderWaters();
+        pintarEstadoDia();
         clearDirty();
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
       .getHabitDaySafe(d);
+  }
+
+  // Relee el día sin tocar lo que el usuario esté escribiendo: sólo
+  // actualiza H.saved y el badge de estado.
+  function refreshSaved() {
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) { H.saved = r.day || {}; pintarEstadoDia(); }
+      })
+      .withFailureHandler(function() {})
+      .getHabitDaySafe(H.date);
+  }
+
+  // Muestra si el día elegido ya tiene datos guardados
+  function pintarEstadoDia() {
+    var el = hEl('dayStatus');
+    if (!el) return;
+    var s = H.saved || {};
+    var n = 0;
+    ['levante','acoste','trabajo','avance','animo','ejercicio','ejercicioMin','notas'].forEach(function(k) {
+      if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
+    });
+    var extras = (H.meals || []).length + (H.waters || []).length;
+    if (n || extras) {
+      el.textContent = 'guardado · ' + n + ' campo' + (n === 1 ? '' : 's') +
+                       (extras ? ' · ' + extras + ' registro' + (extras === 1 ? '' : 's') : '');
+      el.className = 'hdaystatus con';
+    } else {
+      el.textContent = 'sin datos todavía';
+      el.className = 'hdaystatus sin';
+    }
   }
 
   function paintDay(d) {
@@ -1068,26 +1106,44 @@
     var payload = { date: H.date };
     var campos = [];
 
-    var lev = getWheel('levH', 'levM'), aco = getWheel('acoH', 'acoM');
-    if (lev) { payload.levante = lev; campos.push('levanté'); }
-    if (aco) { payload.acoste  = aco; campos.push('acosté'); }
+    // Lo que se guarda es exactamente lo que se ve en el form. Un campo con
+    // valor se manda; uno vacío que ANTES tenía algo se manda en 'clear'
+    // para que se borre de la hoja. Sin esto no habría forma de corregir un
+    // dato mal cargado.
+    var borrar = [];
+    var prev = H.saved || {};
+    function poner(campo, valor, etiqueta) {
+      var teniaAntes = prev[campo] !== undefined && prev[campo] !== null && prev[campo] !== '';
+      if (valor !== '' && valor !== null && valor !== undefined) {
+        payload[campo] = valor;
+        campos.push(etiqueta);
+      } else if (teniaAntes) {
+        borrar.push(campo);
+        campos.push(etiqueta + ' (borrado)');
+      }
+    }
+
+    poner('levante', getWheel('levH', 'levM'), 'levanté');
+    poner('acoste',  getWheel('acoH', 'acoM'), 'acosté');
 
     var tr = hEl('habTrabajo');
-    if (tr && tr.value.trim()) { payload.trabajo = normDec(tr.value); campos.push('trabajo'); }
+    poner('trabajo', tr ? normDec(tr.value.trim()) : '', 'trabajo');
     var av = hEl('habAvance');
-    if (av && av.value !== '0') { payload.avance = av.value; campos.push('avance'); }
+    poner('avance', (av && av.value !== '0') ? av.value : '', 'avance');
     var an = hEl('habAnimo');
-    if (an && an.value !== '0') { payload.animo = an.value; campos.push('ánimo'); }
+    poner('animo', (an && an.value !== '0') ? an.value : '', 'ánimo');
     var et = hEl('ejerText');
-    if (et && et.value.trim()) { payload.ejercicio = et.value.trim(); campos.push('ejercicio'); }
+    poner('ejercicio', et ? et.value.trim() : '', 'ejercicio');
     var em = hEl('ejerMin');
-    if (em && em.value.trim()) { payload.ejercicioMin = normDec(em.value); campos.push('min'); }
+    poner('ejercicioMin', em ? normDec(em.value.trim()) : '', 'min');
     var nt = hEl('habNotas');
-    if (nt && nt.value.trim()) { payload.notas = nt.value.trim(); campos.push('notas'); }
+    poner('notas', nt ? nt.value.trim() : '', 'notas');
 
     // El agua no va acá: se lleva como registro de tomas, con su propio guardado
     var ms = hEl('mastInput');
     if (ms) { var msv = parseInt(String(ms.value).replace(/\D/g,''),10); if (isFinite(msv)) { payload.mast = msv; campos.push('contador'); } }
+
+    if (borrar.length) payload.clear = borrar.join(',');
 
     if (!campos.length) {
       if (!opts.silent) habStatus('No hay nada para guardar', 'err');
@@ -1103,6 +1159,10 @@
           if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
             hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
           }
+          // Releer del sheet para que H.saved refleje lo que quedó guardado.
+          // Sin esto el próximo guardado compararía contra un estado viejo y
+          // podría pedir borrar algo que ya no corresponde.
+          if (!opts.then) refreshSaved();
           habStatus((opts.silent ? '✓ Guardado automático · ' : '✓ Guardado · ') + campos.join(', '), 'ok');
         } else {
           habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
