@@ -71,6 +71,10 @@ const WATER_PRESETS = [
 ];
 const HABIT_DAY_HEADER_ROW = 2;     // 1-indexed
 const HABIT_DAY_FIRST_ROW = 3;      // 1-indexed
+// La tabla diaria son 31 filas (3..33). Varios rangos usaban 40 por las
+// dudas y se comian el titulo del log (36) y sus encabezados (37): un reset
+// llegaba a borrarlos. Todo lo que toque la tabla diaria usa esta constante.
+const HABIT_DAY_ROWS = 31;
 const HABIT_MEAL_TITLE_ROW = 36;    // 1-indexed (deja 31 dias + margen)
 const HABIT_MEAL_HEADER_ROW = 37;
 const HABIT_MEAL_FIRST_ROW = 38;
@@ -112,6 +116,9 @@ const ROUTES = {
   updateMeal: p => updateMealRow(p),
   deleteMeal: p => deleteMealRow(p),
   habitPending: p => habitPending(p),
+  listSheets: () => listSheets(),
+  deleteHabitSheet: p => deleteHabitSheetIfEmpty(p.month, p.confirm),
+  reorderSheets: p => reorderSheets(String(p.dryRun || '') === '1'),
   addWater: p => addWaterEntry(p),
   updateWater: p => updateWaterEntry(p),
   deleteWater: p => deleteWaterEntry(p),
@@ -1792,7 +1799,7 @@ function getOrCreateHabitTab(ss, tabName) {
   // CRÍTICO: forzar formato TEXTO en las columnas de hora. Si se dejan en
   // formato automático, Sheets interpreta "07:15" como un Date de 1899 y al
   // releerlo aplica el offset LMT de Montevideo (-03:44:51) → devuelve 07:46.
-  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, 2).setNumberFormat('@');
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, HABIT_DAY_ROWS, 2).setNumberFormat('@');
   sheet.getRange(HABIT_MEAL_FIRST_ROW, 2, 600, 1).setNumberFormat('@');
 
   // Formato
@@ -1800,6 +1807,10 @@ function getOrCreateHabitTab(ss, tabName) {
   sheet.setColumnWidth(3, 220);
   sheet.setColumnWidth(9, 260);
   sheet.setFrozenRows(HABIT_DAY_HEADER_ROW);
+
+  // Dejarla ordenada de entrada: insertSheet la mete donde caiga y termina
+  // desparramando las hojas de hábitos entre los meses de gastos.
+  try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
   return sheet;
 }
 
@@ -1833,7 +1844,7 @@ function migrateHabitSheet(sheet) {
   if (oldAgua !== undefined && pre[_stripAccents('Agua (ml)')] === undefined) {
     const col = oldAgua + 1;
     sheet.getRange(HABIT_DAY_HEADER_ROW, col).setValue('Agua (ml)');
-    const rng = sheet.getRange(HABIT_DAY_FIRST_ROW, col, 40, 1);
+    const rng = sheet.getRange(HABIT_DAY_FIRST_ROW, col, HABIT_DAY_ROWS, 1);
     const vals = rng.getValues();
     let touched = false;
     const out = vals.map(r => {
@@ -1908,7 +1919,7 @@ function upsertHabitDay(p) {
   let row = _habitFindDayRow(sheet, dateStr);
   if (row < 0) {
     row = HABIT_DAY_FIRST_ROW;
-    const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, 1).getValues();
+    const vals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, HABIT_DAY_ROWS, 1).getValues();
     for (let i = 0; i < vals.length; i++) { if (!vals[i][0]) { row = HABIT_DAY_FIRST_ROW + i; break; } }
     sheet.getRange(row, 1).setValue(parseLocalDate(dateStr)).setNumberFormat('dd/MM/yyyy');
   }
@@ -2122,7 +2133,7 @@ function readHabitMonth(tabName) {
   const hmap = _habitHeaderMap(sheet);
   const nCols = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
   const days = [];
-  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, 33, nCols).getValues();
+  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 1, HABIT_DAY_ROWS, nCols).getValues();
   for (const v of dayVals) {
     if (!v[0]) continue;
     const d = Object.prototype.toString.call(v[0]) === '[object Date]' ? v[0] : parseLocalDate(v[0]);
@@ -2317,7 +2328,7 @@ function repairHabitFormats(monthOpt) {
   const cLev = _habitColOf(hmapR, 'levante');
   const cAco = _habitColOf(hmapR, 'acoste');
   const firstHour = Math.min(cLev > 0 ? cLev : 2, cAco > 0 ? cAco : 3);
-  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, firstHour, 40, 2);
+  const dayRange = sheet.getRange(HABIT_DAY_FIRST_ROW, firstHour, HABIT_DAY_ROWS, 2);
   const dayVals = dayRange.getValues();
   const outDay = dayVals.map(r => r.map(v => {
     if (Object.prototype.toString.call(v) === '[object Date]') { fixed++; return _readHM(v); }
@@ -2356,11 +2367,11 @@ function resetHabitMonth(monthOpt, confirm) {
 
   // Tabla diaria: limpiar todo menos la columna de fechas
   const nC = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
-  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, 40, nC - 1).clearContent();
+  sheet.getRange(HABIT_DAY_FIRST_ROW, 2, HABIT_DAY_ROWS, nC - 1).clearContent();
   const hm = _habitHeaderMap(sheet);
   for (const f of ['levante', 'acoste']) {
     const col = _habitColOf(hm, f);
-    if (col > 0) sheet.getRange(HABIT_DAY_FIRST_ROW, col, 40, 1).setNumberFormat('@');
+    if (col > 0) sheet.getRange(HABIT_DAY_FIRST_ROW, col, HABIT_DAY_ROWS, 1).setNumberFormat('@');
   }
 
   // Log de comidas: limpiar todo
@@ -2546,6 +2557,132 @@ function scanMealSafe(base64Image, hora) {
   catch (err) { return { ok: false, error: err.message }; }
 }
 
+
+
+// Borra una hoja de hábitos SOLO si no tiene ningún dato cargado. Sirve para
+// limpiar hojas creadas de más (por una prueba o por tocar un mes futuro sin
+// querer). Si encuentra cualquier dato, se niega y dice qué encontró.
+function deleteHabitSheetIfEmpty(tabName, confirm) {
+  if (String(confirm || '').toUpperCase() !== 'SI') {
+    return { ok: false, error: 'Agregá confirm=SI' };
+  }
+  const name = String(tabName || '').trim();
+  if (name.indexOf(HABIT_PREFIX) !== 0) {
+    return { ok: false, error: 'Solo se pueden borrar hojas de hábitos' };
+  }
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) return { ok: false, error: 'No existe la hoja "' + name + '"' };
+
+  const encontrado = [];
+
+  // Tabla diaria: cualquier celda con contenido a la derecha de la fecha
+  const nC = Math.max(sheet.getLastColumn(), HABIT_DAY_HEADERS.length);
+  const dayVals = sheet.getRange(HABIT_DAY_FIRST_ROW, 2, HABIT_DAY_ROWS, nC - 1).getValues();
+  for (const r of dayVals) {
+    for (const v of r) {
+      if (v !== '' && v !== null) { encontrado.push('dato en la tabla diaria'); break; }
+    }
+    if (encontrado.length) break;
+  }
+
+  // Log: cualquier fila con detalle
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const n = lastRow - HABIT_MEAL_FIRST_ROW + 1;
+    const mv = sheet.getRange(HABIT_MEAL_FIRST_ROW, 3, n, 1).getValues();
+    for (const r of mv) {
+      if (String(r[0] || '').trim()) { encontrado.push('registros en el log'); break; }
+    }
+  }
+
+  if (encontrado.length) {
+    return { ok: false, error: 'La hoja "' + name + '" tiene ' + encontrado.join(' y ') + ' — no se borra' };
+  }
+
+  ss.deleteSheet(sheet);
+  return { ok: true, deleted: name };
+}
+
+// ---- Orden de las pestañas ------------------------------------------------
+
+// Clave ordenable a partir del nombre. Devuelve null si no es un mes.
+function _monthKey(name) {
+  const m = String(name || '').trim().match(
+    /^(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\s+(\d{4})$/i);
+  if (!m) return null;
+  const idx = MONTH_NAMES.findIndex(x => _stripAccents(x) === _stripAccents(m[1]));
+  if (idx < 0) return null;
+  return parseInt(m[2], 10) * 12 + idx;
+}
+
+// Clasifica cada hoja: gasto, habito, u otra.
+function _sheetKind(name) {
+  const n = String(name || '').trim();
+  if (n.indexOf(HABIT_PREFIX) === 0) {
+    const k = _monthKey(n.slice(HABIT_PREFIX.length));
+    if (k !== null) return { kind: 'habito', key: k };
+  }
+  const k = _monthKey(n);
+  if (k !== null) return { kind: 'gasto', key: k };
+  return { kind: 'otro', key: 0 };
+}
+
+// Reordena las pestañas: primero los meses de hábitos (más reciente a la
+// izquierda), después los de gastos con el mismo criterio, y al final lo que
+// no sea ninguno de los dos (_rate_scratch).
+//
+// Hábitos va primero porque son pocas hojas y se usan a diario; dejarlas
+// después de 50+ meses de gastos las volvería inalcanzables. Lo importante es
+// que ninguno de los dos grupos corte al otro: antes las hojas de hábitos y
+// el scratch quedaban encajados en el medio de la secuencia de meses, porque
+// insertSheet las deja donde caiga.
+function reorderSheets(dryRun) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheets = ss.getSheets();
+
+  const gastos = [], habitos = [], otros = [];
+  for (const sh of sheets) {
+    const info = _sheetKind(sh.getName());
+    const item = { sheet: sh, name: sh.getName(), key: info.key };
+    if (info.kind === 'gasto') gastos.push(item);
+    else if (info.kind === 'habito') habitos.push(item);
+    else otros.push(item);
+  }
+  gastos.sort((a, b) => b.key - a.key);    // más reciente primero
+  habitos.sort((a, b) => b.key - a.key);
+
+  const orden = habitos.concat(gastos).concat(otros);
+  const antes = sheets.map(s => s.getName());
+  const despues = orden.map(o => o.name);
+
+  if (dryRun) return { ok: true, dryRun: true, antes: antes, despues: despues,
+                       cambia: JSON.stringify(antes) !== JSON.stringify(despues) };
+
+  // moveActiveSheet usa posiciones 1-indexed sobre el estado actual, así que
+  // se recorre en orden y se va empujando cada hoja a su lugar definitivo.
+  for (let i = 0; i < orden.length; i++) {
+    ss.setActiveSheet(orden[i].sheet);
+    ss.moveActiveSheet(i + 1);
+  }
+  const final = ss.getSheets().map(s => s.getName());
+  return { ok: true, antes: antes, despues: final,
+           gastos: gastos.length, habitos: habitos.length, otros: otros.length };
+}
+
+// Diagnóstico: qué hojas hay, en qué orden y si tienen datos.
+function listSheets() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  return {
+    ok: true,
+    sheets: ss.getSheets().map((sh, i) => {
+      const info = _sheetKind(sh.getName());
+      return { pos: i + 1, name: sh.getName(), kind: info.kind,
+               lastRow: sh.getLastRow(), lastCol: sh.getLastColumn() };
+    })
+  };
+}
+
 // ---- AGUA como registro de tomas -------------------------------------------
 
 // Etiqueta segun la cantidad (para cuando se carga un ml libre)
@@ -2686,6 +2823,15 @@ function migrateLogTable(sheet) {
   const hdrs = sheet.getRange(HABIT_MEAL_HEADER_ROW, 1, 1, HABIT_MEAL_HEADERS.length).getValues()[0];
   const norm = hdrs.map(h => _stripAccents(String(h || '').trim()));
   let changed = false;
+
+  // Si falta cualquier encabezado (por ejemplo porque un reset viejo los
+  // borró), se reescribe la fila entera. Es idempotente y se autorrepara.
+  const faltaAlguno = HABIT_MEAL_HEADERS.some((h, i) => norm[i] !== _stripAccents(h));
+  if (faltaAlguno) {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 1, 1, HABIT_MEAL_HEADERS.length)
+         .setValues([HABIT_MEAL_HEADERS]).setFontWeight('bold').setBackground('#fef3c7');
+    changed = true;
+  }
 
   if (norm[2] === 'comida') { sheet.getRange(HABIT_MEAL_HEADER_ROW, 3).setValue('Detalle'); changed = true; }
   if (norm[6] !== 'registro') {
