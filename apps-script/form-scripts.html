@@ -652,7 +652,7 @@
     d = d || {};
     setWheel('levH', 'levM', d.levante || '');
     setWheel('acoH', 'acoM', d.acoste || '');
-    if (hEl('hsSueno')) hEl('hsSueno').textContent = d.hsSueno != null ? ('😴 ' + d.hsSueno + ' hs dormidas') : '';
+    pintarSueno();
     if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
     if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
     if (hEl('ejerText'))   hEl('ejerText').value   = d.ejercicio || '';
@@ -662,6 +662,39 @@
     if (hEl('mastInput')) hEl('mastInput').value = d.mast != null ? d.mast : 0;
     if (hEl('aguaHora') && !hEl('aguaHora').value) hEl('aguaHora').value = nowHM();
     if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
+  }
+
+  // Calcula y muestra las horas dormidas con los dos valores de la fila.
+  // Como acostarse y levantarse describen la MISMA noche, si la hora de
+  // acostarse es mayor que la de levantarse es que se cruzó la medianoche, y
+  // por lo tanto fue el día anterior. Se muestra la fecha para que no quede
+  // ninguna duda de a qué noche corresponde.
+  function pintarSueno() {
+    var aco = getWheel('acoH', 'acoM');
+    var lev = getWheel('levH', 'levM');
+    var out = hEl('hsSueno'), sub = hEl('acosteDia');
+
+    if (!aco || !lev) {
+      if (out) out.textContent = '';
+      if (sub) sub.textContent = '';
+      return;
+    }
+    function mins(hm) { var p = hm.split(':'); return parseInt(p[0],10)*60 + parseInt(p[1],10); }
+    var m = mins(lev) - mins(aco);
+    var prevDia = m < 0;
+    if (m < 0) m += 1440;
+    var hs = Math.round(m / 60 * 100) / 100;
+
+    if (sub) {
+      if (!H.date) { sub.textContent = prevDia ? 'el día anterior' : 'ya pasada la medianoche'; }
+      else {
+        var pp = H.date.split('-');
+        var dd = new Date(parseInt(pp[0],10), parseInt(pp[1],10)-1, parseInt(pp[2],10));
+        if (prevDia) dd.setDate(dd.getDate() - 1);
+        sub.textContent = String(dd.getDate()).padStart(2,'0') + '/' + String(dd.getMonth()+1).padStart(2,'0');
+      }
+    }
+    if (out) out.textContent = hs ? ('😴 ' + String(hs).replace('.', ',') + ' hs dormidas') : '';
   }
 
   function setSlider(sliderId, badgeId, val) {
@@ -703,12 +736,18 @@
     el.addEventListener('input', markDirty);
   });
 
+  // Las ruedas de hora recalculan el sueño en vivo, sin esperar al guardado
+  ['levH','levM','acoH','acoM'].forEach(function(id) {
+    var el = hEl(id);
+    if (el) el.addEventListener('change', pintarSueno);
+  });
+
   // "ahora" solo completa la rueda; se guarda con "Guardar dia"
   if (hEl('btnLevante')) hEl('btnLevante').addEventListener('click', function() {
-    setWheel('levH', 'levM', nowHM()); markDirty();
+    setWheel('levH', 'levM', nowHM()); markDirty(); pintarSueno();
   });
   if (hEl('btnAcoste')) hEl('btnAcoste').addEventListener('click', function() {
-    setWheel('acoH', 'acoM', nowHM()); markDirty();
+    setWheel('acoH', 'acoM', nowHM()); markDirty(); pintarSueno();
   });
 
   // ---------- Sliders ----------
@@ -1159,9 +1198,7 @@
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
           clearDirty();
-          if (r.written && r.written.hsSueno != null && hEl('hsSueno')) {
-            hEl('hsSueno').textContent = '😴 ' + r.written.hsSueno + ' hs dormidas';
-          }
+          pintarSueno();
           // Releer del sheet para que H.saved refleje lo que quedó guardado.
           // Sin esto el próximo guardado compararía contra un estado viejo y
           // podría pedir borrar algo que ya no corresponde.

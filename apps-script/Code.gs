@@ -1670,16 +1670,32 @@ function _fmtHM(mins) {
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
-// Horas dormidas: se acostó anoche (bedStr) y se levantó hoy (wakeStr).
-// Maneja acostarse antes de medianoche (23:30) y después (00:15).
+// Horas dormidas de UNA noche: los dos valores viven en la misma fila y
+// describen el mismo dormir, el que terminó esa mañana.
+//
+// Antes "Acosté" se guardaba en el día en que uno se acostaba y el cálculo
+// cruzaba filas adivinando con una heurística (PM = día anterior, AM = mismo
+// día). Eso se rompía justamente en el caso normal: acostarse el 30 a las 23
+// o el 31 a las 3 son la misma noche, la que termina el 31.
+//
+// Con los dos datos en la misma fila no hace falta adivinar nada: si la hora
+// de acostarse es MAYOR que la de levantarse, se cruzó la medianoche.
+//   23:00 -> 07:00  =  8 hs   (se acostó el día anterior)
+//   03:00 -> 09:30  =  6,5 hs (se acostó ya pasada la medianoche)
 function _calcSleepHours(bedStr, wakeStr) {
   const bed = _parseHM(bedStr), wake = _parseHM(wakeStr);
   if (bed == null || wake == null) return null;
-  let mins;
-  if (bed >= 12 * 60) mins = (24 * 60 - bed) + wake;  // se acostó PM del día anterior
-  else mins = wake - bed;                              // se acostó AM (madrugada del mismo día)
-  if (mins < 0) mins += 24 * 60;
+  let mins = wake - bed;
+  if (mins < 0) mins += 24 * 60;   // cruzó la medianoche
+  if (mins === 0) return null;      // misma hora: no hay dato útil
   return Math.round((mins / 60) * 100) / 100;
+}
+
+// true si la hora de acostarse cae el día anterior al de levantarse
+function _bedWasPrevDay(bedStr, wakeStr) {
+  const bed = _parseHM(bedStr), wake = _parseHM(wakeStr);
+  if (bed == null || wake == null) return false;
+  return bed > wake;
 }
 
 // Tipo de comida según la hora.
@@ -1955,25 +1971,19 @@ function upsertHabitDay(p) {
   if (p.levante) { if (setCell('levante', p.levante, true)) written.levante = p.levante; }
   if (p.acoste)  { if (setCell('acoste',  p.acoste,  true)) written.acoste  = p.acoste;  }
 
-  // --- Si se edita "acosté", recalcular el sueño del día SIGUIENTE ---
-  if (p.acoste) {
-    const cLev = colOf('levante'), cSue = colOf('hsSueno');
-    if (cLev > 0 && cSue > 0) {
-      const nextLev = _readHM(sheet.getRange(row + 1, cLev).getValue());
-      if (nextLev) {
-        const hsNext = _calcSleepHours(p.acoste, nextLev);
-        if (hsNext != null) sheet.getRange(row + 1, cSue).setValue(hsNext);
+  // --- Hs sueño: los dos valores salen de ESTA fila ---
+  // Se recalcula cada vez que se toca cualquiera de los dos, tomando el valor
+  // recién escrito o, si no vino en este guardado, el que ya estaba.
+  if (p.levante || p.acoste) {
+    const lev = p.levante || _readHM(readCur('levante'));
+    const aco = p.acoste  || _readHM(readCur('acoste'));
+    if (lev && aco) {
+      const hs = _calcSleepHours(aco, lev);
+      if (hs != null && setCell('hsSueno', hs)) {
+        written.hsSueno = hs;
+        written.acosteDiaAnterior = _bedWasPrevDay(aco, lev);
       }
     }
-  }
-
-  // --- Hs sueño: acosté de AYER + levanté de HOY ---
-  if (p.levante) {
-    const acosteCol = colOf('acoste');
-    let prevBed = null;
-    if (row > HABIT_DAY_FIRST_ROW && acosteCol > 0) prevBed = sheet.getRange(row - 1, acosteCol).getValue();
-    const hs = _calcSleepHours(_readHM(prevBed), p.levante);
-    if (hs != null && setCell('hsSueno', hs)) written.hsSueno = hs;
   }
 
   // --- Numéricos simples ---
@@ -2100,6 +2110,7 @@ function getHabitDay(dateOpt) {
         levante: _readHM(g('levante')),
         acoste:  _readHM(g('acoste')),
         hsSueno: toNumber(g('hsSueno')),
+        acosteDiaAnterior: _bedWasPrevDay(_readHM(g('acoste')), _readHM(g('levante'))),
         trabajo: toNumber(g('trabajo')),
         avance:  toNumber(g('avance')),
         animo:   toNumber(g('animo')),
