@@ -29,7 +29,7 @@ const FIXED_LABELS = [
 
 const CATEGORIES = [
   'Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento',
-  'Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Otros'
+  'Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Viajes','Otros'
 ];
 
 const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD'];
@@ -223,7 +223,10 @@ function addExpenseSafe(data) {
 const CAT_RULES = [
   [/^(forros|preservativ|condon)/i, 'Salud'], // explicit before "jabón"
   [/medicamento|farmashop|farmacia|farmacity|an[aá]lisis|dentista|hospital|cl[ií]nica|bluecross|blue cross|aflusan|vozama|duspatalin|dumirox|drogu|polish/i, 'Salud'],
-  [/bus|taxi|uber|cabify|didi|combi|buque|sube|bondi|nafta|shell|axion|colonia express|pasaje|vuelta|viaje/i, 'Transporte'],
+  // Viajes va ANTES que Transporte: classifyItem devuelve la primera regla que
+  // matchea, y palabras como "pasaje" o "buque" caian en Transporte.
+  [/pasaje|vuelo|aerol[ií]nea|avianca|latam|iberia|aeropuerto|hotel|hostel|airbnb|hospedaje|buquebus|colonia express|migraciones|pasaporte|tasa de embarque|equipaje|valija|excursi[oó]n|city tour|alquiler de auto|rent a car|peaje|free shop|seguro de viaje|viaje/i, 'Viajes'],
+  [/bus|taxi|uber|cabify|didi|combi|sube|bondi|nafta|shell|axion|vuelta/i, 'Transporte'],
   [/disco|devoto|tata|d[ií]a\b|panader|carnicer|frog|mac\b|mcdonald|burguer|pizza|empanad|asado|comida|almuerzo|cena|desayuno|merienda|alfajor|galletas|helado|chocolate|sandwich|tostado|rotiser|pollo|huevos|queso|le pain|borneo|chipa|medialunas|cubanitos|dulce|yogurt|pde|poke|hamburguesa|barbacoa|guelfi|martin asado|santi mart[ií]nez|coca\b|osobuco|rey pollo|el clon|el naranjo|sandwich|tata\b/i, 'Comida'],
   [/fernet|cerveza|bar\b|caf[eé]|pub|powerade|aquarius|jackson|gallaghers|cuba libre|campari|sidra|trago|whisky|vino|fenix|gu[eé]mes|guelfi|prisma|madison|bebida|alcohol|birra|fenet|alikal|chinamarket|key tarjeta|key 2|guardarropa/i, 'Bebida/Bar'],
   [/agua\b/i, 'Bebida/Bar'],
@@ -1038,12 +1041,14 @@ function scanTicket(base64Image) {
     const prompt = 'Analizá esta foto de un ticket de comercio en Uruguay. Por cada línea de producto/servicio comprado extraé: ' +
       'name (nombre item, máximo 40 chars, sin código de barras), ' +
       'amount (precio FINAL en UYU después de aplicar descuentos visibles por item, número positivo), ' +
-      'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Otros). ' +
+      'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Otros). ' +
       'REGLAS: ' +
       '1. IGNORÁ líneas de total, subtotal, IVA, cambio, redondeo, descuento general, propina. ' +
       '2. Si hay descuento aplicado a un item específico (ej "2x1", "20% off", "ahorro $X"), restalo del precio. ' +
       '3. Si una bebida está en restaurant/bar → Bebida/Bar. Si es en supermercado → Comida. ' +
       '4. Productos limpieza (jabón, lavandina, papel higiénico, esponja) → Limpieza. ' +
+      '4b. Viajes es para gastos de viajar: pasajes, vuelos, hotel, hostel, Airbnb, excursiones, ' +
+      'free shop, alquiler de auto, peajes de ruta. Un ómnibus o taxi urbano del día a día es Transporte, no Viajes. ' +
       '5. Si no podés leer una línea, omitila — NO inventes. ' +
       'Devolvé SOLO JSON válido con shape {"items":[{"name":string,"amount":number,"category":string},...]}.';
 
