@@ -1455,7 +1455,19 @@
     set('argDeuda',  fmtUsd(t.deudaUsd));
     set('argMio',    fmtUsd(t.pusoMioUsd));
     set('argMov',    fmtArs(t.cargadoArs) + ' / ' + fmtArs(t.gastadoArs));
-    set('argQueda',  fmtArs(t.quedaArs));
+
+    // Si gastó más de lo que cargó, un "queda" negativo confunde. Se muestra
+    // como excedente, que es lo que realmente pasó: pagó por fuera del pozo.
+    var q = hEl('argQueda'), lbl = q && q.previousElementSibling;
+    if ((t.quedaArs || 0) < 0) {
+      set('argQueda', fmtArs(Math.abs(t.quedaArs)));
+      if (lbl) lbl.textContent = 'Gastaste de más';
+      if (q) q.style.color = '#b91c1c';
+    } else {
+      set('argQueda', fmtArs(t.quedaArs));
+      if (lbl) lbl.textContent = 'Queda en el pozo';
+      if (q) q.style.color = '';
+    }
 
     var box = hEl('argList');
     if (!box) return;
@@ -1545,6 +1557,19 @@
     ARG.editRow = null;
     if (hEl('argModal')) hEl('argModal').classList.remove('show');
   }
+  // Al tocar USD o cotización en el modal, recalcular los ARS. Sin esto se
+  // guardaba el ARS viejo: cambiar 200 -> 250 dejaba "US$ 250 → $ 296.000",
+  // que eran los pesos de los 200 originales.
+  ['agUsd','agCotiz'].forEach(function(id) {
+    var e = hEl(id);
+    if (!e) return;
+    e.addEventListener('input', function() {
+      var u = nArg(hEl('agUsd') && hEl('agUsd').value);
+      var c = nArg(hEl('agCotiz') && hEl('agCotiz').value);
+      if (u > 0 && c > 0 && hEl('agArs')) hEl('agArs').value = Math.round(u * c);
+    });
+  });
+
   if (hEl('agCancel')) hEl('agCancel').addEventListener('click', cerrarArgModal);
   if (hEl('argModal')) hEl('argModal').addEventListener('click', function(ev) {
     if (ev.target === hEl('argModal')) cerrarArgModal();
