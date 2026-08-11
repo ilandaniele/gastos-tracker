@@ -2727,12 +2727,7 @@ function getOrCreateArgBlock(sheet) {
   sheet.getRange(ARG_TITLE_ROW, col).setValue(ARG_TITLE)
        .setFontWeight('bold').setFontSize(13);
 
-  // Bloque de totales: etiqueta + valor
-  const labels = [['Puso mamá (USD)', ''], ['Le devolví (USD)', ''],
-                  ['Le debo (USD)', ''], ['Queda en el pozo (ARS)', '']];
-  sheet.getRange(ARG_TOTALS_ROW, col, labels.length, 2).setValues(labels);
-  sheet.getRange(ARG_TOTALS_ROW, col, labels.length, 1).setFontColor('#666').setFontSize(10);
-  sheet.getRange(ARG_TOTALS_ROW, col + 1, labels.length, 1).setFontWeight('bold');
+  _argEscribirEtiquetas(sheet, col);
 
   sheet.getRange(ARG_HEADER_ROW, col, 1, ARG_HEADERS.length)
        .setValues([ARG_HEADERS]).setFontWeight('bold').setBackground('#dbeafe');
@@ -2765,35 +2760,52 @@ function _argRows(sheet, col) {
   return out;
 }
 
+// Cada gasto dice de quién era la plata y a qué cotización. La deuda con mamá
+// sale de sumar los dólares de los gastos hechos con plata suya, menos lo que
+// ya se le devolvió. Las "cargas" ya no se usan pero se siguen sumando para no
+// romper meses viejos que las tengan cargadas.
 function _argTotales(entradas) {
-  let cargadoArs = 0, gastadoArs = 0, pusoMamaUsd = 0, pusoMioUsd = 0, pagadoUsd = 0;
+  let gastadoArs = 0, gastadoUsd = 0, mamaUsd = 0, mioUsd = 0, pagadoUsd = 0;
   for (const e of entradas) {
     const t = _stripAccents(e.tipo).toLowerCase();
-    if (t === 'carga') {
-      cargadoArs += e.ars || 0;
-      if (_stripAccents(e.quien).toLowerCase().indexOf('mama') >= 0) pusoMamaUsd += e.usd || 0;
-      else pusoMioUsd += e.usd || 0;
-    } else if (t === 'gasto') {
+    const esMama = _stripAccents(e.quien).toLowerCase().indexOf('mama') >= 0;
+    if (t === 'gasto') {
       gastadoArs += e.ars || 0;
+      gastadoUsd += e.usd || 0;
+      if (esMama) mamaUsd += e.usd || 0; else mioUsd += e.usd || 0;
+    } else if (t === 'carga') {          // legacy
+      if (esMama) mamaUsd += e.usd || 0; else mioUsd += e.usd || 0;
     } else if (t === 'pago') {
       pagadoUsd += e.usd || 0;
     }
   }
   const r2 = n => Math.round(n * 100) / 100;
   return {
-    cargadoArs: Math.round(cargadoArs),
     gastadoArs: Math.round(gastadoArs),
-    quedaArs: Math.round(cargadoArs - gastadoArs),
-    pusoMamaUsd: r2(pusoMamaUsd),
-    pusoMioUsd: r2(pusoMioUsd),
+    gastadoUsd: r2(gastadoUsd),
+    pusoMamaUsd: r2(mamaUsd),
+    pusoMioUsd: r2(mioUsd),
     pagadoUsd: r2(pagadoUsd),
-    deudaUsd: r2(pusoMamaUsd - pagadoUsd)
+    deudaUsd: r2(mamaUsd - pagadoUsd)
   };
 }
 
+const ARG_TOTAL_LABELS = ['Gasté (ARS)', 'Gasté (USD)', 'Le debo a mamá (USD)', 'Puse de lo mío (USD)'];
+
+// Las etiquetas se reescriben en cada pintada: los bloques creados antes decían
+// "Queda en el pozo" y quedarían mintiendo.
+function _argEscribirEtiquetas(sheet, col) {
+  const rng = sheet.getRange(ARG_TOTALS_ROW, col, ARG_TOTAL_LABELS.length, 1);
+  const cur = rng.getValues().map(r => String(r[0] || ''));
+  if (cur.join('|') === ARG_TOTAL_LABELS.join('|')) return;
+  rng.setValues(ARG_TOTAL_LABELS.map(l => [l])).setFontColor('#666').setFontSize(10);
+  sheet.getRange(ARG_TOTALS_ROW, col + 1, ARG_TOTAL_LABELS.length, 1).setFontWeight('bold');
+}
+
 function _argPintarTotales(sheet, col, t) {
+  _argEscribirEtiquetas(sheet, col);
   sheet.getRange(ARG_TOTALS_ROW, col + 1, 4, 1).setValues([
-    [t.pusoMamaUsd], [t.pagadoUsd], [t.deudaUsd], [t.quedaArs]
+    [t.gastadoArs], [t.gastadoUsd], [t.deudaUsd], [t.pusoMioUsd]
   ]);
 }
 
@@ -2823,9 +2835,10 @@ function getArgentinaData(monthOpt) {
 
 
 // Agrega una entrada. p: { month, fecha, tipo, detalle, usd, cotiz, ars, quien, categoria }
-// - Carga: se pide USD; si viene cotización, los ARS salen de multiplicar.
-// - Gasto: se pide ARS.
+// - Gasto: se piden ARS y cotización; los USD salen de dividir, y "de quién"
+//          dice si esa plata era propia o de mamá.
 // - Pago:  se pide USD (lo que le devolviste a mamá).
+// - Carga: legacy, ya no se ofrece en la app.
 function addArgentinaEntry(p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = ARG_TIPOS.find(t => _stripAccents(t).toLowerCase() === _stripAccents(tipoRaw).toLowerCase());
@@ -2840,6 +2853,8 @@ function addArgentinaEntry(p) {
     if (ars == null) throw new Error('Falta la cotización o los ARS que recibiste');
   } else if (tipo === 'Gasto') {
     if (ars == null || ars <= 0) throw new Error('Un gasto necesita el monto en ARS');
+    if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
+    if (usd == null) usd = Math.round((ars / cotiz) * 100) / 100;
   } else {
     if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto en USD');
   }
@@ -2847,13 +2862,10 @@ function addArgentinaEntry(p) {
   const fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const tabName = p.month || monthTabFor(fecha);
 
-  // Quién: sólo aplica a cargas y pagos. Un gasto sale del pozo.
-  let quien = '';
-  if (tipo !== 'Gasto') {
-    const q = String(p.quien || '').trim();
-    quien = ARG_QUIENES.find(x => _stripAccents(x).toLowerCase() === _stripAccents(q).toLowerCase())
-            || (tipo === 'Pago' ? 'Mamá' : 'Mía');
-  }
+  // Quién: de quién era la plata. Un pago siempre es a mamá.
+  const q = String(p.quien || '').trim();
+  const quien = ARG_QUIENES.find(x => _stripAccents(x).toLowerCase() === _stripAccents(q).toLowerCase())
+                || (tipo === 'Pago' ? 'Mamá' : 'Mía');
 
   // Lock por el mismo motivo que en el log de hábitos: buscar la fila libre y
   // escribir no es atómico, y la hoja se abre adentro para no leer un snapshot
@@ -2913,8 +2925,11 @@ function updateArgentinaEntry(p) {
   let usd   = p.usd   !== undefined && p.usd   !== '' ? num(p.usd)   : toNumber(cur[3]);
   let cotiz = p.cotiz !== undefined && p.cotiz !== '' ? num(p.cotiz) : toNumber(cur[4]);
   let ars   = p.ars   !== undefined && p.ars   !== '' ? num(p.ars)   : toNumber(cur[5]);
-  // Si cambió el USD o la cotización de una carga, recalcular los ARS
-  if (tipo === 'Carga' && usd != null && cotiz != null &&
+  // Un gasto se carga en pesos: si cambian los pesos o la cotización, los
+  // dólares se recalculan solos. En las cargas viejas es al revés.
+  if (tipo === 'Gasto' && ars != null && cotiz != null && cotiz > 0) {
+    usd = Math.round((ars / cotiz) * 100) / 100;
+  } else if (tipo === 'Carga' && usd != null && cotiz != null &&
       (p.usd !== undefined || p.cotiz !== undefined) && p.ars === undefined) {
     ars = Math.round(usd * cotiz);
   }

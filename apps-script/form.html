@@ -340,14 +340,13 @@
   <!-- SALDO -->
   <div class="hcard argsaldo">
     <div class="hcard-title">💵 Cómo vengo</div>
-    <div class="argrow"><span>Cambié</span><b id="argSaque">$ 0</b></div>
     <div class="argrow"><span>Gasté</span><b id="argGaste">$ 0</b></div>
-    <div class="argrow queda"><span>Me queda</span><b id="argQueda">$ 0</b></div>
+    <div class="argrow queda"><span>En dólares</span><b id="argGasteUsd">US$ 0</b></div>
     <hr class="argsep">
-    <div class="argrow"><span>Puso mamá</span><b id="argMama">US$ 0</b></div>
+    <div class="argrow"><span>Puse de lo mío</span><b id="argMio">US$ 0</b></div>
+    <div class="argrow"><span>Gasté de mamá</span><b id="argMama">US$ 0</b></div>
     <div class="argrow"><span>Le di</span><b id="argPagado">US$ 0</b></div>
     <div class="argrow deuda"><span>Le debo a mamá</span><b id="argDeuda">US$ 0</b></div>
-    <div class="argrow"><span>Puse de lo mío</span><b id="argMio">US$ 0</b></div>
   </div>
 
   <!-- AGREGAR -->
@@ -355,7 +354,6 @@
     <div class="hcard-title">➕ ¿Qué hiciste?</div>
     <div class="argtipos vert">
       <button type="button" class="argtipo activo" data-tipo="Gasto">🛒 Gasté</button>
-      <button type="button" class="argtipo" data-tipo="Carga">💵 Cambié dólares</button>
       <button type="button" class="argtipo" data-tipo="Pago">↩️ Le di dólares a mi madre</button>
     </div>
     <div class="arghint" id="argHint"></div>
@@ -369,18 +367,18 @@
     </div>
 
     <div id="argCampoArs">
-      <label class="hlabel">Monto en pesos argentinos</label>
-      <input type="text" id="argArs" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 18500" autocomplete="off">
-    </div>
-
-    <div id="argCampoUsd">
       <div class="hscan-row">
-        <div><label class="hlabel">USD</label>
-          <input type="text" id="argUsd" inputmode="decimal" pattern="[0-9.,]*" placeholder="300" autocomplete="off"></div>
+        <div><label class="hlabel">Pesos argentinos</label>
+          <input type="text" id="argArs" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 18500" autocomplete="off"></div>
         <div><label class="hlabel">Cotización</label>
           <input type="text" id="argCotiz" inputmode="decimal" pattern="[0-9.,]*" placeholder="1450" autocomplete="off"></div>
       </div>
       <div class="argcalc" id="argCalc"></div>
+    </div>
+
+    <div id="argCampoUsd">
+      <label class="hlabel">Dólares que le diste</label>
+      <input type="text" id="argUsd" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 120" autocomplete="off">
     </div>
 
     <div id="argCampoQuien">
@@ -413,12 +411,22 @@
     <h3>Editar movimiento</h3>
     <label class="hlabel">Detalle</label>
     <input type="text" id="agDetalle" autocomplete="off">
-    <div class="hscan-row">
-      <div><label class="hlabel">USD</label><input type="text" id="agUsd" inputmode="decimal"></div>
-      <div><label class="hlabel">Cotización</label><input type="text" id="agCotiz" inputmode="decimal"></div>
+    <div id="agCampoGasto">
+      <div class="hscan-row">
+        <div><label class="hlabel">Pesos argentinos</label><input type="text" id="agArs" inputmode="decimal"></div>
+        <div><label class="hlabel">Cotización</label><input type="text" id="agCotiz" inputmode="decimal"></div>
+      </div>
+      <div class="argcalc" id="agCalc"></div>
+      <label class="hlabel">¿De quién era esa plata?</label>
+      <div class="argtipos">
+        <button type="button" class="agquien activo" data-quien="Mía">Mía</button>
+        <button type="button" class="agquien" data-quien="Mamá">Mamá</button>
+      </div>
     </div>
-    <label class="hlabel">ARS</label>
-    <input type="text" id="agArs" inputmode="decimal">
+    <div id="agCampoPago">
+      <label class="hlabel">Dólares que le diste</label>
+      <input type="text" id="agUsd" inputmode="decimal">
+    </div>
     <label class="hlabel">Fecha</label>
     <input type="date" id="agFecha">
     <div class="hmodal-actions">

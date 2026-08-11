@@ -1427,27 +1427,23 @@
     var bs = document.querySelectorAll('.argtipo');
     for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('activo', bs[i].getAttribute('data-tipo') === t);
 
-    var esGasto = (t === 'Gasto'), esCarga = (t === 'Carga'), esPago = (t === 'Pago');
+    var esGasto = (t === 'Gasto');
     var show = function(id, on) { var e = hEl(id); if (e) e.style.display = on ? '' : 'none'; };
-    show('argCampoArs', esGasto);
-    show('argCampoUsd', esCarga || esPago);
+    show('argCampoArs', esGasto);     // pesos + cotización
+    show('argCampoUsd', !esGasto);    // dólares que le devolviste
     show('argCampoCat', esGasto);
-    show('argCampoQuien', esCarga);   // un gasto sale del pozo; un pago siempre es a mamá
+    show('argCampoQuien', esGasto);   // un pago siempre es a mamá
     show('argCampoDetalle', true);
     var d = hEl('argDetalle');
-    if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : (esCarga ? 'ej: cambié en la cueva' : 'ej: le transferí');
+    if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : 'ej: le transferí';
     var b = hEl('argAdd');
-    if (b) b.textContent = esGasto ? 'Guardar gasto' : (esCarga ? 'Guardar cambio' : 'Guardar');
+    if (b) b.textContent = esGasto ? 'Guardar gasto' : 'Guardar';
 
-    // Una línea que explica qué hace cada opción con la plata. Es lo que más
-    // ayuda a no confundir cambiar plata con gastarla.
     var hint = hEl('argHint');
     if (hint) {
       hint.textContent = esGasto
-        ? 'Pagaste algo en pesos. Sale plata de lo que tenés.'
-        : (esCarga
-            ? 'Cambiaste dólares y te quedaste con pesos. Entra plata.'
-            : 'Le diste dólares a tu madre. Baja lo que le debés.');
+        ? 'Pagaste algo en pesos. Con la cotización se anota cuántos dólares fueron.'
+        : 'Le diste dólares a tu madre. Baja lo que le debés.';
     }
     argCalc();
   }
@@ -1467,16 +1463,16 @@
     }
   })();
 
-  // Muestra cuántos ARS salen de USD x cotización
+  // Muestra cuántos dólares son esos pesos a la cotización puesta
   function argCalc() {
     var el = hEl('argCalc');
     if (!el) return;
-    if (ARG.tipo !== 'Carga') { el.textContent = ''; return; }
-    var u = nArg(hEl('argUsd') && hEl('argUsd').value);
+    if (ARG.tipo !== 'Gasto') { el.textContent = ''; return; }
+    var a = nArg(hEl('argArs') && hEl('argArs').value);
     var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
-    el.textContent = (u > 0 && c > 0) ? ('= ' + fmtArs(u * c)) : '';
+    el.textContent = (a > 0 && c > 0) ? ('= ' + fmtUsd(Math.round((a / c) * 100) / 100)) : '';
   }
-  ['argUsd','argCotiz'].forEach(function(id) {
+  ['argArs','argCotiz'].forEach(function(id) {
     var e = hEl(id); if (e) e.addEventListener('input', argCalc);
   });
 
@@ -1506,24 +1502,23 @@
   function pintarArg(t) {
     t = t || {};
     var set = function(id, v) { var e = hEl(id); if (e) e.textContent = v; };
-    set('argSaque',  fmtArs(t.cargadoArs));
-    set('argGaste',  fmtArs(t.gastadoArs));
-    set('argMama',   fmtUsd(t.pusoMamaUsd));
-    set('argPagado', fmtUsd(t.pagadoUsd));
-    set('argDeuda',  fmtUsd(t.deudaUsd));
-    set('argMio',    fmtUsd(t.pusoMioUsd));
+    set('argGaste',    fmtArs(t.gastadoArs));
+    set('argGasteUsd', fmtUsd(t.gastadoUsd));
+    set('argMio',      fmtUsd(t.pusoMioUsd));
+    set('argMama',     fmtUsd(t.pusoMamaUsd));
+    set('argPagado',   fmtUsd(t.pagadoUsd));
 
-    // Si gastó más de lo que cargó, un "queda" negativo confunde. Se muestra
-    // como excedente, que es lo que realmente pasó: pagó por fuera del pozo.
-    var q = hEl('argQueda'), lbl = q && q.previousElementSibling;
-    if ((t.quedaArs || 0) < 0) {
-      set('argQueda', fmtArs(Math.abs(t.quedaArs)));
-      if (lbl) lbl.textContent = 'Gastaste de más';
-      if (q) q.style.color = '#b91c1c';
+    // Si le devolvió más de lo que gastó con plata suya, una deuda negativa se
+    // lee mal. Se muestra al revés: le diste de más.
+    var dd = hEl('argDeuda'), lblD = dd && dd.previousElementSibling;
+    if ((t.deudaUsd || 0) < 0) {
+      set('argDeuda', fmtUsd(Math.abs(t.deudaUsd)));
+      if (lblD) lblD.textContent = 'Le di de más';
+      if (dd) dd.style.color = '#15803d';
     } else {
-      set('argQueda', fmtArs(t.quedaArs));
-      if (lbl) lbl.textContent = 'Me queda';
-      if (q) q.style.color = '';
+      set('argDeuda', fmtUsd(t.deudaUsd));
+      if (lblD) lblD.textContent = 'Le debo a mamá';
+      if (dd) dd.style.color = '';
     }
 
     var box = hEl('argList');
@@ -1539,8 +1534,8 @@
       // El sheet guarda Carga/Gasto/Pago; en pantalla se muestran en primera
       // persona, que es como el usuario piensa lo que hizo.
       var etiqueta = tipoL === 'carga' ? 'Cambié' : (tipoL === 'pago' ? 'Le di' : 'Gasté');
-      var monto = (tipoL === 'gasto') ? fmtArs(e.ars) : fmtUsd(e.usd);
-      var extra = (tipoL === 'carga' && e.ars) ? (' → ' + fmtArs(e.ars)) : '';
+      var monto = (tipoL === 'pago') ? fmtUsd(e.usd) : fmtArs(e.ars);
+      var extra = (tipoL !== 'pago' && e.usd) ? (' · ' + fmtUsd(e.usd)) : '';
       var fecha = e.fecha ? e.fecha.slice(8) + '/' + e.fecha.slice(5, 7) : '';
       html += '<div class="argmov" data-row="' + e.row + '">' +
         '<span class="at ' + tipoL + '">' + etiqueta + '</span>' +
@@ -1569,31 +1564,29 @@
     if (ARG.tipo === 'Gasto') {
       var a = nArg(hEl('argArs') && hEl('argArs').value);
       if (!a) { argStatus('¿Cuántos pesos argentinos gastaste?', 'err'); return; }
+      var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+      if (!c) { argStatus('Falta la cotización del dólar', 'err'); return; }
       payload.ars = a;
+      payload.cotiz = c;
+      payload.quien = ARG.quien;
       payload.categoria = (hEl('argCat') && hEl('argCat').value) || '';
     } else {
       var u = nArg(hEl('argUsd') && hEl('argUsd').value);
-      if (!u) { argStatus('¿Cuántos dólares?', 'err'); return; }
+      if (!u) { argStatus('¿Cuántos dólares le diste?', 'err'); return; }
       payload.usd = u;
-      if (ARG.tipo === 'Carga') {
-        var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
-        if (!c) { argStatus('¿A qué cotización los cambiaste?', 'err'); return; }
-        payload.cotiz = c;
-        payload.quien = ARG.quien;
-      } else {
-        payload.quien = 'Mamá';
-      }
+      payload.quien = 'Mamá';
     }
     argStatus('Guardando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
-          ['argDetalle','argArs','argUsd','argCotiz'].forEach(function(id) {
+          // La cotización no se limpia: en un mismo viaje es casi siempre la
+          // misma y volver a escribirla en cada gasto es un fastidio.
+          ['argDetalle','argArs','argUsd'].forEach(function(id) {
             var e = hEl(id); if (e) e.value = '';
           });
           argCalc();
-          var dicho = ARG.tipo === 'Carga' ? 'Cambio guardado'
-                    : (ARG.tipo === 'Pago' ? 'Anotado: le diste dólares a tu madre' : 'Gasto guardado');
+          var dicho = ARG.tipo === 'Pago' ? 'Anotado: le diste dólares a tu madre' : 'Gasto guardado';
           argStatus('✓ ' + dicho, 'ok');
           loadArg();
         } else { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
@@ -1608,29 +1601,50 @@
     for (var i = 0; i < ARG.entradas.length; i++) if (ARG.entradas[i].row === row) { e = ARG.entradas[i]; break; }
     if (!e) return;
     ARG.editRow = row;
+    ARG.editTipo = e.tipo || 'Gasto';
+    ARG.editQuien = (String(e.quien || '').toLowerCase().indexOf('mam') >= 0) ? 'Mamá' : 'Mía';
+    var esPago = String(e.tipo || '').toLowerCase() === 'pago';
+    var showM = function(id, on) { var el = hEl(id); if (el) el.style.display = on ? '' : 'none'; };
+    showM('agCampoGasto', !esPago);
+    showM('agCampoPago', esPago);
+    var qs = document.querySelectorAll('.agquien');
+    for (var j = 0; j < qs.length; j++) qs[j].classList.toggle('activo', qs[j].getAttribute('data-quien') === ARG.editQuien);
     if (hEl('agDetalle')) hEl('agDetalle').value = e.detalle || '';
     if (hEl('agUsd'))     hEl('agUsd').value     = e.usd != null ? e.usd : '';
     if (hEl('agCotiz'))   hEl('agCotiz').value   = e.cotiz != null ? e.cotiz : '';
     if (hEl('agArs'))     hEl('agArs').value     = e.ars != null ? e.ars : '';
     if (hEl('agFecha'))   hEl('agFecha').value   = e.fecha || '';
+    agCalc();
     if (hEl('argModal'))  hEl('argModal').classList.add('show');
   }
   function cerrarArgModal() {
     ARG.editRow = null;
     if (hEl('argModal')) hEl('argModal').classList.remove('show');
   }
-  // Al tocar USD o cotización en el modal, recalcular los ARS. Sin esto se
-  // guardaba el ARS viejo: cambiar 200 -> 250 dejaba "US$ 250 → $ 296.000",
-  // que eran los pesos de los 200 originales.
-  ['agUsd','agCotiz'].forEach(function(id) {
+  // Al tocar los pesos o la cotización, mostrar en vivo cuántos dólares son.
+  // Sin esto el modal guardaba el USD viejo y la deuda quedaba mal.
+  function agCalc() {
+    var el = hEl('agCalc');
+    if (!el) return;
+    var a = nArg(hEl('agArs') && hEl('agArs').value);
+    var c = nArg(hEl('agCotiz') && hEl('agCotiz').value);
+    el.textContent = (a > 0 && c > 0) ? ('= ' + fmtUsd(Math.round((a / c) * 100) / 100)) : '';
+  }
+  ['agArs','agCotiz'].forEach(function(id) {
     var e = hEl(id);
-    if (!e) return;
-    e.addEventListener('input', function() {
-      var u = nArg(hEl('agUsd') && hEl('agUsd').value);
-      var c = nArg(hEl('agCotiz') && hEl('agCotiz').value);
-      if (u > 0 && c > 0 && hEl('agArs')) hEl('agArs').value = Math.round(u * c);
-    });
+    if (e) e.addEventListener('input', agCalc);
   });
+  (function() {
+    var qs = document.querySelectorAll('.agquien');
+    for (var j = 0; j < qs.length; j++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          ARG.editQuien = b.getAttribute('data-quien');
+          for (var k = 0; k < qs.length; k++) qs[k].classList.toggle('activo', qs[k] === b);
+        });
+      })(qs[j]);
+    }
+  })();
 
   if (hEl('agCancel')) hEl('agCancel').addEventListener('click', cerrarArgModal);
   if (hEl('argModal')) hEl('argModal').addEventListener('click', function(ev) {
@@ -1653,6 +1667,7 @@
         usd:   (hEl('agUsd')   && hEl('agUsd').value.trim())   || '',
         cotiz: (hEl('agCotiz') && hEl('agCotiz').value.trim()) || '',
         ars:   (hEl('agArs')   && hEl('agArs').value.trim())   || '',
+        quien: ARG.editQuien || '',
         fecha: (hEl('agFecha') && hEl('agFecha').value) || ''
       });
   });
