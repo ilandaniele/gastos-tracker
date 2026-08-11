@@ -1437,17 +1437,17 @@
     var d = hEl('argDetalle');
     if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : (esCarga ? 'ej: cambié en la cueva' : 'ej: le transferí');
     var b = hEl('argAdd');
-    if (b) b.textContent = esGasto ? 'Guardar gasto' : (esCarga ? 'Guardar' : 'Guardar devolución');
+    if (b) b.textContent = esGasto ? 'Guardar gasto' : (esCarga ? 'Guardar cambio' : 'Guardar');
 
     // Una línea que explica qué hace cada opción con la plata. Es lo que más
-    // ayuda a no confundir sacar plata con gastarla.
+    // ayuda a no confundir cambiar plata con gastarla.
     var hint = hEl('argHint');
     if (hint) {
       hint.textContent = esGasto
-        ? 'Pagaste algo. Sale plata de lo que tenés.'
+        ? 'Pagaste algo en pesos. Sale plata de lo que tenés.'
         : (esCarga
             ? 'Cambiaste dólares y te quedaste con pesos. Entra plata.'
-            : 'Le devolviste dólares a tu mamá. Baja lo que le debés.');
+            : 'Le diste dólares a tu madre. Baja lo que le debés.');
     }
     argCalc();
   }
@@ -1538,7 +1538,7 @@
       var tipoL = e.tipo.toLowerCase();
       // El sheet guarda Carga/Gasto/Pago; en pantalla se muestran en primera
       // persona, que es como el usuario piensa lo que hizo.
-      var etiqueta = tipoL === 'carga' ? 'Saqué' : (tipoL === 'pago' ? 'Devolví' : 'Gasté');
+      var etiqueta = tipoL === 'carga' ? 'Cambié' : (tipoL === 'pago' ? 'Le di' : 'Gasté');
       var monto = (tipoL === 'gasto') ? fmtArs(e.ars) : fmtUsd(e.usd);
       var extra = (tipoL === 'carga' && e.ars) ? (' → ' + fmtArs(e.ars)) : '';
       var fecha = e.fecha ? e.fecha.slice(8) + '/' + e.fecha.slice(5, 7) : '';
@@ -1592,8 +1592,8 @@
             var e = hEl(id); if (e) e.value = '';
           });
           argCalc();
-          var dicho = ARG.tipo === 'Carga' ? 'Plata que sacaste, guardada'
-                    : (ARG.tipo === 'Pago' ? 'Devolución registrada' : 'Gasto guardado');
+          var dicho = ARG.tipo === 'Carga' ? 'Cambio guardado'
+                    : (ARG.tipo === 'Pago' ? 'Anotado: le diste dólares a tu madre' : 'Gasto guardado');
           argStatus('✓ ' + dicho, 'ok');
           loadArg();
         } else { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }

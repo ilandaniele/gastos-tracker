@@ -204,6 +204,10 @@
   .argtipos button { flex: 1; margin: 0; padding: 10px 4px; font-size: 13px; font-weight: 600;
                      background: #f1f5f9; color: #64748b; border-radius: 8px; }
   .argtipos button.activo { background: #0f766e; color: white; }
+  /* El selector de tipo va en columna: las frases completas no entran en tres
+     botones lado a lado y quedaban partidas en cuatro renglones. */
+  .argtipos.vert { flex-direction: column; gap: 5px; }
+  .argtipos.vert button { text-align: left; padding: 11px 12px; font-size: 14px; }
   .argcalc { font-size: 13px; color: #0369a1; text-align: center; margin-top: 8px; min-height: 16px; font-weight: 600; }
   #argStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
   #argStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
