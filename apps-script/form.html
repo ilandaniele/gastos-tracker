@@ -88,13 +88,7 @@
     <option>Débito USD</option>
   </select>
   <label>Categoría</label>
-  <select name="category" required>
-    <option>Transporte</option><option>Comida</option><option>Bebida/Bar</option>
-    <option>Salud</option><option>Suscripciones</option><option>Entretenimiento</option>
-    <option>Hogar</option><option>Limpieza</option><option>Ropa</option>
-    <option>Regalos</option><option>Gimnasio</option><option>Servicios</option>
-    <option>Viajes</option><option>Otros</option>
-  </select>
+  <select name="category" required><?!= categoryOptions ?></select>
   <div class="row">
     <div><label>Fecha</label><input name="date" type="date" value="<?= today ?>"></div>
     <div><label>Cotización USD</label><input name="cotizacion" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="auto (BCU)" autocomplete="off"></div>
@@ -438,5 +432,10 @@
   <div class="spinner-text" id="loadingText">Guardando...</div>
 </div>
 
+<script>
+  // Reglas y categorías inyectadas desde Code.gs: una sola fuente de verdad.
+  var CAT_RULES_RAW = <?!= catRulesJson ?>;
+  var CATEGORIAS    = <?!= categoriasJson ?>;
+</script>
 <?!= include('form-scripts') ?>
 </body></html>

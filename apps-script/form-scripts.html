@@ -57,7 +57,8 @@
     if (data.amount !== undefined && data.amount !== null) amountField.value = data.amount;
     var curField = getField('currency'); if (data.currency && curField) curField.value = data.currency;
     var cardField = getField('card'); if (data.card && cardField) cardField.value = data.card;
-    var catField = getField('category'); if (data.category && catField) catField.value = data.category;
+    var catField = getField('category');
+    if (data.category && catField) { catField.value = data.category; catTocadaAMano = true; }
     if (data.amount === undefined || data.amount === null) amountField.focus();
   }
 
@@ -115,11 +116,49 @@
     })(btns[i]);
   }
 
-  // === Auto-correct card based on item text (only on manual typing) ===
-  // Rules: item starts with "bus" → Crédito OCA. Default → Débito UYU.
+  // === Clasificación en vivo por el nombre del ítem ===
+  // Las reglas vienen de CAT_RULES en Code.gs (inyectadas al render), así que
+  // el form muestra exactamente la categoría con la que se va a guardar. Antes
+  // el desplegable quedaba en el default y recién al guardar se sabía: escribir
+  // "Claude" mostraba Transporte y terminaba en Suscripciones.
+  var CAT_RULES_JS = [];
+  try {
+    if (typeof CAT_RULES_RAW !== 'undefined') {
+      CAT_RULES_JS = CAT_RULES_RAW.map(function(r) {
+        return { re: new RegExp(r.source, r.flags), cat: r.cat };
+      });
+    }
+  } catch (e) { CAT_RULES_JS = []; }
+
+  function clasificarItem(texto) {
+    var s = String(texto || '').trim();
+    if (!s) return null;
+    for (var i = 0; i < CAT_RULES_JS.length; i++) {
+      if (CAT_RULES_JS[i].re.test(s)) return CAT_RULES_JS[i].cat;
+    }
+    return 'Otros';
+  }
+
+  // Si el usuario elige una categoría a mano, se deja de pisar hasta que
+  // limpie el ítem o guarde.
+  var catTocadaAMano = false;
+  (function() {
+    var cat = getField('category');
+    if (cat) cat.addEventListener('change', function() { catTocadaAMano = true; });
+  })();
+
+  function autoClasificar() {
+    if (catTocadaAMano) return;
+    var itemField = getField('item'), catField = getField('category');
+    if (!itemField || !catField) return;
+    var v = itemField.value.trim();
+    if (!v) return;
+    var c = clasificarItem(v);
+    if (c && c !== 'Otros') catField.value = c;
+  }
+
   var AUTO_CARD_RULES = [
     { re: /^\s*bus\b/i, card: 'Crédito OCA' }
-    // Add more if needed: { re: /^\s*claude/i, card: 'Crédito Itaú USD' }
   ];
   function autoCorrectCard() {
     var itemField = getField('item');
@@ -134,7 +173,10 @@
   }
   (function(){
     var itemField = getField('item');
-    if (itemField) itemField.addEventListener('input', autoCorrectCard);
+    if (itemField) itemField.addEventListener('input', function() {
+      autoCorrectCard();
+      autoClasificar();
+    });
   })();
 
   function onSuccess(result) {
@@ -150,6 +192,7 @@
       setStatus(prefix + result.tab + ' · row ' + result.row + ' · cot=' + cot + ' (' + src + ')' + prevNote, 'ok');
       var f = document.getElementById('f');
       f.reset();
+      catTocadaAMano = false;
       // Local date, not UTC (avoids next-day glitch in evening)
       var n = new Date();
       var iso = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
@@ -213,7 +256,9 @@
 
   // === Ticket OCR scan ===
   var scannedItems = [];
-  var CATS = ['Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento','Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Viajes','Otros'];
+  var CATS = (typeof CATEGORIAS !== 'undefined' && CATEGORIAS.length)
+    ? CATEGORIAS
+    : ['Bebida/Bar','Comida','Entretenimiento','Gimnasio','Hogar','Limpieza','Regalos','Ropa','Salud','Servicios','Suscripciones','Transporte','Viajes','Otros'];
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

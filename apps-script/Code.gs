@@ -34,6 +34,21 @@ const CATEGORIES = [
 
 const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD'];
 
+// Categorías ordenadas alfabéticamente para mostrar, con "Otros" al final:
+// es el cajón de sastre y en el medio de la lista molesta más que ayuda.
+function categoriasOrdenadas() {
+  const resto = CATEGORIES.filter(c => c !== 'Otros')
+    .sort((a, b) => a.localeCompare(b, 'es'));
+  return CATEGORIES.indexOf('Otros') >= 0 ? resto.concat(['Otros']) : resto;
+}
+
+// CAT_RULES en un formato que se pueda mandar al cliente. Los regex no
+// sobreviven a JSON, asi que van como source + flags y el form los rearma.
+// De esta manera las reglas siguen viviendo en un solo lugar.
+function catRulesSerializables() {
+  return CAT_RULES.map(([re, cat]) => ({ source: re.source, flags: re.flags, cat: cat }));
+}
+
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
 const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (ml)','Masturbación','Notas'];
@@ -203,6 +218,12 @@ function formHtml() {
   const today = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   const t = HtmlService.createTemplateFromFile('form');
   t.today = today;
+  // Las opciones y las reglas se generan desde el backend para que no haya
+  // dos listas de categorías que se puedan desincronizar.
+  t.categoryOptions = categoriasOrdenadas()
+    .map(c => '<option>' + c + '</option>').join('');
+  t.catRulesJson = JSON.stringify(catRulesSerializables());
+  t.categoriasJson = JSON.stringify(categoriasOrdenadas());
   return t.evaluate().getContent();
 }
 
@@ -2788,12 +2809,12 @@ function getArgentinaData(monthOpt) {
     if (col < 0) {
       return { ok: true, tab: tabName, exists: false, entradas: [],
                totales: _argTotales([]), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
-               categorias: CATEGORIES };
+               categorias: categoriasOrdenadas() };
     }
     const entradas = _argRows(sheet, col);
     return { ok: true, tab: tabName, exists: true, col: col, entradas: entradas,
              totales: _argTotales(entradas), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
-             categorias: CATEGORIES };
+             categorias: categoriasOrdenadas() };
   } catch (err) {
     Logger.log('getArgentinaData: ' + err.message);
     return { ok: false, error: err.message };
