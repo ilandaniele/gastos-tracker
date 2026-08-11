@@ -163,8 +163,8 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal, #waterModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show, #waterModal.show { display: flex; }
+  #mealModal, #waterModal, #argModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show, #argModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
@@ -194,4 +194,28 @@
   .hdaystatus.con { background: #ecfdf5; color: #15803d; border: 1px solid #a7f3d0; }
   .hdaystatus.sin { background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
   .hsub { display: block; font-size: 10px; color: #94a3b8; font-weight: 400; margin-top: 1px; }
+  .argsaldo { background: #f0f9ff; border-color: #bae6fd; }
+  .argrow { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 13px; color: #475569; }
+  .argrow b { font-variant-numeric: tabular-nums; color: #0f172a; font-size: 14px; }
+  .argrow.deuda b { color: #b91c1c; font-size: 19px; }
+  .argrow.queda b { color: #0f766e; font-size: 17px; }
+  .argsep { border: none; border-top: 1px solid #bae6fd; margin: 8px 0; }
+  .argtipos { display: flex; gap: 6px; margin-bottom: 4px; }
+  .argtipos button { flex: 1; margin: 0; padding: 10px 4px; font-size: 13px; font-weight: 600;
+                     background: #f1f5f9; color: #64748b; border-radius: 8px; }
+  .argtipos button.activo { background: #0f766e; color: white; }
+  .argcalc { font-size: 13px; color: #0369a1; text-align: center; margin-top: 8px; min-height: 16px; font-weight: 600; }
+  #argStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
+  #argStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
+  #argStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
+  #argStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
+  .argmov { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f0f0f0; font-size: 13px; cursor: pointer; }
+  .argmov:last-child { border-bottom: none; }
+  .argmov .at { font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700; white-space: nowrap; }
+  .argmov .at.carga { background: #dcfce7; color: #15803d; }
+  .argmov .at.gasto { background: #fef3c7; color: #92400e; }
+  .argmov .at.pago  { background: #e0e7ff; color: #3730a3; }
+  .argmov .ad { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .argmov .am { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .argmov .aq { font-size: 10px; color: #94a3b8; white-space: nowrap; }
 </style>

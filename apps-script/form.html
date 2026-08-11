@@ -4,6 +4,7 @@
   <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
   <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
   <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
+  <button type="button" class="tab" data-panel="argPanel">🇦🇷 Arg</button>
 </div>
 
 <div id="addPanel" class="panel active">
@@ -335,6 +336,99 @@
       <button type="button" id="wdDelete" class="hdanger">Borrar</button>
       <button type="button" id="wdCancel" class="hsecondary">Cancelar</button>
       <button type="button" id="wdSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="argPanel" class="panel">
+  <h1>Argentina <span id="argMes" class="hdate"></span></h1>
+
+  <!-- SALDO -->
+  <div class="hcard argsaldo">
+    <div class="hcard-title">💵 Saldo</div>
+    <div class="argrow"><span>Puso mamá</span><b id="argMama">US$ 0</b></div>
+    <div class="argrow"><span>Le devolví</span><b id="argPagado">US$ 0</b></div>
+    <div class="argrow deuda"><span>Le debo</span><b id="argDeuda">US$ 0</b></div>
+    <hr class="argsep">
+    <div class="argrow"><span>Puse yo</span><b id="argMio">US$ 0</b></div>
+    <div class="argrow"><span>Cargado / Gastado</span><b id="argMov">$ 0 / $ 0</b></div>
+    <div class="argrow queda"><span>Queda en el pozo</span><b id="argQueda">$ 0</b></div>
+  </div>
+
+  <!-- AGREGAR -->
+  <div class="hcard">
+    <div class="hcard-title">➕ Agregar</div>
+    <div class="argtipos">
+      <button type="button" class="argtipo activo" data-tipo="Gasto">🛒 Gasto</button>
+      <button type="button" class="argtipo" data-tipo="Carga">💵 Carga</button>
+      <button type="button" class="argtipo" data-tipo="Pago">↩️ Pago a mamá</button>
+    </div>
+
+    <label class="hlabel">Fecha</label>
+    <input type="date" id="argFecha">
+
+    <div id="argCampoDetalle">
+      <label class="hlabel">Detalle</label>
+      <input type="text" id="argDetalle" placeholder="¿En qué gastaste?" autocomplete="off">
+    </div>
+
+    <div id="argCampoArs">
+      <label class="hlabel">Monto en pesos argentinos</label>
+      <input type="text" id="argArs" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 18500" autocomplete="off">
+    </div>
+
+    <div id="argCampoUsd">
+      <div class="hscan-row">
+        <div><label class="hlabel">USD</label>
+          <input type="text" id="argUsd" inputmode="decimal" pattern="[0-9.,]*" placeholder="300" autocomplete="off"></div>
+        <div><label class="hlabel">Cotización</label>
+          <input type="text" id="argCotiz" inputmode="decimal" pattern="[0-9.,]*" placeholder="1450" autocomplete="off"></div>
+      </div>
+      <div class="argcalc" id="argCalc"></div>
+    </div>
+
+    <div id="argCampoQuien">
+      <label class="hlabel">¿De quién es la plata?</label>
+      <div class="argtipos">
+        <button type="button" class="argquien activo" data-quien="Mía">Mía</button>
+        <button type="button" class="argquien" data-quien="Mamá">Mamá</button>
+      </div>
+    </div>
+
+    <div id="argCampoCat">
+      <label class="hlabel">Categoría</label>
+      <select id="argCat"></select>
+    </div>
+
+    <button type="button" id="argAdd">Agregar</button>
+    <div id="argStatus"></div>
+  </div>
+
+  <!-- MOVIMIENTOS -->
+  <div class="hcard">
+    <div class="hcard-title">📋 Movimientos <span class="hhint">tocá uno para editarlo</span></div>
+    <div id="argList" class="hmeal-list"></div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR MOVIMIENTO -->
+<div id="argModal">
+  <div class="hmodal-box">
+    <h3>Editar movimiento</h3>
+    <label class="hlabel">Detalle</label>
+    <input type="text" id="agDetalle" autocomplete="off">
+    <div class="hscan-row">
+      <div><label class="hlabel">USD</label><input type="text" id="agUsd" inputmode="decimal"></div>
+      <div><label class="hlabel">Cotización</label><input type="text" id="agCotiz" inputmode="decimal"></div>
+    </div>
+    <label class="hlabel">ARS</label>
+    <input type="text" id="agArs" inputmode="decimal">
+    <label class="hlabel">Fecha</label>
+    <input type="date" id="agFecha">
+    <div class="hmodal-actions">
+      <button type="button" id="agDelete" class="hdanger">Borrar</button>
+      <button type="button" id="agCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="agSave">Guardar</button>
     </div>
   </div>
 </div>

@@ -383,6 +383,7 @@
     // Recargar siempre al entrar: si guardaste y volviste, tenés que ver lo
     // que quedó en la hoja y no el form viejo. Si hay cambios sin guardar se
     // respetan y no se pisan.
+    if (panelId === 'argPanel') loadArg();
     if (panelId === 'habitPanel') {
       if (!habitLoadedOnce) loadHabitToday();
       else if (!H.dirty) loadDay(H.date || todayISO());
@@ -1351,4 +1352,238 @@
   }
 
   function loadHabitToday() { loadDay(todayISO()); }
+
+  // ==========================================================
+  // === ARGENTINA ============================================
+  // ==========================================================
+  var argLoadedOnce = false;
+  var ARG = { tipo: 'Gasto', quien: 'Mía', entradas: [], editRow: null, cats: [] };
+
+  function argStatus(t, cls) {
+    var el = hEl('argStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = t || '';
+    var ov = hEl('loadingOverlay');
+    if (ov) {
+      if (cls === 'loading') {
+        var x = hEl('loadingText'); if (x) x.textContent = t || 'Guardando...';
+        ov.classList.add('show');
+      } else { ov.classList.remove('show'); }
+    }
+  }
+  function nArg(v) { return parseFloat(String(v == null ? '' : v).replace(/\./g, '').replace(',', '.')) || 0; }
+  function fmtArs(n) { return '$ ' + fmtMl(Math.round(n || 0)); }
+  function fmtUsd(n) { return 'US$ ' + (Math.round((n || 0) * 100) / 100).toString().replace('.', ','); }
+
+  // ---- Selector de tipo: cambia qué campos se piden ----
+  function setTipo(t) {
+    ARG.tipo = t;
+    var bs = document.querySelectorAll('.argtipo');
+    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('activo', bs[i].getAttribute('data-tipo') === t);
+
+    var esGasto = (t === 'Gasto'), esCarga = (t === 'Carga'), esPago = (t === 'Pago');
+    var show = function(id, on) { var e = hEl(id); if (e) e.style.display = on ? '' : 'none'; };
+    show('argCampoArs', esGasto);
+    show('argCampoUsd', esCarga || esPago);
+    show('argCampoCat', esGasto);
+    show('argCampoQuien', esCarga);   // un gasto sale del pozo; un pago siempre es a mamá
+    show('argCampoDetalle', true);
+    var d = hEl('argDetalle');
+    if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : (esCarga ? 'ej: cambio en la cueva' : 'ej: le transferí');
+    var b = hEl('argAdd');
+    if (b) b.textContent = esGasto ? 'Agregar gasto' : (esCarga ? 'Agregar carga' : 'Registrar pago');
+    argCalc();
+  }
+  (function() {
+    var bs = document.querySelectorAll('.argtipo');
+    for (var i = 0; i < bs.length; i++) {
+      (function(b) { b.addEventListener('click', function() { setTipo(b.getAttribute('data-tipo')); }); })(bs[i]);
+    }
+    var qs = document.querySelectorAll('.argquien');
+    for (var j = 0; j < qs.length; j++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          ARG.quien = b.getAttribute('data-quien');
+          for (var k = 0; k < qs.length; k++) qs[k].classList.toggle('activo', qs[k] === b);
+        });
+      })(qs[j]);
+    }
+  })();
+
+  // Muestra cuántos ARS salen de USD x cotización
+  function argCalc() {
+    var el = hEl('argCalc');
+    if (!el) return;
+    if (ARG.tipo !== 'Carga') { el.textContent = ''; return; }
+    var u = nArg(hEl('argUsd') && hEl('argUsd').value);
+    var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+    el.textContent = (u > 0 && c > 0) ? ('= ' + fmtArs(u * c)) : '';
+  }
+  ['argUsd','argCotiz'].forEach(function(id) {
+    var e = hEl(id); if (e) e.addEventListener('input', argCalc);
+  });
+
+  // ---- Carga de datos ----
+  function loadArg() {
+    argStatus('Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        argStatus('', '');
+        argLoadedOnce = true;
+        if (!r || !r.ok) { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        ARG.entradas = r.entradas || [];
+        ARG.cats = r.categorias || [];
+        if (hEl('argMes')) hEl('argMes').textContent = '· ' + (r.tab || '');
+        var sel = hEl('argCat');
+        if (sel && !sel.options.length) {
+          sel.innerHTML = ARG.cats.map(function(c) { return '<option>' + esc(c) + '</option>'; }).join('');
+          sel.value = 'Comida';
+        }
+        if (hEl('argFecha') && !hEl('argFecha').value) hEl('argFecha').value = todayISO();
+        pintarArg(r.totales);
+      })
+      .withFailureHandler(function(e) { argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
+      .getArgentinaDataSafe(null);
+  }
+
+  function pintarArg(t) {
+    t = t || {};
+    var set = function(id, v) { var e = hEl(id); if (e) e.textContent = v; };
+    set('argMama',   fmtUsd(t.pusoMamaUsd));
+    set('argPagado', fmtUsd(t.pagadoUsd));
+    set('argDeuda',  fmtUsd(t.deudaUsd));
+    set('argMio',    fmtUsd(t.pusoMioUsd));
+    set('argMov',    fmtArs(t.cargadoArs) + ' / ' + fmtArs(t.gastadoArs));
+    set('argQueda',  fmtArs(t.quedaArs));
+
+    var box = hEl('argList');
+    if (!box) return;
+    if (!ARG.entradas.length) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos este mes</div>';
+      return;
+    }
+    var html = '';
+    for (var i = ARG.entradas.length - 1; i >= 0; i--) {
+      var e = ARG.entradas[i];
+      var tipoL = e.tipo.toLowerCase();
+      var monto = (tipoL === 'gasto') ? fmtArs(e.ars) : fmtUsd(e.usd);
+      var extra = (tipoL === 'carga' && e.ars) ? (' → ' + fmtArs(e.ars)) : '';
+      var fecha = e.fecha ? e.fecha.slice(8) + '/' + e.fecha.slice(5, 7) : '';
+      html += '<div class="argmov" data-row="' + e.row + '">' +
+        '<span class="at ' + tipoL + '">' + esc(e.tipo) + '</span>' +
+        '<span class="ad">' + esc(e.detalle || '—') +
+          (e.categoria ? ' <span class="aq">· ' + esc(e.categoria) + '</span>' : '') +
+          (e.quien ? ' <span class="aq">· ' + esc(e.quien) + '</span>' : '') + '</span>' +
+        '<span class="am">' + monto + extra + '<span class="aq"> ' + fecha + '</span></span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('.argmov');
+    for (var k = 0; k < rows.length; k++) {
+      (function(el) {
+        el.addEventListener('click', function() { abrirArgModal(parseInt(el.getAttribute('data-row'), 10)); });
+      })(rows[k]);
+    }
+  }
+
+  // ---- Alta ----
+  if (hEl('argAdd')) hEl('argAdd').addEventListener('click', function() {
+    var payload = {
+      fecha: (hEl('argFecha') && hEl('argFecha').value) || todayISO(),
+      tipo: ARG.tipo,
+      detalle: (hEl('argDetalle') && hEl('argDetalle').value.trim()) || ''
+    };
+    if (ARG.tipo === 'Gasto') {
+      var a = nArg(hEl('argArs') && hEl('argArs').value);
+      if (!a) { argStatus('Poné el monto en pesos argentinos', 'err'); return; }
+      payload.ars = a;
+      payload.categoria = (hEl('argCat') && hEl('argCat').value) || '';
+    } else {
+      var u = nArg(hEl('argUsd') && hEl('argUsd').value);
+      if (!u) { argStatus('Poné el monto en USD', 'err'); return; }
+      payload.usd = u;
+      if (ARG.tipo === 'Carga') {
+        var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+        if (!c) { argStatus('Poné la cotización', 'err'); return; }
+        payload.cotiz = c;
+        payload.quien = ARG.quien;
+      } else {
+        payload.quien = 'Mamá';
+      }
+    }
+    argStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          ['argDetalle','argArs','argUsd','argCotiz'].forEach(function(id) {
+            var e = hEl(id); if (e) e.value = '';
+          });
+          argCalc();
+          argStatus('✓ ' + ARG.tipo + ' agregado', 'ok');
+          loadArg();
+        } else { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(e) { argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
+      .addArgentinaSafe(payload);
+  });
+
+  // ---- Editar / borrar ----
+  function abrirArgModal(row) {
+    var e = null;
+    for (var i = 0; i < ARG.entradas.length; i++) if (ARG.entradas[i].row === row) { e = ARG.entradas[i]; break; }
+    if (!e) return;
+    ARG.editRow = row;
+    if (hEl('agDetalle')) hEl('agDetalle').value = e.detalle || '';
+    if (hEl('agUsd'))     hEl('agUsd').value     = e.usd != null ? e.usd : '';
+    if (hEl('agCotiz'))   hEl('agCotiz').value   = e.cotiz != null ? e.cotiz : '';
+    if (hEl('agArs'))     hEl('agArs').value     = e.ars != null ? e.ars : '';
+    if (hEl('agFecha'))   hEl('agFecha').value   = e.fecha || '';
+    if (hEl('argModal'))  hEl('argModal').classList.add('show');
+  }
+  function cerrarArgModal() {
+    ARG.editRow = null;
+    if (hEl('argModal')) hEl('argModal').classList.remove('show');
+  }
+  if (hEl('agCancel')) hEl('agCancel').addEventListener('click', cerrarArgModal);
+  if (hEl('argModal')) hEl('argModal').addEventListener('click', function(ev) {
+    if (ev.target === hEl('argModal')) cerrarArgModal();
+  });
+
+  if (hEl('agSave')) hEl('agSave').addEventListener('click', function() {
+    if (ARG.editRow == null) return;
+    argStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        cerrarArgModal();
+        if (r && r.ok) { argStatus('✓ Actualizado', 'ok'); loadArg(); }
+        else argStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(e) { cerrarArgModal(); argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
+      .updateArgentinaSafe({
+        row: ARG.editRow,
+        detalle: (hEl('agDetalle') && hEl('agDetalle').value.trim()) || '',
+        usd:   (hEl('agUsd')   && hEl('agUsd').value.trim())   || '',
+        cotiz: (hEl('agCotiz') && hEl('agCotiz').value.trim()) || '',
+        ars:   (hEl('agArs')   && hEl('agArs').value.trim())   || '',
+        fecha: (hEl('agFecha') && hEl('agFecha').value) || ''
+      });
+  });
+
+  if (hEl('agDelete')) hEl('agDelete').addEventListener('click', function() {
+    if (ARG.editRow == null) return;
+    if (!confirm('¿Borrar este movimiento?')) return;
+    var row = ARG.editRow;
+    argStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        cerrarArgModal();
+        if (r && r.ok) { argStatus('✓ Borrado: ' + r.deleted, 'ok'); loadArg(); }
+        else argStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+      })
+      .withFailureHandler(function(e) { cerrarArgModal(); argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
+      .deleteArgentinaSafe({ row: row });
+  });
+
+  setTipo('Gasto');
 </script>

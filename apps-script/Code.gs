@@ -116,6 +116,10 @@ const ROUTES = {
   updateMeal: p => updateMealRow(p),
   deleteMeal: p => deleteMealRow(p),
   habitPending: p => habitPending(p),
+  argData: p => getArgentinaData(p.month),
+  argAdd: p => addArgentinaEntry(p),
+  argUpdate: p => updateArgentinaEntry(p),
+  argDelete: p => deleteArgentinaEntry(p),
   listSheets: () => listSheets(),
   deleteHabitSheet: p => deleteHabitSheetIfEmpty(p.month, p.confirm),
   reorderSheets: p => reorderSheets(String(p.dryRun || '') === '1'),
@@ -2652,6 +2656,323 @@ function deleteHabitSheetIfEmpty(tabName, confirm) {
 
   ss.deleteSheet(sheet);
   return { ok: true, deleted: name };
+}
+
+
+// ============================================================================
+// === ARGENTINA: cargas de plata, gastos en ARS y deuda con mama =============
+// ============================================================================
+//
+// Modelo: se carga plata a un pozo (300 USD mios, 200 de mama) y de ahi salen
+// los gastos en pesos argentinos. La deuda con mama se lleva en USD, que es lo
+// que ella presto, sin importar como se movio el peso despues.
+//
+// Todo vive en UNA sola tabla con columna "Tipo" (Carga | Gasto | Pago) en vez
+// de tres tablas separadas. Motivo: la seccion va al costado de la tabla
+// variable del mes, y borrar una fila con deleteRow correria tambien las filas
+// de la tabla de al lado. Con una sola tabla el borrado se hace compactando
+// hacia arriba SOLO dentro de las columnas de Argentina.
+
+const ARG_TITLE = '🇦🇷 ARGENTINA';
+const ARG_HEADERS = ['Fecha', 'Tipo', 'Detalle', 'USD', 'Cotización', 'ARS', 'De quién', 'Categoría'];
+const ARG_TIPOS = ['Carga', 'Gasto', 'Pago'];
+const ARG_QUIENES = ['Mía', 'Mamá'];
+const ARG_TITLE_ROW = 1;      // fila del titulo dentro del bloque
+const ARG_TOTALS_ROW = 2;     // 4 filas de totales
+const ARG_HEADER_ROW = 7;
+const ARG_FIRST_ROW = 8;
+const ARG_MAX_ROWS = 300;
+
+// Busca el bloque por su titulo. Devuelve la columna donde arranca, o -1.
+function _findArgCol(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return -1;
+  const fila = sheet.getRange(ARG_TITLE_ROW, 1, 1, lastCol).getValues()[0];
+  for (let i = 0; i < fila.length; i++) {
+    if (String(fila[i] || '').indexOf('ARGENTINA') >= 0) return i + 1;
+  }
+  return -1;
+}
+
+// Devuelve la columna del bloque, creandolo si no existe. Se ubica solo a la
+// derecha de todo lo que ya haya en la hoja, asi no pisa las tablas viejas de
+// viajes que algunos meses tienen a mano.
+function getOrCreateArgBlock(sheet) {
+  let col = _findArgCol(sheet);
+  if (col > 0) return col;
+
+  col = Math.max(sheet.getLastColumn(), 10) + 2;
+
+  sheet.getRange(ARG_TITLE_ROW, col).setValue(ARG_TITLE)
+       .setFontWeight('bold').setFontSize(13);
+
+  // Bloque de totales: etiqueta + valor
+  const labels = [['Puso mamá (USD)', ''], ['Le devolví (USD)', ''],
+                  ['Le debo (USD)', ''], ['Queda en el pozo (ARS)', '']];
+  sheet.getRange(ARG_TOTALS_ROW, col, labels.length, 2).setValues(labels);
+  sheet.getRange(ARG_TOTALS_ROW, col, labels.length, 1).setFontColor('#666').setFontSize(10);
+  sheet.getRange(ARG_TOTALS_ROW, col + 1, labels.length, 1).setFontWeight('bold');
+
+  sheet.getRange(ARG_HEADER_ROW, col, 1, ARG_HEADERS.length)
+       .setValues([ARG_HEADERS]).setFontWeight('bold').setBackground('#dbeafe');
+
+  sheet.setColumnWidth(col, 90);
+  sheet.setColumnWidth(col + 2, 190);
+  return col;
+}
+
+function _argRows(sheet, col) {
+  const vals = sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, ARG_HEADERS.length).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    const tipo = String(r[1] || '').trim();
+    if (!tipo) continue;
+    const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+    out.push({
+      row: ARG_FIRST_ROW + i,
+      fecha: d && !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      tipo: tipo,
+      detalle: String(r[2] || ''),
+      usd: toNumber(r[3]),
+      cotiz: toNumber(r[4]),
+      ars: toNumber(r[5]),
+      quien: String(r[6] || ''),
+      categoria: String(r[7] || '')
+    });
+  }
+  return out;
+}
+
+function _argTotales(entradas) {
+  let cargadoArs = 0, gastadoArs = 0, pusoMamaUsd = 0, pusoMioUsd = 0, pagadoUsd = 0;
+  for (const e of entradas) {
+    const t = _stripAccents(e.tipo).toLowerCase();
+    if (t === 'carga') {
+      cargadoArs += e.ars || 0;
+      if (_stripAccents(e.quien).toLowerCase().indexOf('mama') >= 0) pusoMamaUsd += e.usd || 0;
+      else pusoMioUsd += e.usd || 0;
+    } else if (t === 'gasto') {
+      gastadoArs += e.ars || 0;
+    } else if (t === 'pago') {
+      pagadoUsd += e.usd || 0;
+    }
+  }
+  const r2 = n => Math.round(n * 100) / 100;
+  return {
+    cargadoArs: Math.round(cargadoArs),
+    gastadoArs: Math.round(gastadoArs),
+    quedaArs: Math.round(cargadoArs - gastadoArs),
+    pusoMamaUsd: r2(pusoMamaUsd),
+    pusoMioUsd: r2(pusoMioUsd),
+    pagadoUsd: r2(pagadoUsd),
+    deudaUsd: r2(pusoMamaUsd - pagadoUsd)
+  };
+}
+
+function _argPintarTotales(sheet, col, t) {
+  sheet.getRange(ARG_TOTALS_ROW, col + 1, 4, 1).setValues([
+    [t.pusoMamaUsd], [t.pagadoUsd], [t.deudaUsd], [t.quedaArs]
+  ]);
+}
+
+// Lee el mes entero: entradas + totales
+function getArgentinaData(monthOpt) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const tabName = monthOpt || currentMonthTab();
+    const sheet = ss.getSheetByName(tabName);
+    if (!sheet) return { ok: false, error: 'No existe la hoja "' + tabName + '"' };
+
+    const col = _findArgCol(sheet);
+    if (col < 0) {
+      return { ok: true, tab: tabName, exists: false, entradas: [],
+               totales: _argTotales([]), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
+               categorias: CATEGORIES };
+    }
+    const entradas = _argRows(sheet, col);
+    return { ok: true, tab: tabName, exists: true, col: col, entradas: entradas,
+             totales: _argTotales(entradas), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
+             categorias: CATEGORIES };
+  } catch (err) {
+    Logger.log('getArgentinaData: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+
+// Agrega una entrada. p: { month, fecha, tipo, detalle, usd, cotiz, ars, quien, categoria }
+// - Carga: se pide USD; si viene cotización, los ARS salen de multiplicar.
+// - Gasto: se pide ARS.
+// - Pago:  se pide USD (lo que le devolviste a mamá).
+function addArgentinaEntry(p) {
+  const tipoRaw = String(p.tipo || '').trim();
+  const tipo = ARG_TIPOS.find(t => _stripAccents(t).toLowerCase() === _stripAccents(tipoRaw).toLowerCase());
+  if (!tipo) throw new Error('Tipo inválido: usá Carga, Gasto o Pago');
+
+  const num = v => (v === undefined || v === '' || v === null) ? null : toNumber(String(v).replace(',', '.'));
+  let usd = num(p.usd), cotiz = num(p.cotiz), ars = num(p.ars);
+
+  if (tipo === 'Carga') {
+    if (usd == null || usd <= 0) throw new Error('Una carga necesita el monto en USD');
+    if (ars == null && cotiz != null) ars = Math.round(usd * cotiz);
+    if (ars == null) throw new Error('Falta la cotización o los ARS que recibiste');
+  } else if (tipo === 'Gasto') {
+    if (ars == null || ars <= 0) throw new Error('Un gasto necesita el monto en ARS');
+  } else {
+    if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto en USD');
+  }
+
+  const fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const tabName = p.month || monthTabFor(fecha);
+
+  // Quién: sólo aplica a cargas y pagos. Un gasto sale del pozo.
+  let quien = '';
+  if (tipo !== 'Gasto') {
+    const q = String(p.quien || '').trim();
+    quien = ARG_QUIENES.find(x => _stripAccents(x).toLowerCase() === _stripAccents(q).toLowerCase())
+            || (tipo === 'Pago' ? 'Mamá' : 'Mía');
+  }
+
+  // Lock por el mismo motivo que en el log de hábitos: buscar la fila libre y
+  // escribir no es atómico, y la hoja se abre adentro para no leer un snapshot
+  // viejo.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let insertAt, totales;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateMonthTab(ss, tabName);
+    const col = getOrCreateArgBlock(sheet);
+
+    const existentes = _argRows(sheet, col);
+    insertAt = existentes.length ? existentes[existentes.length - 1].row + 1 : ARG_FIRST_ROW;
+    if (insertAt >= ARG_FIRST_ROW + ARG_MAX_ROWS) throw new Error('La sección de Argentina está llena');
+
+    sheet.getRange(insertAt, col, 1, ARG_HEADERS.length).setValues([[
+      parseLocalDate(fecha), tipo, String(p.detalle || '').trim(),
+      usd == null ? '' : usd, cotiz == null ? '' : cotiz, ars == null ? '' : ars,
+      quien, tipo === 'Gasto' ? String(p.categoria || '').trim() : ''
+    ]]);
+    sheet.getRange(insertAt, col).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+
+    totales = _argTotales(_argRows(sheet, col));
+    _argPintarTotales(sheet, col, totales);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, tab: tabName, row: insertAt, totales: totales,
+           written: { tipo: tipo, detalle: p.detalle || '', usd: usd, cotiz: cotiz, ars: ars, quien: quien } };
+}
+
+// Edita una entrada existente. Sólo pisa los campos que llegan.
+function updateArgentinaEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < ARG_FIRST_ROW) throw new Error('Fila inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || currentMonthTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
+  const col = _findArgCol(sheet);
+  if (col < 0) throw new Error('Esta hoja no tiene sección de Argentina');
+
+  const cur = sheet.getRange(row, col, 1, ARG_HEADERS.length).getValues()[0];
+  if (!String(cur[1] || '').trim()) throw new Error('Esa fila está vacía — recargá y probá de nuevo');
+
+  const num = v => (v === undefined || v === '' || v === null) ? null : toNumber(String(v).replace(',', '.'));
+  const tipoRaw = String(p.tipo || '').trim();
+  const tipo = tipoRaw
+    ? (ARG_TIPOS.find(t => _stripAccents(t).toLowerCase() === _stripAccents(tipoRaw).toLowerCase()) || String(cur[1]))
+    : String(cur[1]);
+
+  let usd   = p.usd   !== undefined && p.usd   !== '' ? num(p.usd)   : toNumber(cur[3]);
+  let cotiz = p.cotiz !== undefined && p.cotiz !== '' ? num(p.cotiz) : toNumber(cur[4]);
+  let ars   = p.ars   !== undefined && p.ars   !== '' ? num(p.ars)   : toNumber(cur[5]);
+  // Si cambió el USD o la cotización de una carga, recalcular los ARS
+  if (tipo === 'Carga' && usd != null && cotiz != null &&
+      (p.usd !== undefined || p.cotiz !== undefined) && p.ars === undefined) {
+    ars = Math.round(usd * cotiz);
+  }
+
+  const fecha = p.fecha || (Object.prototype.toString.call(cur[0]) === '[object Date]'
+    ? Utilities.formatDate(cur[0], 'America/Montevideo', 'yyyy-MM-dd') : String(cur[0] || ''));
+
+  sheet.getRange(row, col, 1, ARG_HEADERS.length).setValues([[
+    fecha ? parseLocalDate(fecha) : cur[0],
+    tipo,
+    p.detalle !== undefined ? String(p.detalle).trim() : String(cur[2] || ''),
+    usd == null ? '' : usd, cotiz == null ? '' : cotiz, ars == null ? '' : ars,
+    p.quien !== undefined ? String(p.quien).trim() : String(cur[6] || ''),
+    p.categoria !== undefined ? String(p.categoria).trim() : String(cur[7] || '')
+  ]]);
+  sheet.getRange(row, col).setNumberFormat('dd/MM/yyyy');
+  SpreadsheetApp.flush();
+
+  const totales = _argTotales(_argRows(sheet, col));
+  _argPintarTotales(sheet, col, totales);
+  return { ok: true, tab: tabName, row: row, totales: totales };
+}
+
+// Borra una entrada COMPACTANDO hacia arriba sólo dentro de las columnas de
+// Argentina. No se usa deleteRow: la seccion convive al costado de la tabla
+// variable del mes y borrar la fila entera correria los gastos de al lado.
+function deleteArgentinaEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < ARG_FIRST_ROW) throw new Error('Fila inválida');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || currentMonthTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
+  const col = _findArgCol(sheet);
+  if (col < 0) throw new Error('Esta hoja no tiene sección de Argentina');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let borrado, totales;
+  try {
+    const rng = sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, ARG_HEADERS.length);
+    const vals = rng.getValues();
+    const idx = row - ARG_FIRST_ROW;
+    if (idx < 0 || idx >= vals.length || !String(vals[idx][1] || '').trim()) {
+      throw new Error('Esa fila ya está vacía — recargá y probá de nuevo');
+    }
+    borrado = String(vals[idx][2] || '') + ' (' + String(vals[idx][1] || '') + ')';
+    vals.splice(idx, 1);
+    vals.push(new Array(ARG_HEADERS.length).fill(''));
+    rng.setValues(vals);
+    sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, 1).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+
+    totales = _argTotales(_argRows(sheet, col));
+    _argPintarTotales(sheet, col, totales);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: tabName, deleted: borrado, totales: totales };
+}
+
+// === Wrappers para google.script.run ===
+function getArgentinaDataSafe(month) {
+  try { return getArgentinaData(month); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function addArgentinaSafe(data) {
+  try { return addArgentinaEntry(data || {}); }
+  catch (err) { Logger.log('addArgentinaSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function updateArgentinaSafe(data) {
+  try { return updateArgentinaEntry(data || {}); }
+  catch (err) { Logger.log('updateArgentinaSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function deleteArgentinaSafe(data) {
+  try { return deleteArgentinaEntry(data || {}); }
+  catch (err) { Logger.log('deleteArgentinaSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 // ---- Orden de las pestañas ------------------------------------------------
