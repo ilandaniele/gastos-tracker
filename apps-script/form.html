@@ -339,24 +339,26 @@
 
   <!-- SALDO -->
   <div class="hcard argsaldo">
-    <div class="hcard-title">💵 Saldo</div>
+    <div class="hcard-title">💵 Cómo vengo</div>
+    <div class="argrow"><span>Saqué</span><b id="argSaque">$ 0</b></div>
+    <div class="argrow"><span>Gasté</span><b id="argGaste">$ 0</b></div>
+    <div class="argrow queda"><span>Me queda</span><b id="argQueda">$ 0</b></div>
+    <hr class="argsep">
     <div class="argrow"><span>Puso mamá</span><b id="argMama">US$ 0</b></div>
     <div class="argrow"><span>Le devolví</span><b id="argPagado">US$ 0</b></div>
-    <div class="argrow deuda"><span>Le debo</span><b id="argDeuda">US$ 0</b></div>
-    <hr class="argsep">
-    <div class="argrow"><span>Puse yo</span><b id="argMio">US$ 0</b></div>
-    <div class="argrow"><span>Cargado / Gastado</span><b id="argMov">$ 0 / $ 0</b></div>
-    <div class="argrow queda"><span>Queda en el pozo</span><b id="argQueda">$ 0</b></div>
+    <div class="argrow deuda"><span>Le debo a mamá</span><b id="argDeuda">US$ 0</b></div>
+    <div class="argrow"><span>Puse de lo mío</span><b id="argMio">US$ 0</b></div>
   </div>
 
   <!-- AGREGAR -->
   <div class="hcard">
-    <div class="hcard-title">➕ Agregar</div>
+    <div class="hcard-title">➕ ¿Qué hiciste?</div>
     <div class="argtipos">
-      <button type="button" class="argtipo activo" data-tipo="Gasto">🛒 Gasto</button>
-      <button type="button" class="argtipo" data-tipo="Carga">💵 Carga</button>
-      <button type="button" class="argtipo" data-tipo="Pago">↩️ Pago a mamá</button>
+      <button type="button" class="argtipo activo" data-tipo="Gasto">🛒 Gasté</button>
+      <button type="button" class="argtipo" data-tipo="Carga">💵 Saqué plata</button>
+      <button type="button" class="argtipo" data-tipo="Pago">↩️ Le devolví</button>
     </div>
+    <div class="arghint" id="argHint"></div>
 
     <label class="hlabel">Fecha</label>
     <input type="date" id="argFecha">
@@ -382,7 +384,7 @@
     </div>
 
     <div id="argCampoQuien">
-      <label class="hlabel">¿De quién es la plata?</label>
+      <label class="hlabel">¿De quién era esa plata?</label>
       <div class="argtipos">
         <button type="button" class="argquien activo" data-quien="Mía">Mía</button>
         <button type="button" class="argquien" data-quien="Mamá">Mamá</button>
