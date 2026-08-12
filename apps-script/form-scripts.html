@@ -1507,6 +1507,11 @@
     set('argMio',      fmtUsd(t.pusoMioUsd));
     set('argMama',     fmtUsd(t.pusoMamaUsd));
     set('argPagado',   fmtUsd(t.pagadoUsd));
+    // La deuda arrastrada solo aparece si existe; en un mes que arranca de cero
+    // es ruido.
+    set('argAntes',    fmtUsd(t.deudaAntesUsd));
+    var rowAntes = hEl('argRowAntes');
+    if (rowAntes) rowAntes.style.display = (t.deudaAntesUsd || 0) ? '' : 'none';
 
     // Si le devolvió más de lo que gastó con plata suya, una deuda negativa se
     // lee mal. Se muestra al revés: le diste de más.

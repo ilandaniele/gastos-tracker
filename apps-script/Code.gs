@@ -135,6 +135,7 @@ const ROUTES = {
   argAdd: p => addArgentinaEntry(p),
   argUpdate: p => updateArgentinaEntry(p),
   argDelete: p => deleteArgentinaEntry(p),
+  argDeudaAntes: p => setArgDeudaAntes(p.month, p.usd),
   listSheets: () => listSheets(),
   deleteHabitSheet: p => deleteHabitSheetIfEmpty(p.month, p.confirm),
   reorderSheets: p => reorderSheets(String(p.dryRun || '') === '1'),
@@ -182,6 +183,25 @@ const ROUTES = {
   removeReportTrigger: () => removeMonthlyReportTrigger(),
   // Debug: dump headers of a tab — ?action=inspectHeaders&month=Mayo%202026
   inspectHeaders: p => inspectHeaders(p.month || currentMonthTab()),
+  // Debug: dump crudo de una region — ?action=dumpGrid&month=Agosto%202026&r=1&c=1&rows=40&cols=28
+  dumpGrid: p => {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(p.month || currentMonthTab());
+    if (!sheet) return { ok: false, error: 'No existe la hoja' };
+    const r = parseInt(p.r || 1, 10), c = parseInt(p.c || 1, 10);
+    const rows = Math.min(parseInt(p.rows || 40, 10), sheet.getMaxRows() - r + 1);
+    const cols = Math.min(parseInt(p.cols || 28, 10), sheet.getMaxColumns() - c + 1);
+    const vals = sheet.getRange(r, c, rows, cols).getValues().map(row => row.map(v => {
+      if (v === '' || v === null) return '';
+      if (Object.prototype.toString.call(v) === '[object Date]') {
+        return 'D:' + Utilities.formatDate(v, 'America/Montevideo', 'yyyy-MM-dd HH:mm');
+      }
+      return v;
+    }));
+    return { ok: true, tab: sheet.getName(), from: [r, c], maxRows: sheet.getMaxRows(),
+             maxCols: sheet.getMaxColumns(), lastRow: sheet.getLastRow(),
+             lastCol: sheet.getLastColumn(), values: vals };
+  },
   // Diagnostic: verify UrlFetch (script.external_request) scope works — ?action=testFetch
   testFetch: () => {
     try {
@@ -1167,15 +1187,8 @@ function getDashboardData() {
     const range = sheet.getDataRange().getValues();
 
     // 1. Fixed table totals (rows with col A matching FIXED_LABELS — exact match only)
-    let fixedUyu = 0, fixedUsd = 0;
-    for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
-      const label = _stripAccents(range[i][0]);
-      if (!label) continue;
-      if (FIXED_LABELS.some(f => _stripAccents(f) === label)) {
-        const u = toNumber(range[i][1]); if (u !== null) fixedUyu += u;
-        const s = toNumber(range[i][2]); if (s !== null) fixedUsd += s;
-      }
-    }
+    const fx = _fixedTotals(range);
+    const fixedUyu = fx.uyu, fixedUsd = fx.usd;
 
     // 2. Find variable table
     const headerRow = findHeaderRow(range);
@@ -1474,6 +1487,30 @@ function isBoundaryRow(cellALower) {
 // findFixedRow: returns 0-indexed row idx into fixed table, or -1.
 // Strict: exact match wins. Else: TYPED-item is prefix of label (e.g. "Sandra" → "Sandra Psicologa").
 // Does NOT allow label-is-prefix-of-typed (avoids "Ble Loco" overwriting "Ble").
+// Total de la tabla fija. Prioridad a la fila "Total fijos" de la propia hoja:
+// es la que el usuario mantiene y la que decide qué entra y qué no (deja afuera
+// "Itaú Crédito" y "Oca", que son resúmenes de tarjeta y duplicarían los gastos
+// variables). Sumar por lista de etiquetas los contaba de más y encima no veía
+// las filas que el usuario agrega o borra.
+function _fixedTotals(range) {
+  for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+    const label = _stripAccents(range[i][0]);
+    if (label === 'total fijos') {
+      return { uyu: toNumber(range[i][1]) || 0, usd: toNumber(range[i][2]) || 0, source: 'total fijos' };
+    }
+  }
+  let uyu = 0, usd = 0;
+  for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+    const label = _stripAccents(range[i][0]);
+    if (!label) continue;
+    if (FIXED_LABELS.some(f => _stripAccents(f) === label)) {
+      const u = toNumber(range[i][1]); if (u !== null) uyu += u;
+      const s = toNumber(range[i][2]); if (s !== null) usd += s;
+    }
+  }
+  return { uyu: uyu, usd: usd, source: 'etiquetas' };
+}
+
 function findFixedRow(range, item) {
   const target = _stripAccents(item);
   if (!target) return -1;
@@ -2698,47 +2735,69 @@ const ARG_TITLE = '🇦🇷 ARGENTINA';
 const ARG_HEADERS = ['Fecha', 'Tipo', 'Detalle', 'USD', 'Cotización', 'ARS', 'De quién', 'Categoría'];
 const ARG_TIPOS = ['Carga', 'Gasto', 'Pago'];
 const ARG_QUIENES = ['Mía', 'Mamá'];
-const ARG_TITLE_ROW = 1;      // fila del titulo dentro del bloque
-const ARG_TOTALS_ROW = 2;     // 4 filas de totales
-const ARG_HEADER_ROW = 7;
-const ARG_FIRST_ROW = 8;
+const ARG_NEW_TITLE_ROW = 1;   // solo para bloques nuevos; los existentes se buscan
 const ARG_MAX_ROWS = 300;
+const ARG_SEARCH_ROWS = 12;    // hasta que fila se busca el titulo
 
-// Busca el bloque por su titulo. Devuelve la columna donde arranca, o -1.
-function _findArgCol(sheet) {
-  const lastCol = sheet.getLastColumn();
-  if (lastCol < 1) return -1;
-  const fila = sheet.getRange(ARG_TITLE_ROW, 1, 1, lastCol).getValues()[0];
-  for (let i = 0; i < fila.length; i++) {
-    if (String(fila[i] || '').indexOf('ARGENTINA') >= 0) return i + 1;
+// Busca el bloque por su titulo en cualquier fila/columna y deduce el resto de
+// las filas leyendo la hoja. Antes las filas eran constantes (titulo en la 1,
+// header en la 7) y alcanzaba con que el usuario arrastrara el bloque para que
+// el codigo escribiera encima del titulo o creara un bloque duplicado al lado.
+function _findArgBlock(sheet) {
+  const maxCol = sheet.getMaxColumns();
+  const filas = Math.min(ARG_SEARCH_ROWS, sheet.getMaxRows());
+  const zona = sheet.getRange(1, 1, filas, maxCol).getValues();
+  let titleRow = -1, col = -1;
+  for (let r = 0; r < zona.length && titleRow < 0; r++) {
+    for (let c = 0; c < zona[r].length; c++) {
+      if (String(zona[r][c] || '').indexOf('ARGENTINA') >= 0) { titleRow = r + 1; col = c + 1; break; }
+    }
   }
-  return -1;
+  if (titleRow < 0) return null;
+
+  // El header es la primera fila debajo del titulo que arranca con Fecha|Tipo
+  const hasta = Math.min(titleRow + 15, sheet.getMaxRows());
+  const abajo = sheet.getRange(titleRow, col, hasta - titleRow + 1, 2).getValues();
+  let headerRow = -1;
+  for (let i = 1; i < abajo.length; i++) {
+    if (/^fecha$/i.test(String(abajo[i][0] || '').trim()) &&
+        /^tipo$/i.test(String(abajo[i][1] || '').trim())) { headerRow = titleRow + i; break; }
+  }
+  if (headerRow < 0) return null;
+  return { col: col, titleRow: titleRow, totalsRow: titleRow + 1,
+           headerRow: headerRow, firstRow: headerRow + 1 };
 }
 
-// Devuelve la columna del bloque, creandolo si no existe. Se ubica solo a la
-// derecha de todo lo que ya haya en la hoja, asi no pisa las tablas viejas de
-// viajes que algunos meses tienen a mano.
+// Devuelve el bloque, creandolo si no existe. Se ubica solo a la derecha de
+// todo lo que ya haya en la hoja, asi no pisa las tablas viejas de viajes que
+// algunos meses tienen a mano.
 function getOrCreateArgBlock(sheet) {
-  let col = _findArgCol(sheet);
-  if (col > 0) return col;
+  const found = _findArgBlock(sheet);
+  if (found) return found;
 
-  col = Math.max(sheet.getLastColumn(), 10) + 2;
+  const col = Math.max(sheet.getLastColumn(), 10) + 2;
+  const titleRow = ARG_NEW_TITLE_ROW;
+  const headerRow = titleRow + ARG_TOTAL_LABELS.length + 2;   // una fila en blanco de respiro
+  const blk = { col: col, titleRow: titleRow, totalsRow: titleRow + 1,
+                headerRow: headerRow, firstRow: headerRow + 1 };
 
-  sheet.getRange(ARG_TITLE_ROW, col).setValue(ARG_TITLE)
-       .setFontWeight('bold').setFontSize(13);
-
-  _argEscribirEtiquetas(sheet, col);
-
-  sheet.getRange(ARG_HEADER_ROW, col, 1, ARG_HEADERS.length)
+  sheet.getRange(titleRow, col).setValue(ARG_TITLE).setFontWeight('bold').setFontSize(13);
+  _argEscribirEtiquetas(sheet, blk);
+  sheet.getRange(headerRow, col, 1, ARG_HEADERS.length)
        .setValues([ARG_HEADERS]).setFontWeight('bold').setBackground('#dbeafe');
 
   sheet.setColumnWidth(col, 90);
   sheet.setColumnWidth(col + 2, 190);
-  return col;
+  return blk;
 }
 
-function _argRows(sheet, col) {
-  const vals = sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, ARG_HEADERS.length).getValues();
+// Cuántas filas de datos entran sin pasarse del final de la hoja
+function _argCupo(sheet, blk) {
+  return Math.max(0, Math.min(ARG_MAX_ROWS, sheet.getMaxRows() - blk.firstRow + 1));
+}
+
+function _argRows(sheet, blk) {
+  const vals = sheet.getRange(blk.firstRow, blk.col, _argCupo(sheet, blk), ARG_HEADERS.length).getValues();
   const out = [];
   for (let i = 0; i < vals.length; i++) {
     const r = vals[i];
@@ -2746,7 +2805,7 @@ function _argRows(sheet, col) {
     if (!tipo) continue;
     const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
     out.push({
-      row: ARG_FIRST_ROW + i,
+      row: blk.firstRow + i,
       fecha: d && !isNaN(d.getTime()) ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
       tipo: tipo,
       detalle: String(r[2] || ''),
@@ -2764,7 +2823,8 @@ function _argRows(sheet, col) {
 // sale de sumar los dólares de los gastos hechos con plata suya, menos lo que
 // ya se le devolvió. Las "cargas" ya no se usan pero se siguen sumando para no
 // romper meses viejos que las tengan cargadas.
-function _argTotales(entradas) {
+function _argTotales(entradas, deudaAntesOpt) {
+  const deudaAntes = Math.round((toNumber(deudaAntesOpt) || 0) * 100) / 100;
   let gastadoArs = 0, gastadoUsd = 0, mamaUsd = 0, mioUsd = 0, pagadoUsd = 0;
   for (const e of entradas) {
     const t = _stripAccents(e.tipo).toLowerCase();
@@ -2786,27 +2846,59 @@ function _argTotales(entradas) {
     pusoMamaUsd: r2(mamaUsd),
     pusoMioUsd: r2(mioUsd),
     pagadoUsd: r2(pagadoUsd),
-    deudaUsd: r2(mamaUsd - pagadoUsd)
+    deudaAntesUsd: deudaAntes,
+    deudaUsd: r2(deudaAntes + mamaUsd - pagadoUsd)
   };
 }
 
-const ARG_TOTAL_LABELS = ['Gasté (ARS)', 'Gasté (USD)', 'Le debo a mamá (USD)', 'Puse de lo mío (USD)'];
+// La deuda con mamá no arranca de cero cada mes: viene arrastrada. La celda
+// "Deuda de antes" es la única del bloque que escribe el usuario a mano; el
+// código la lee y nunca la pisa.
+const ARG_LBL_DEUDA_ANTES = 'Deuda de antes (USD)';
+const ARG_TOTAL_LABELS = ['Gasté (ARS)', 'Gasté (USD)', ARG_LBL_DEUDA_ANTES,
+                          'Le debo a mamá (USD)', 'Puse de lo mío (USD)'];
+const ARG_IDX_DEUDA_ANTES = ARG_TOTAL_LABELS.indexOf(ARG_LBL_DEUDA_ANTES);
 
-// Las etiquetas se reescriben en cada pintada: los bloques creados antes decían
-// "Queda en el pozo" y quedarían mintiendo.
-function _argEscribirEtiquetas(sheet, col) {
-  const rng = sheet.getRange(ARG_TOTALS_ROW, col, ARG_TOTAL_LABELS.length, 1);
-  const cur = rng.getValues().map(r => String(r[0] || ''));
-  if (cur.join('|') === ARG_TOTAL_LABELS.join('|')) return;
-  rng.setValues(ARG_TOTAL_LABELS.map(l => [l])).setFontColor('#666').setFontSize(10);
-  sheet.getRange(ARG_TOTALS_ROW, col + 1, ARG_TOTAL_LABELS.length, 1).setFontWeight('bold');
+// Cuántas filas de totales entran entre el título y el header. En bloques que
+// el usuario movió puede haber menos espacio del que asume el layout nuevo.
+function _argFilasTotales(blk) {
+  return Math.max(0, Math.min(ARG_TOTAL_LABELS.length, blk.headerRow - blk.totalsRow));
 }
 
-function _argPintarTotales(sheet, col, t) {
-  _argEscribirEtiquetas(sheet, col);
-  sheet.getRange(ARG_TOTALS_ROW, col + 1, 4, 1).setValues([
-    [t.gastadoArs], [t.gastadoUsd], [t.deudaUsd], [t.pusoMioUsd]
-  ]);
+function _argLeerDeudaAntes(sheet, blk) {
+  const n = _argFilasTotales(blk);
+  if (!n) return 0;
+  const labels = sheet.getRange(blk.totalsRow, blk.col, n, 2).getValues();
+  for (const [lbl, val] of labels) {
+    if (String(lbl || '').indexOf('antes') >= 0) return toNumber(val) || 0;
+  }
+  return 0;
+}
+
+// Las etiquetas se reescriben en cada pintada: los bloques viejos decían
+// "Queda en el pozo" y quedarían mintiendo.
+function _argEscribirEtiquetas(sheet, blk) {
+  const n = _argFilasTotales(blk);
+  if (!n) return;
+  const esperadas = ARG_TOTAL_LABELS.slice(0, n);
+  const rng = sheet.getRange(blk.totalsRow, blk.col, n, 1);
+  const cur = rng.getValues().map(r => String(r[0] || ''));
+  if (cur.join('|') === esperadas.join('|')) return;
+  rng.setValues(esperadas.map(l => [l])).setFontColor('#666').setFontSize(10);
+  sheet.getRange(blk.totalsRow, blk.col + 1, n, 1).setFontWeight('bold');
+}
+
+function _argPintarTotales(sheet, blk, t) {
+  _argEscribirEtiquetas(sheet, blk);
+  const valores = [t.gastadoArs, t.gastadoUsd, t.deudaUsd, t.pusoMioUsd];
+  // Se escriben todas menos "Deuda de antes", que es del usuario
+  const n = _argFilasTotales(blk);
+  let vi = 0;
+  for (let i = 0; i < n; i++) {
+    if (i === ARG_IDX_DEUDA_ANTES) continue;
+    if (vi >= valores.length) break;
+    sheet.getRange(blk.totalsRow + i, blk.col + 1).setValue(valores[vi++]);
+  }
 }
 
 // Lee el mes entero: entradas + totales
@@ -2817,15 +2909,16 @@ function getArgentinaData(monthOpt) {
     const sheet = ss.getSheetByName(tabName);
     if (!sheet) return { ok: false, error: 'No existe la hoja "' + tabName + '"' };
 
-    const col = _findArgCol(sheet);
-    if (col < 0) {
+    const blk = _findArgBlock(sheet);
+    if (!blk) {
       return { ok: true, tab: tabName, exists: false, entradas: [],
                totales: _argTotales([]), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
                categorias: categoriasOrdenadas() };
     }
-    const entradas = _argRows(sheet, col);
-    return { ok: true, tab: tabName, exists: true, col: col, entradas: entradas,
-             totales: _argTotales(entradas), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
+    const entradas = _argRows(sheet, blk);
+    return { ok: true, tab: tabName, exists: true, col: blk.col, bloque: blk, entradas: entradas,
+             totales: _argTotales(entradas, _argLeerDeudaAntes(sheet, blk)),
+             tipos: ARG_TIPOS, quienes: ARG_QUIENES,
              categorias: categoriasOrdenadas() };
   } catch (err) {
     Logger.log('getArgentinaData: ' + err.message);
@@ -2876,22 +2969,22 @@ function addArgentinaEntry(p) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateMonthTab(ss, tabName);
-    const col = getOrCreateArgBlock(sheet);
+    const blk = getOrCreateArgBlock(sheet);
 
-    const existentes = _argRows(sheet, col);
-    insertAt = existentes.length ? existentes[existentes.length - 1].row + 1 : ARG_FIRST_ROW;
-    if (insertAt >= ARG_FIRST_ROW + ARG_MAX_ROWS) throw new Error('La sección de Argentina está llena');
+    const existentes = _argRows(sheet, blk);
+    insertAt = existentes.length ? existentes[existentes.length - 1].row + 1 : blk.firstRow;
+    if (insertAt >= blk.firstRow + _argCupo(sheet, blk)) throw new Error('La sección de Argentina está llena');
 
-    sheet.getRange(insertAt, col, 1, ARG_HEADERS.length).setValues([[
+    sheet.getRange(insertAt, blk.col, 1, ARG_HEADERS.length).setValues([[
       parseLocalDate(fecha), tipo, String(p.detalle || '').trim(),
       usd == null ? '' : usd, cotiz == null ? '' : cotiz, ars == null ? '' : ars,
       quien, tipo === 'Gasto' ? String(p.categoria || '').trim() : ''
     ]]);
-    sheet.getRange(insertAt, col).setNumberFormat('dd/MM/yyyy');
+    sheet.getRange(insertAt, blk.col).setNumberFormat('dd/MM/yyyy');
     SpreadsheetApp.flush();
 
-    totales = _argTotales(_argRows(sheet, col));
-    _argPintarTotales(sheet, col, totales);
+    totales = _argTotales(_argRows(sheet, blk), _argLeerDeudaAntes(sheet, blk));
+    _argPintarTotales(sheet, blk, totales);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -2904,14 +2997,16 @@ function addArgentinaEntry(p) {
 // Edita una entrada existente. Sólo pisa los campos que llegan.
 function updateArgentinaEntry(p) {
   const row = parseInt(p.row, 10);
-  if (!isFinite(row) || row < ARG_FIRST_ROW) throw new Error('Fila inválida');
+  if (!isFinite(row)) throw new Error('Fila inválida');
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const tabName = p.month || currentMonthTab();
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
-  const col = _findArgCol(sheet);
-  if (col < 0) throw new Error('Esta hoja no tiene sección de Argentina');
+  const blk = _findArgBlock(sheet);
+  if (!blk) throw new Error('Esta hoja no tiene sección de Argentina');
+  const col = blk.col;
+  if (row < blk.firstRow) throw new Error('Fila inválida');
 
   const cur = sheet.getRange(row, col, 1, ARG_HEADERS.length).getValues()[0];
   if (!String(cur[1] || '').trim()) throw new Error('Esa fila está vacía — recargá y probá de nuevo');
@@ -2948,8 +3043,8 @@ function updateArgentinaEntry(p) {
   sheet.getRange(row, col).setNumberFormat('dd/MM/yyyy');
   SpreadsheetApp.flush();
 
-  const totales = _argTotales(_argRows(sheet, col));
-  _argPintarTotales(sheet, col, totales);
+  const totales = _argTotales(_argRows(sheet, blk), _argLeerDeudaAntes(sheet, blk));
+  _argPintarTotales(sheet, blk, totales);
   return { ok: true, tab: tabName, row: row, totales: totales };
 }
 
@@ -2958,22 +3053,25 @@ function updateArgentinaEntry(p) {
 // variable del mes y borrar la fila entera correria los gastos de al lado.
 function deleteArgentinaEntry(p) {
   const row = parseInt(p.row, 10);
-  if (!isFinite(row) || row < ARG_FIRST_ROW) throw new Error('Fila inválida');
+  if (!isFinite(row)) throw new Error('Fila inválida');
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const tabName = p.month || currentMonthTab();
   const sheet = ss.getSheetByName(tabName);
   if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
-  const col = _findArgCol(sheet);
-  if (col < 0) throw new Error('Esta hoja no tiene sección de Argentina');
+  const blk = _findArgBlock(sheet);
+  if (!blk) throw new Error('Esta hoja no tiene sección de Argentina');
+  const col = blk.col;
+  if (row < blk.firstRow) throw new Error('Fila inválida');
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   let borrado, totales;
   try {
-    const rng = sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, ARG_HEADERS.length);
+    const cupo = _argCupo(sheet, blk);
+    const rng = sheet.getRange(blk.firstRow, col, cupo, ARG_HEADERS.length);
     const vals = rng.getValues();
-    const idx = row - ARG_FIRST_ROW;
+    const idx = row - blk.firstRow;
     if (idx < 0 || idx >= vals.length || !String(vals[idx][1] || '').trim()) {
       throw new Error('Esa fila ya está vacía — recargá y probá de nuevo');
     }
@@ -2981,16 +3079,34 @@ function deleteArgentinaEntry(p) {
     vals.splice(idx, 1);
     vals.push(new Array(ARG_HEADERS.length).fill(''));
     rng.setValues(vals);
-    sheet.getRange(ARG_FIRST_ROW, col, ARG_MAX_ROWS, 1).setNumberFormat('dd/MM/yyyy');
+    sheet.getRange(blk.firstRow, col, cupo, 1).setNumberFormat('dd/MM/yyyy');
     SpreadsheetApp.flush();
 
-    totales = _argTotales(_argRows(sheet, col));
-    _argPintarTotales(sheet, col, totales);
+    totales = _argTotales(_argRows(sheet, blk), _argLeerDeudaAntes(sheet, blk));
+    _argPintarTotales(sheet, blk, totales);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
   }
   return { ok: true, tab: tabName, deleted: borrado, totales: totales };
+}
+
+// Fija la deuda que viene arrastrada de meses anteriores.
+function setArgDeudaAntes(monthOpt, usdRaw) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = monthOpt || currentMonthTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
+  const blk = getOrCreateArgBlock(sheet);
+  _argEscribirEtiquetas(sheet, blk);
+  const n = _argFilasTotales(blk);
+  if (n <= ARG_IDX_DEUDA_ANTES) throw new Error('No hay lugar para la fila de deuda anterior');
+  const usd = toNumber(String(usdRaw == null ? '' : usdRaw).replace(',', '.')) || 0;
+  sheet.getRange(blk.totalsRow + ARG_IDX_DEUDA_ANTES, blk.col + 1).setValue(usd);
+  SpreadsheetApp.flush();
+  const totales = _argTotales(_argRows(sheet, blk), usd);
+  _argPintarTotales(sheet, blk, totales);
+  return { ok: true, tab: tabName, deudaAntesUsd: usd, totales: totales };
 }
 
 // === Wrappers para google.script.run ===
