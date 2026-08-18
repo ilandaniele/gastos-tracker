@@ -51,7 +51,7 @@ function catRulesSerializables() {
 
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
-const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Agua (ml)','Masturbación','Notas'];
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Medité','Min medit.','Leí','Agua (ml)','Masturbación','Notas'];
 
 // Mapa campo del form -> nombre de header en la hoja.
 // Las columnas se resuelven POR NOMBRE, no por posición: si movés o insertás
@@ -65,10 +65,22 @@ const HABIT_FIELD_MAP = {
   animo:        'Ánimo',
   ejercicio:    'Ejercicio',
   ejercicioMin: 'Min ejerc.',
+  medite:       'Medité',
+  mediteMin:    'Min medit.',
+  lei:          'Leí',
   agua:         'Agua (ml)',
   mast:         'Masturbación',
   notas:        'Notas'
 };
+// Normaliza cualquier forma de sí/no a "Sí"/"No" (o '' si no se entiende)
+function _siNo(v) {
+  const s = _stripAccents(String(v == null ? '' : v)).toLowerCase().trim();
+  if (!s) return '';
+  if (['si', 'sí', 'yes', 'y', '1', 'true', 'ok', 'x'].indexOf(s) >= 0) return 'Sí';
+  if (['no', 'n', '0', 'false'].indexOf(s) >= 0) return 'No';
+  return '';
+}
+
 const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas y agua)';
 const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml','kcal','Ingredientes'];
 
@@ -131,6 +143,7 @@ const ROUTES = {
   updateMeal: p => updateMealRow(p),
   deleteMeal: p => deleteMealRow(p),
   habitPending: p => habitPending(p),
+  echoParams: p => ({ ok: true, p: p }),
   argData: p => getArgentinaData(p.month),
   argAdd: p => addArgentinaEntry(p),
   argUpdate: p => updateArgentinaEntry(p),
@@ -898,6 +911,15 @@ function _buildHabitsEmailSection(expenseMonth) {
       const pctEx = Math.round(t.ejercicioDias / d.daysTracked * 100);
       kpis.push(['🏃 Días con ejercicio', t.ejercicioDias + ' de ' + d.daysTracked + '  (' + pctEx + '%)']);
       if (t.ejercicioMin) kpis.push(['⏱️ Minutos de ejercicio', t.ejercicioMin + ' min']);
+    }
+    if (t.mediteDias) {
+      kpis.push(['🧘 Días que medité', t.mediteDias + ' de ' + d.daysTracked +
+                 '  (' + Math.round(t.mediteDias / d.daysTracked * 100) + '%)' +
+                 (t.mediteMin ? '  ·  ' + t.mediteMin + ' min' : '')]);
+    }
+    if (t.leiDias) {
+      kpis.push(['📖 Días que leí', t.leiDias + ' de ' + d.daysTracked +
+                 '  (' + Math.round(t.leiDias / d.daysTracked * 100) + '%)']);
     }
     if (a.agua != null) kpis.push(['💧 Agua promedio', Math.round(a.agua) + ' ml/día  (objetivo ' + WATER_GOAL_ML + ')']);
     const ki = d.kcalInfo || {};
@@ -2056,7 +2078,7 @@ function upsertHabitDay(p) {
   // --- Numéricos simples ---
   const numFields = [
     ['trabajo', p.trabajo], ['avance', p.avance], ['animo', p.animo],
-    ['ejercicioMin', p.ejercicioMin]
+    ['ejercicioMin', p.ejercicioMin], ['mediteMin', p.mediteMin]
   ];
   for (const [field, raw] of numFields) {
     if (raw === undefined || raw === '' || raw === null) continue;
@@ -2067,6 +2089,14 @@ function upsertHabitDay(p) {
   // --- Ejercicio (texto). El form manda el valor completo, así que reemplaza. ---
   if (p.ejercicio) {
     if (setCell('ejercicio', p.ejercicio)) written.ejercicio = p.ejercicio;
+  }
+
+  // --- Sí/no: se guardan como "Sí"/"No" para que se lean en la hoja. Un "no"
+  // es un dato tan válido como un "sí": significa que el día ya se contestó.
+  for (const [field, raw] of [['medite', p.medite], ['lei', p.lei]]) {
+    if (raw === undefined || raw === '' || raw === null) continue;
+    const v = _siNo(raw);
+    if (v && setCell(field, v)) written[field] = v;
   }
 
   // --- Contadores con delta (agua, mast) ---
@@ -2183,6 +2213,9 @@ function getHabitDay(dateOpt) {
         animo:   toNumber(g('animo')),
         ejercicio: String(g('ejercicio') || ''),
         ejercicioMin: toNumber(g('ejercicioMin')),
+        medite: _siNo(g('medite')),
+        mediteMin: toNumber(g('mediteMin')),
+        lei: _siNo(g('lei')),
         agua: toNumber(g('agua')) || 0,
         mast: toNumber(g('mast')) || 0,
         notas: String(g('notas') || '')
@@ -2244,6 +2277,7 @@ function readHabitMonth(tabName) {
       hsSueno: toNumber(g('hsSueno')), trabajo: toNumber(g('trabajo')),
       avance: toNumber(g('avance')), animo: toNumber(g('animo')),
       ejercicio: String(g('ejercicio') || ''), ejercicioMin: toNumber(g('ejercicioMin')),
+      medite: _siNo(g('medite')), mediteMin: toNumber(g('mediteMin')), lei: _siNo(g('lei')),
       agua: toNumber(g('agua')), mast: toNumber(g('mast')),
       notas: String(g('notas') || '')
     };
@@ -2252,6 +2286,7 @@ function readHabitMonth(tabName) {
     // (inflaba daysTracked y con eso todos los porcentajes del reporte).
     row.hasData = !!(row.levante || row.acoste || row.trabajo != null || row.avance != null ||
                      row.animo != null || row.ejercicio || (row.ejercicioMin > 0) ||
+                     row.medite || row.lei || (row.mediteMin > 0) ||
                      (row.agua > 0) || (row.mast > 0));
     days.push(row);
   }
@@ -2378,6 +2413,9 @@ function getHabitsData(monthOpt) {
         agua: aguaVals.reduce((s, x) => s + x, 0),
         ejercicioMin: filled.map(d => d.ejercicioMin).filter(x => x != null).reduce((s, x) => s + x, 0),
         ejercicioDias: exDays.length,
+        mediteDias: filled.filter(d => d.medite === 'Sí').length,
+        mediteMin: filled.map(d => d.mediteMin).filter(x => x != null).reduce((s, x) => s + x, 0),
+        leiDias: filled.filter(d => d.lei === 'Sí').length,
         kcal: kcalTotal
       },
       kcalInfo: {
@@ -2501,6 +2539,67 @@ function resetHabitMonth(monthOpt, confirm) {
 // Devuelve si hay algo sin cargar en el dia, segun la hora.
 // Pensado para que un atajo del celular lo consulte y solo muestre la
 // notificacion cuando pending = true.
+// Cierre del día. Devuelve qué falta contestar y un mensaje corto listo para
+// una notificación. Entre medianoche y las 5 AM el día que se está cerrando es
+// el de ayer: si son las 00:40 y todavía no cargó nada, lo que falta es la
+// noche que recién termina, no el día nuevo.
+function _habitPendingNoche(now, opts) {
+  const hora = parseInt(Utilities.formatDate(now, 'America/Montevideo', 'HH'), 10);
+  const objetivo = new Date(now.getTime());
+  if (hora < 5) objetivo.setDate(objetivo.getDate() - 1);
+  const dateStr = Utilities.formatDate(objetivo, 'America/Montevideo', 'yyyy-MM-dd');
+
+  const base = { ok: true, modo: 'noche', date: dateStr,
+                 hora: Utilities.formatDate(now, 'America/Montevideo', 'HH:mm') };
+
+  const day = getHabitDay(dateStr);
+  if (!day || !day.ok) return Object.assign(base, { pending: false, pendingNum: 0, title: '', msg: 'Sin datos' });
+  const d = day.day || {};
+
+  // El "levanté" de ese día se contesta a la mañana siguiente, así que de noche
+  // no se pide: se pide el "acosté", que es lo que se sabe recién ahora.
+  const faltantes = [];
+  if (!d.acoste)                 faltantes.push('a qué hora te acostaste');
+  if (!d.ejercicio && !(d.ejercicioMin > 0)) faltantes.push('si fuiste al gimnasio');
+  if (!d.medite)                 faltantes.push('si meditaste');
+  if (!d.lei)                    faltantes.push('si leíste');
+  if (d.mast == null)            faltantes.push('el contador');
+  if (d.avance == null)          faltantes.push('el avance del día');
+
+  const pending = faltantes.length > 0;
+  return Object.assign(base, {
+    pending: pending,
+    pendingNum: pending ? 1 : 0,
+    count: faltantes.length,
+    title: pending ? '🌙 Cerrá el día' : '🌙 Día cerrado',
+    msg: pending
+      ? 'Falta ' + faltantes.slice(0, 3).join(', ') +
+        (faltantes.length > 3 ? ' y ' + (faltantes.length - 3) + ' cosa' + (faltantes.length - 3 > 1 ? 's' : '') + ' más' : '')
+      : 'Todo cargado ✓',
+    faltantes: faltantes,
+    dia: { acoste: d.acoste || '', levante: d.levante || '', ejercicio: d.ejercicio || '',
+           medite: d.medite || '', lei: d.lei || '', mast: d.mast, avance: d.avance }
+  });
+}
+
+// A la mañana lo único que falta preguntar es a qué hora se levantó.
+function _habitPendingManana(now) {
+  const dateStr = Utilities.formatDate(now, 'America/Montevideo', 'yyyy-MM-dd');
+  const base = { ok: true, modo: 'manana', date: dateStr,
+                 hora: Utilities.formatDate(now, 'America/Montevideo', 'HH:mm') };
+  const day = getHabitDay(dateStr);
+  if (!day || !day.ok) return Object.assign(base, { pending: false, pendingNum: 0, title: '', msg: 'Sin datos' });
+  const d = day.day || {};
+  const pending = !d.levante;
+  return Object.assign(base, {
+    pending: pending, pendingNum: pending ? 1 : 0, count: pending ? 1 : 0,
+    title: pending ? '☀️ ¿A qué hora te levantaste?' : '☀️ Ya cargado',
+    msg: pending ? 'Cargá la hora para que salga el cálculo de sueño' : 'Levantada cargada ✓',
+    faltantes: pending ? ['a qué hora te levantaste'] : [],
+    dia: { levante: d.levante || '', acoste: d.acoste || '' }
+  });
+}
+
 function habitPending(opts) {
   try {
     const now = new Date();
@@ -2511,6 +2610,14 @@ function habitPending(opts) {
 
     const desde = (opts && opts.desde != null) ? Number(opts.desde) : 9;   // no molestar antes
     const hasta = (opts && opts.hasta != null) ? Number(opts.hasta) : 23;  // ni después
+
+    // modo=noche: el cierre del día. Se usa de 23 a 3 AM y solo pregunta por lo
+    // que se contesta al final: a qué hora se acostó, gimnasio, meditación,
+    // lectura y el contador. Después de medianoche el día que cierra es el de
+    // ayer, no el de hoy.
+    const modo = String((opts && opts.modo) || '').toLowerCase();
+    if (modo === 'noche')  return _habitPendingNoche(now, opts || {});
+    if (modo === 'manana' || modo === 'mañana') return _habitPendingManana(now);
 
     const base = { ok: true, date: dateStr, hora: Utilities.formatDate(now, 'America/Montevideo', 'HH:mm') };
     if (tNow < desde || tNow > hasta) {

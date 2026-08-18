@@ -680,7 +680,8 @@
     if (!el) return;
     var s = H.saved || {};
     var n = 0;
-    ['levante','acoste','trabajo','avance','animo','ejercicio','ejercicioMin','notas'].forEach(function(k) {
+    ['levante','acoste','trabajo','avance','animo','ejercicio','ejercicioMin',
+     'medite','mediteMin','lei','notas'].forEach(function(k) {
       if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
     });
     var extras = (H.meals || []).length + (H.waters || []).length;
@@ -703,6 +704,9 @@
     if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
     if (hEl('ejerText'))   hEl('ejerText').value   = d.ejercicio || '';
     if (hEl('ejerMin'))    hEl('ejerMin').value    = d.ejercicioMin != null ? String(d.ejercicioMin) : '';
+    if (hEl('mediteMin'))  hEl('mediteMin').value  = d.mediteMin != null ? String(d.mediteMin) : '';
+    setSiNo('medite', d.medite || '');
+    setSiNo('lei',    d.lei || '');
     setSlider('habAvance', 'avanceVal', d.avance);
     setSlider('habAnimo',  'animoVal',  d.animo);
     if (hEl('mastInput')) hEl('mastInput').value = d.mast != null ? d.mast : 0;
@@ -743,6 +747,28 @@
     if (out) out.textContent = hs ? ('😴 ' + String(hs).replace('.', ',') + ' hs dormidas') : '';
   }
 
+  // Sí/No: el valor vive en H (no en un input) porque son botones. Tocar el que
+  // ya está activo lo apaga, así se puede dejar el día sin contestar.
+  function setSiNo(campo, val) {
+    H[campo] = val || '';
+    var bs = document.querySelectorAll('.hsino[data-campo="' + campo + '"]');
+    for (var i = 0; i < bs.length; i++) {
+      bs[i].classList.toggle('activo', bs[i].getAttribute('data-val') === H[campo]);
+    }
+  }
+  (function() {
+    var bs = document.querySelectorAll('.hsino');
+    for (var i = 0; i < bs.length; i++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          var campo = b.getAttribute('data-campo'), val = b.getAttribute('data-val');
+          setSiNo(campo, H[campo] === val ? '' : val);
+          markDirty();
+        });
+      })(bs[i]);
+    }
+  })();
+
   function setSlider(sliderId, badgeId, val) {
     var s = hEl(sliderId), b = hEl(badgeId);
     if (!s) return;
@@ -775,7 +801,7 @@
 
   // ---------- Marcar cambios ----------
   ['levH','levM','acoH','acoM','habTrabajo','habAvance','habAnimo','habNotas',
-   'ejerText','ejerMin','mastInput'].forEach(function(id) {
+   'ejerText','ejerMin','mediteMin','mastInput'].forEach(function(id) {
     var el = hEl(id);
     if (!el) return;
     el.addEventListener('change', markDirty);
@@ -1220,6 +1246,10 @@
     poner('ejercicio', et ? et.value.trim() : '', 'ejercicio');
     var em = hEl('ejerMin');
     poner('ejercicioMin', em ? normDec(em.value.trim()) : '', 'min');
+    poner('medite', H.medite || '', 'meditación');
+    var mm = hEl('mediteMin');
+    poner('mediteMin', mm ? normDec(mm.value.trim()) : '', 'min medit.');
+    poner('lei', H.lei || '', 'lectura');
     var nt = hEl('habNotas');
     poner('notas', nt ? nt.value.trim() : '', 'notas');
 
