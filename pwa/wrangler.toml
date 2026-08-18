@@ -1,0 +1,22 @@
+name = "gastos-habitos"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+
+# 2,3,4,5 UTC = 23, 00, 01, 02 en Montevideo (cierre del día)
+# 12 UTC      = 09 en Montevideo (a qué hora te levantaste)
+[triggers]
+crons = ["0 2,3,4,5,12 * * *"]
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "REEMPLAZAR_POR_EL_ID_DE_KV"
+
+[vars]
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec"
+VAPID_SUBJECT = "ilan.daniele@gmail.com"
+
+# Los iconos se importan como bytes desde el código
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true
