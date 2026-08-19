@@ -6,8 +6,13 @@ Antes cualquiera con el link entraba a tus datos. Ahora hay dos puertas.
 
 `https://gastos-habitos.ilandaniele.workers.dev` está protegida con Cloudflare
 Access. Antes de ver nada pide identificarte, y la única cuenta permitida es
-**ilan.daniele@gmail.com**. La sesión dura **30 días**, así que en el celular lo
-hacés una vez y te olvidás.
+**ilan.daniele@gmail.com**. La sesión dura **10 años**, así que en el celular lo
+hacés una vez y listo.
+
+El tope que muestra el panel de Cloudflare es 1 mes, pero por API acepta
+cualquier duración. Si algún día te vuelve a pedir login antes de tiempo,
+puede ser que Cloudflare esté topeando por su lado, o que iOS haya limpiado la
+cookie: se resuelve tocando el botón de Google una vez.
 
 Hay dos formas de entrar:
 
@@ -63,4 +68,4 @@ sigue protegiendo los datos).
 | Dominio de login | `ilandaniele.cloudflareaccess.com` |
 | Aplicación de Access | Gastos |
 | Política | Solo `ilan.daniele@gmail.com` |
-| Duración de sesión | 30 días |
+| Duración de sesión | 10 años (87600h) |
