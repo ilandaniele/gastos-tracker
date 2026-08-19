@@ -55,15 +55,17 @@ Adentro del If:
 - `Sí` → Set Variable `lei` = `si`
 - `No` → Set Variable `lei` = `no`
 
-**4.5 Ask for Input** — `¿Cuántas veces?` → tipo **Número** → variable `mast`
+**4.5 Ask for Input** — `¿A cuántas abordaste?` → tipo **Número** → variable `abord`
 
-**4.6 Get Contents of URL** — una sola llamada guarda todo:
+**4.6 Ask for Input** — `¿Cuántas veces?` → tipo **Número** → variable `mast`
+
+**4.7 Get Contents of URL** — una sola llamada guarda todo:
 
 ```
-<URL>?action=habitDay&date=[dia]&acoste=[acoste]&ejercicio=[ejer]&medite=[med]&lei=[lei]&mast=[mast]
+<URL>?action=habitDay&date=[dia]&acoste=[acoste]&ejercicio=[ejer]&medite=[med]&lei=[lei]&abordajes=[abord]&mast=[mast]
 ```
 
-**4.7 Show Notification** — `✓ Día cerrado`
+**4.8 Show Notification** — `✓ Día cerrado`
 
 ### 5. Otherwise
 **Show Notification** — `Ya está todo cargado` (o dejalo vacío para que no
@@ -130,6 +132,7 @@ navegador:
 - si fuiste al gimnasio
 - si meditaste
 - si leíste
+- a cuántas abordaste
 - el contador
 - el avance del día
 
@@ -157,6 +160,7 @@ Todos opcionales, se manda solo lo que se quiere escribir:
 | `medite`       | `si` / `no`  | Se guarda como Sí/No                      |
 | `mediteMin`    | `15`         | Minutos meditados                         |
 | `lei`          | `si` / `no`  | Leí o estudié                             |
+| `abordajes`    | `3`          | A cuántas personas abordaste              |
 | `mast`         | `1`          | Total del día                             |
 | `mastDelta`    | `1`          | Suma al que ya había                      |
 | `trabajo`      | `6.5`        | Horas trabajadas                          |

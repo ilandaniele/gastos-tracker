@@ -681,7 +681,7 @@
     var s = H.saved || {};
     var n = 0;
     ['levante','acoste','trabajo','avance','animo','ejercicio','ejercicioMin',
-     'medite','mediteMin','lei','notas'].forEach(function(k) {
+     'medite','mediteMin','lei','abordajes','notas'].forEach(function(k) {
       if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
     });
     var extras = (H.meals || []).length + (H.waters || []).length;
@@ -709,7 +709,8 @@
     setSiNo('lei',    d.lei || '');
     setSlider('habAvance', 'avanceVal', d.avance);
     setSlider('habAnimo',  'animoVal',  d.animo);
-    if (hEl('mastInput')) hEl('mastInput').value = d.mast != null ? d.mast : 0;
+    if (hEl('mastInput'))  hEl('mastInput').value  = d.mast != null ? d.mast : 0;
+    if (hEl('abordInput')) hEl('abordInput').value = d.abordajes != null ? d.abordajes : 0;
     if (hEl('aguaHora') && !hEl('aguaHora').value) hEl('aguaHora').value = nowHM();
     if (hEl('mealHora') && !hEl('mealHora').value) hEl('mealHora').value = nowHM();
   }
@@ -801,7 +802,7 @@
 
   // ---------- Marcar cambios ----------
   ['levH','levM','acoH','acoM','habTrabajo','habAvance','habAnimo','habNotas',
-   'ejerText','ejerMin','mediteMin','mastInput'].forEach(function(id) {
+   'ejerText','ejerMin','mediteMin','mastInput','abordInput'].forEach(function(id) {
     var el = hEl(id);
     if (!el) return;
     el.addEventListener('change', markDirty);
@@ -846,6 +847,8 @@
   }
   if (hEl('mastPlus'))  hEl('mastPlus').addEventListener('click',  function() { bumpField('mastInput',  1); });
   if (hEl('mastMinus')) hEl('mastMinus').addEventListener('click', function() { bumpField('mastInput', -1); });
+  if (hEl('abordPlus'))  hEl('abordPlus').addEventListener('click',  function() { bumpField('abordInput',  1); });
+  if (hEl('abordMinus')) hEl('abordMinus').addEventListener('click', function() { bumpField('abordInput', -1); });
 
   // ---------- Foto de comida (Gemini Vision) ----------
   if (hEl('btnScanMeal')) hEl('btnScanMeal').addEventListener('click', function() {
@@ -1260,6 +1263,9 @@
     var ms = hEl('mastInput');
     var msv = ms ? parseInt(String(ms.value).replace(/\D/g,''), 10) : NaN;
     poner('mast', (isFinite(msv) && msv > 0) ? msv : '', 'contador');
+    var ab = hEl('abordInput');
+    var abv = ab ? parseInt(String(ab.value).replace(/\D/g,''), 10) : NaN;
+    poner('abordajes', (isFinite(abv) && abv > 0) ? abv : '', 'abordajes');
 
     if (borrar.length) payload.clear = borrar.join(',');
 

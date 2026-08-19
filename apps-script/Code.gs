@@ -51,7 +51,7 @@ function catRulesSerializables() {
 
 // === HABITOS: constantes ===
 const HABIT_PREFIX = 'Hábitos ';
-const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Medité','Min medit.','Leí','Agua (ml)','Masturbación','Notas'];
+const HABIT_DAY_HEADERS = ['Fecha','Levanté','Acosté','Hs sueño','Hs trabajo','Avance','Ánimo','Ejercicio','Min ejerc.','Medité','Min medit.','Leí','Abordajes','Agua (ml)','Masturbación','Notas'];
 
 // Mapa campo del form -> nombre de header en la hoja.
 // Las columnas se resuelven POR NOMBRE, no por posición: si movés o insertás
@@ -68,6 +68,7 @@ const HABIT_FIELD_MAP = {
   medite:       'Medité',
   mediteMin:    'Min medit.',
   lei:          'Leí',
+  abordajes:    'Abordajes',
   agua:         'Agua (ml)',
   mast:         'Masturbación',
   notas:        'Notas'
@@ -916,6 +917,10 @@ function _buildHabitsEmailSection(expenseMonth) {
       kpis.push(['🧘 Días que medité', t.mediteDias + ' de ' + d.daysTracked +
                  '  (' + Math.round(t.mediteDias / d.daysTracked * 100) + '%)' +
                  (t.mediteMin ? '  ·  ' + t.mediteMin + ' min' : '')]);
+    }
+    if (t.abordajes) {
+      kpis.push(['🗣️ Abordajes', t.abordajes + '  ·  ' + t.abordajesDias + ' de ' + d.daysTracked +
+                 ' días  (' + Math.round(t.abordajesDias / d.daysTracked * 100) + '%)']);
     }
     if (t.leiDias) {
       kpis.push(['📖 Días que leí', t.leiDias + ' de ' + d.daysTracked +
@@ -2100,7 +2105,8 @@ function upsertHabitDay(p) {
   }
 
   // --- Contadores con delta (agua, mast) ---
-  const counters = [['agua', p.aguaDelta, p.agua], ['mast', p.mastDelta, p.mast]];
+  const counters = [['agua', p.aguaDelta, p.agua], ['mast', p.mastDelta, p.mast],
+                    ['abordajes', p.abordajesDelta, p.abordajes]];
   for (const [field, delta, absolute] of counters) {
     if (delta !== undefined && delta !== '' && delta !== null) {
       const prev = toNumber(readCur(field)) || 0;
@@ -2216,6 +2222,7 @@ function getHabitDay(dateOpt) {
         medite: _siNo(g('medite')),
         mediteMin: toNumber(g('mediteMin')),
         lei: _siNo(g('lei')),
+        abordajes: toNumber(g('abordajes')),
         agua: toNumber(g('agua')) || 0,
         mast: toNumber(g('mast')) || 0,
         notas: String(g('notas') || '')
@@ -2278,6 +2285,7 @@ function readHabitMonth(tabName) {
       avance: toNumber(g('avance')), animo: toNumber(g('animo')),
       ejercicio: String(g('ejercicio') || ''), ejercicioMin: toNumber(g('ejercicioMin')),
       medite: _siNo(g('medite')), mediteMin: toNumber(g('mediteMin')), lei: _siNo(g('lei')),
+      abordajes: toNumber(g('abordajes')),
       agua: toNumber(g('agua')), mast: toNumber(g('mast')),
       notas: String(g('notas') || '')
     };
@@ -2286,7 +2294,7 @@ function readHabitMonth(tabName) {
     // (inflaba daysTracked y con eso todos los porcentajes del reporte).
     row.hasData = !!(row.levante || row.acoste || row.trabajo != null || row.avance != null ||
                      row.animo != null || row.ejercicio || (row.ejercicioMin > 0) ||
-                     row.medite || row.lei || (row.mediteMin > 0) ||
+                     row.medite || row.lei || (row.mediteMin > 0) || (row.abordajes > 0) ||
                      (row.agua > 0) || (row.mast > 0));
     days.push(row);
   }
@@ -2416,6 +2424,8 @@ function getHabitsData(monthOpt) {
         mediteDias: filled.filter(d => d.medite === 'Sí').length,
         mediteMin: filled.map(d => d.mediteMin).filter(x => x != null).reduce((s, x) => s + x, 0),
         leiDias: filled.filter(d => d.lei === 'Sí').length,
+        abordajes: filled.map(d => d.abordajes).filter(x => x != null).reduce((s, x) => s + x, 0),
+        abordajesDias: filled.filter(d => (d.abordajes || 0) > 0).length,
         kcal: kcalTotal
       },
       kcalInfo: {
@@ -2563,6 +2573,7 @@ function _habitPendingNoche(now, opts) {
   if (!d.ejercicio && !(d.ejercicioMin > 0)) faltantes.push('si fuiste al gimnasio');
   if (!d.medite)                 faltantes.push('si meditaste');
   if (!d.lei)                    faltantes.push('si leíste');
+  if (d.abordajes == null)       faltantes.push('a cuántas abordaste');
   if (d.mast == null)            faltantes.push('el contador');
   if (d.avance == null)          faltantes.push('el avance del día');
 
@@ -2578,7 +2589,8 @@ function _habitPendingNoche(now, opts) {
       : 'Todo cargado ✓',
     faltantes: faltantes,
     dia: { acoste: d.acoste || '', levante: d.levante || '', ejercicio: d.ejercicio || '',
-           medite: d.medite || '', lei: d.lei || '', mast: d.mast, avance: d.avance }
+           medite: d.medite || '', lei: d.lei || '', abordajes: d.abordajes,
+           mast: d.mast, avance: d.avance }
   });
 }
 
