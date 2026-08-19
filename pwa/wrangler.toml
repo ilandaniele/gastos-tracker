@@ -9,7 +9,7 @@ crons = ["0 2,3,4,5,12 * * *"]
 
 [[kv_namespaces]]
 binding = "SUBS"
-id = "REEMPLAZAR_POR_EL_ID_DE_KV"
+id = "cfbdab2a8c994ae7b35be7bad8bb40cb"
 
 [vars]
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec"

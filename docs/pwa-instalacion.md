@@ -1,54 +1,18 @@
 # Instalar la app con notificaciones
 
-Todo el código ya está escrito y probado. Falta subirlo a una cuenta de
-Cloudflare (gratis) y agregar la app a la pantalla de inicio del iPhone.
+**Ya está publicada:**
+
+```
+https://gastos-habitos.ilandaniele.workers.dev
+```
+
+Falta un solo paso, en el iPhone.
 
 ---
 
-## Paso 1 — Cuenta de Cloudflare (2 min)
+## Agregarla a la pantalla de inicio (1 min)
 
-1. Entrá a **https://dash.cloudflare.com/sign-up**
-2. Registrate con tu mail. No pide tarjeta.
-3. Confirmá el mail.
-
-El plan gratis alcanza de sobra: 100.000 requests por día y los cron incluidos.
-Esto va a usar unos 200 por día.
-
----
-
-## Paso 2 — Crear el token (2 min)
-
-1. En el panel, arriba a la derecha, tu ícono → **My Profile**
-2. Menú izquierdo → **API Tokens** → **Create Token**
-3. Buscá la plantilla **Edit Cloudflare Workers** → **Use template**
-4. Abajo de todo → **Continue to summary** → **Create Token**
-5. Copiá el token (se muestra **una sola vez**)
-
-Pasámelo por acá y yo hago el resto: creo el almacenamiento, subo las claves y
-publico la app.
-
-> El token solo da permiso sobre Workers. Cuando termine podés borrarlo desde
-> la misma pantalla y la app sigue funcionando.
-
-**¿Preferís hacerlo vos?** Con Node instalado, desde la carpeta `pwa`:
->
-> ```bash
-> npx wrangler login
-> npx wrangler kv namespace create SUBS      # copiá el id al wrangler.toml
-> npx wrangler secret put VAPID_PUBLIC_KEY   # pegá la de vapid-keys.json
-> npx wrangler secret put VAPID_PRIVATE_JWK  # pegá el JSON de la privada
-> npx wrangler secret put ADMIN_KEY          # cualquier texto largo
-> npx wrangler deploy
-> ```
-
----
-
-## Paso 3 — Agregarla al iPhone (1 min)
-
-Cuando esté publicada te paso una dirección tipo
-`https://gastos-habitos.<tu-cuenta>.workers.dev`.
-
-1. Abrila **en Safari** (tiene que ser Safari, no Chrome).
+1. Abrí esa dirección **en Safari** (tiene que ser Safari, no Chrome).
 2. Tocá **Compartir** (el cuadradito con la flecha, abajo).
 3. **Agregar a inicio** → **Agregar**.
 4. Cerrá Safari y abrí la app **desde el ícono nuevo**.
@@ -59,7 +23,7 @@ entrás por ahí.
 
 ---
 
-## Paso 4 — Activar los avisos (10 segundos)
+## Activar los avisos (10 segundos)
 
 1. Abrí la app desde el ícono.
 2. Abajo a la derecha aparece **🔔 Activar avisos**. Tocalo.
@@ -77,17 +41,26 @@ El botón desaparece. Listo.
 - Tocás la notificación y se abre la app directo.
 
 Los horarios están en `pwa/wrangler.toml`. Se cambian ahí y se vuelve a
-publicar.
+publicar con `npx wrangler deploy`.
 
 ---
 
 ## Probar sin esperar a la noche
 
+La clave de administración está en `pwa/.secrets-local.md` (no va a git):
+
 ```
-https://<tu-app>.workers.dev/api/test?key=<ADMIN_KEY>&force=1
+https://gastos-habitos.ilandaniele.workers.dev/api/test?key=<ADMIN_KEY>&force=1
 ```
 
-Manda el push aunque no falte nada. Sin `force=1` respeta la lógica normal.
+Manda el push aunque no falte nada. Sin `force=1` respeta la lógica normal:
+si ya cargaste, no manda.
+
+Para ver qué considera pendiente:
+
+```
+https://gastos-habitos.ilandaniele.workers.dev/api/pending?modo=noche
+```
 
 ---
 
@@ -100,14 +73,25 @@ botón 🔔: si iOS reinstaló la app, hay que suscribirse de nuevo.
 **"No se pudo activar"**
 Revisá Ajustes → Notificaciones → Gastos, que estén permitidas.
 
-**La app abre pero se ve en blanco**
-Es la app de Apps Script adentro; probá recargar. Si sigue, avisame y miro el
-Worker.
+**La app abre pero se ve en blanco unos segundos**
+Es normal: adentro carga la app de Apps Script, que tarda. Si queda en blanco
+más de un minuto, avisame.
+
+---
+
+## Volver a publicar cambios
+
+Desde `pwa/`, con el token de Cloudflare en el ambiente:
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+npx wrangler deploy
+```
 
 ---
 
 ## Lo que esto NO cambia
 
 La app sigue siendo la misma de Apps Script y la planilla sigue siendo la misma.
-El Worker no guarda ningún dato tuyo: solo la suscripción de push (una
-dirección larga que le dice a Apple a qué teléfono avisar).
+El Worker no guarda ningún dato tuyo: solo la suscripción de push, que es una
+dirección larga que le dice a Apple a qué teléfono avisar.
