@@ -197,6 +197,7 @@ const ROUTES = {
   removeReportTrigger: () => removeMonthlyReportTrigger(),
   // Debug: dump headers of a tab — ?action=inspectHeaders&month=Mayo%202026
   inspectHeaders: p => inspectHeaders(p.month || currentMonthTab()),
+  deleteExpense: p => deleteExpenseRow(p),
   // Debug: dump crudo de una region — ?action=dumpGrid&month=Agosto%202026&r=1&c=1&rows=40&cols=28
   dumpGrid: p => {
     const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1514,6 +1515,57 @@ function isBoundaryRow(cellALower) {
 // findFixedRow: returns 0-indexed row idx into fixed table, or -1.
 // Strict: exact match wins. Else: TYPED-item is prefix of label (e.g. "Sandra" → "Sandra Psicologa").
 // Does NOT allow label-is-prefix-of-typed (avoids "Ble Loco" overwriting "Ble").
+// Borra un gasto de la tabla variable. Pide el nombre del ítem y lo compara
+// con lo que hay en la fila: un número de fila equivocado borraría un gasto
+// real sin que nadie se entere.
+//
+// NO usa deleteRow: la sección de Argentina vive al costado y borrar la fila
+// entera le correría las filas. Se limpia el contenido de las columnas de la
+// tabla variable y, si quedó un hueco en el medio, se compacta hacia arriba
+// solo dentro de esas columnas.
+function deleteExpenseRow(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row)) throw new Error('Fila inválida');
+  const esperado = String(p.item || '').trim();
+  if (!esperado) throw new Error('Falta el ítem esperado (seguridad)');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || currentMonthTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
+
+  const range = sheet.getDataRange().getValues();
+  const header0 = findHeaderRow(range);
+  if (header0 < 0) throw new Error('No se encontró la tabla variable');
+  const primera = header0 + 2;                        // 1-indexed
+  if (row < primera) throw new Error('Esa fila no es de la tabla variable');
+
+  let nCols = 0;
+  for (let c = 0; c < range[header0].length; c++) if (String(range[header0][c] || '').trim()) nCols = c + 1;
+
+  const actual = String(sheet.getRange(row, 1).getValue() || '').trim();
+  if (_stripAccents(actual) !== _stripAccents(esperado)) {
+    throw new Error('La fila ' + row + ' dice "' + actual + '", no "' + esperado + '"');
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ultima = sheet.getLastRow();
+    const alto = Math.max(1, ultima - primera + 1);
+    const rng = sheet.getRange(primera, 1, alto, nCols);
+    const vals = rng.getValues();
+    const idx = row - primera;
+    vals.splice(idx, 1);
+    vals.push(new Array(nCols).fill(''));
+    rng.setValues(vals);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: tabName, row: row, deleted: actual };
+}
+
 // Total de la tabla fija. Prioridad a la fila "Total fijos" de la propia hoja:
 // es la que el usuario mantiene y la que decide qué entra y qué no (deja afuera
 // "Itaú Crédito" y "Oca", que son resúmenes de tarjeta y duplicarían los gastos
