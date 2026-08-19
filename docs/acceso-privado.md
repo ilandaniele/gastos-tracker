@@ -9,9 +9,10 @@ Access. Antes de ver nada pide identificarte, y la única cuenta permitida es
 **ilan.daniele@gmail.com**. La sesión dura **30 días**, así que en el celular lo
 hacés una vez y te olvidás.
 
-Hoy el método es un **código por mail** (ponés tu mail, te llega un código de 6
-dígitos). Para pasarlo al botón de **Iniciar sesión con Google** faltan unas
-credenciales que tenés que crear vos — están los pasos abajo.
+Hay dos formas de entrar:
+
+- **Iniciar sesión con Google** — el botón de arriba, con tu cuenta.
+- **Código por mail** — queda como respaldo por si Google falla.
 
 ## 2. Clave en la app de Apps Script
 
@@ -31,25 +32,19 @@ La clave está en `pwa/.secrets-local.md` (no va a git).
 
 ---
 
-## Pasar el login a Google (5 min tuyos)
+## Si Google te rechaza
 
-1. Entrá a **https://console.cloud.google.com/apis/credentials**
-2. Arriba, elegí un proyecto o creá uno (nombre: `Gastos`).
-3. Si te pide configurar la **pantalla de consentimiento**:
-   - Tipo: **Externo** → Crear
-   - Nombre de la app: `Gastos`, mail de asistencia: el tuyo → Guardar y continuar
-   - Seguí hasta el final (no hace falta agregar permisos)
-   - En **Usuarios de prueba**, agregá tu propio mail
-4. **Credenciales** → **Crear credenciales** → **ID de cliente de OAuth**
-5. Tipo de aplicación: **Aplicación web**. Nombre: `Cloudflare Access`
-6. En **URI de redireccionamiento autorizados**, agregá exactamente esto:
+La app de OAuth quedó en modo **Testing**, así que Google solo deja entrar a las
+cuentas listadas como usuarios de prueba. Si al tocar el botón te dice que la
+app no está verificada o que no tenés acceso:
 
-```
-https://ilandaniele.cloudflareaccess.com/cdn-cgi/access/callback
-```
+1. Entrá a **https://console.cloud.google.com/auth/audience**
+2. En **Usuarios de prueba**, agregá `ilan.daniele@gmail.com`
 
-7. Crear → te muestra **ID de cliente** y **Secreto de cliente**.
-8. Pasámelos y lo dejo andando en un minuto.
+O tocá **Publicar app** en esa misma pantalla y listo (siendo el único usuario,
+Google no pide verificación).
+
+Mientras tanto siempre podés entrar con el código por mail.
 
 ---
 
