@@ -172,6 +172,14 @@ const ROUTES = {
     if (!sheet) return { ok: false, error: 'Hoja no existe' };
     return { ok: true, ...migrateHabitSheet(sheet) };
   },
+  // Fija o cambia la clave de acceso. Una vez puesta, para cambiarla hay que
+  // mandar la vigente (el propio chequeo de doGet ya la exige).
+  setAppKey: p => {
+    if (!p.nueva) throw new Error('Falta param "nueva"');
+    PropertiesService.getScriptProperties().setProperty('APP_KEY', String(p.nueva));
+    return { ok: true, msg: 'Clave guardada', largo: String(p.nueva).length };
+  },
+  hasAppKey: () => ({ ok: true, tieneClave: !!_appKey() }),
   setKey: p => {
     if (!p.key) throw new Error('Falta param "key"');
     PropertiesService.getScriptProperties().setProperty('GEMINI_KEY', p.key);
@@ -230,8 +238,45 @@ const ROUTES = {
   }
 };
 
+// === Puerta de entrada ===
+// El web app está publicado como "cualquiera con el link", que es lo que
+// permite que el Worker y los Atajos le peguen sin sesión de Google. Para que
+// ese link no alcance por sí solo, todo pide una clave que vive en Script
+// Properties y que solo conoce la PWA.
+//
+// Si la clave no está configurada NO se exige nada: así una configuración a
+// medias no deja a nadie afuera de sus propios datos.
+function _appKey() {
+  return PropertiesService.getScriptProperties().getProperty('APP_KEY') || '';
+}
+function _autorizado(p) {
+  const need = _appKey();
+  if (!need) return true;
+  return String(p.k || p.key || '') === need;
+}
+
+function _paginaNoAutorizado() {
+  return HtmlService.createHtmlOutput(
+    '<html><head><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+    'margin:0;padding:60px 28px;color:#111827;background:#f6f7f9}' +
+    'h1{font-size:20px;margin:0 0 10px}p{color:#4b5563;line-height:1.5;font-size:15px}</style>' +
+    '</head><body><h1>🔒 No autorizado</h1>' +
+    '<p>Esta app es privada. Entrá desde el ícono de <b>Gastos</b> en tu pantalla de inicio.</p>' +
+    '</body></html>')
+    .setTitle('No autorizado')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
 function doGet(e) {
   const p = (e && e.parameter) || {};
+
+  if (!_autorizado(p)) {
+    Logger.log('Acceso sin clave: ' + JSON.stringify(Object.keys(p)));
+    if (p.action || p.item) return json({ ok: false, error: 'No autorizado' });
+    return _paginaNoAutorizado();
+  }
+
   // Action-based JSON endpoints
   if (p.action && ROUTES[p.action]) {
     try { return json(ROUTES[p.action](p)); }

@@ -44,9 +44,20 @@ function modoPorHora(h) {
 
 // extra: parámetros sueltos que se le pasan tal cual a Apps Script (desde,
 // hasta, date...). Sirve para probar franjas horarias sin tocar el código.
+// La app de Apps Script está publicada como "cualquiera con el link" (es lo
+// único que le permite responderle a este Worker sin sesión de Google), así que
+// pide una clave. La clave vive acá como secreto y nunca sale al navegador
+// salvo dentro del HTML que ya pasó por el login.
+function appUrl(env, extraParams) {
+  const url = new URL(env.APPS_SCRIPT_URL);
+  if (env.APP_KEY) url.searchParams.set('k', env.APP_KEY);
+  for (const [k, v] of Object.entries(extraParams || {})) url.searchParams.set(k, v);
+  return url;
+}
+
 async function pending(env, modoRaw, extra) {
   const modo = modoRaw === 'auto' ? modoPorHora(horaLocal()) : (modoRaw || '');
-  const url = new URL(env.APPS_SCRIPT_URL);
+  const url = appUrl(env);
   url.searchParams.set('action', 'habitPending');
   if (modo) url.searchParams.set('modo', modo);
   for (const [k, v] of Object.entries(extra || {})) url.searchParams.set(k, v);
@@ -94,7 +105,7 @@ export default {
     const p = url.pathname;
 
     if (p === '/' || p === '/index.html') {
-      return new Response(SHELL_HTML.replace('__APP_URL__', env.APPS_SCRIPT_URL), {
+      return new Response(SHELL_HTML.replace('__APP_URL__', appUrl(env).toString()), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
       });
     }
