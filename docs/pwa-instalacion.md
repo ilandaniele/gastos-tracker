@@ -67,8 +67,24 @@ https://gastos-habitos.ilandaniele.workers.dev/api/pending?modo=noche
 ## Si algo no anda
 
 **No llega ninguna notificación**
-Abrí la app desde el ícono (no desde Safari) y fijate si volvió a aparecer el
-botón 🔔: si iOS reinstaló la app, hay que suscribirse de nuevo.
+Casi siempre es lo mismo: la suscripción se hizo desde Safari y no desde la app
+instalada. En iOS solo reciben push las webs agregadas a la pantalla de inicio;
+desde Safari te deja suscribirte igual, el servidor no ve ningún error, y no
+llega nada nunca.
+
+Abrí la app **desde el ícono** y tocá 🔔 de nuevo. Para confirmar que el
+teléfono la está recibiendo:
+
+```
+https://gastos-habitos.ilandaniele.workers.dev/api/diag?key=<ADMIN_KEY>
+```
+
+- `suscripciones` debería decir 1, y la suscripción tener `standalone: "1"`
+- después de un aviso, en `consultas` tiene que aparecer un `ACK push` con la
+  hora y el user agent del iPhone
+
+Si aparece el ACK, el push llegó: si igual no viste la notificación, revisá
+Modo Concentración o los permisos.
 
 **"No se pudo activar"**
 Revisá Ajustes → Notificaciones → Gastos, que estén permitidas.
