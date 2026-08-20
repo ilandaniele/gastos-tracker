@@ -98,7 +98,7 @@ export const SHELL_HTML = `<!DOCTYPE html>
           applicationServerKey: b64ToU8(key)
         });
       }
-      var r = await fetch('/api/subscribe', {
+      var r = await fetch('/api/subscribe?standalone=' + (standalone ? '1' : '0'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sub)
       });
@@ -122,8 +122,9 @@ export const SHELL_HTML = `<!DOCTYPE html>
       await navigator.serviceWorker.ready;
       var sub = await reg.pushManager.getSubscription();
       if (Notification.permission !== 'granted' || !sub) bell.classList.add('show');
-      else fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                     body: JSON.stringify(sub) });
+      else fetch('/api/subscribe?standalone=' + (standalone ? '1' : '0'),
+                 { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify(sub) });
     } catch (e) { bell.classList.add('show'); }
   })();
 </script>
@@ -146,6 +147,10 @@ function conTimeout(promesa, ms) {
 self.addEventListener('push', function(event) {
   event.waitUntil((async function() {
     var titulo = '🧘 Hábitos', cuerpo = 'Cargá lo que falta del día', url = '/';
+    // Acuse de recibo: deja constancia en el servidor de que el push llegó al
+    // teléfono. Sin esto no hay forma de distinguir "no llegó" de "llegó y no
+    // se mostró".
+    try { fetch('/api/ack?e=push', { cache: 'no-store' }); } catch (e) {}
     try {
       var r = await conTimeout(fetch('/api/pending?modo=auto', { cache: 'no-store' }), 3000);
       var d = await r.json();

@@ -99,8 +99,23 @@ async function claveDe(sub) {
   return KEY_PREFIX + hex.slice(0, 32);
 }
 
+async function anotarConsulta(env, request, que) {
+  try {
+    const bruto = await env.SUBS.get('log:pending', 'json');
+    const previo = Array.isArray(bruto) ? bruto : [];
+    previo.unshift({
+      que: que || 'pending',
+      hora: new Intl.DateTimeFormat('es-UY', { timeZone: 'America/Montevideo',
+              hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()),
+      ua: (request.headers.get('user-agent') || '').slice(0, 90),
+      pais: request.headers.get('cf-ipcountry') || ''
+    });
+    await env.SUBS.put('log:pending', JSON.stringify(previo.slice(0, 15)));
+  } catch (e) {}
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
 
@@ -140,6 +155,13 @@ export default {
       const sub = await request.json();
       if (!sub || !sub.endpoint) return json({ ok: false, error: 'Falta endpoint' }, 400);
       const key = await claveDe(sub);
+      // Se guarda con quién y cómo se suscribió: si el push no llega, lo
+      // primero que hay que saber es si vino de la app instalada o de Safari.
+      sub._meta = {
+        ua: (request.headers.get('user-agent') || '').slice(0, 120),
+        standalone: url.searchParams.get('standalone') || '',
+        cuando: new Date().toISOString()
+      };
       await env.SUBS.put(key, JSON.stringify(sub));
       return json({ ok: true });
     }
@@ -151,11 +173,36 @@ export default {
     }
 
     if (p === '/api/pending') {
+      // Se anota quién consulta: cuando llega un push, el service worker del
+      // teléfono pega acá. Ver ese registro es la única forma de saber, desde
+      // afuera, si el push llegó al teléfono y el service worker se despertó.
+      ctx.waitUntil(anotarConsulta(env, request));
       try {
         return json(await pending(env, url.searchParams.get('modo') || '', extraParams(url.searchParams)));
       } catch (e) {
         return json({ ok: false, error: String(e) }, 502);
       }
+    }
+
+    // Acuse de recibo del teléfono (lo llama el service worker)
+    if (p === '/api/ack') {
+      ctx.waitUntil(anotarConsulta(env, request, 'ACK ' + (url.searchParams.get('e') || '')));
+      return json({ ok: true });
+    }
+
+    // Diagnóstico: qué pasó en los últimos crons y quién consultó
+    if (p === '/api/diag') {
+      if (!env.ADMIN_KEY || url.searchParams.get('key') !== env.ADMIN_KEY) {
+        return json({ ok: false, error: 'no' }, 403);
+      }
+      const subs = await listarSubs(env);
+      return json({
+        ok: true,
+        ahora: new Intl.DateTimeFormat('es-UY', { timeZone: 'America/Montevideo', dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
+        suscripciones: subs.length,
+        cron: (await env.SUBS.get('log:cron', 'json')) || [],
+        consultas: (await env.SUBS.get('log:pending', 'json')) || []
+      });
     }
 
     // Disparo manual, para probar sin esperar a la noche:
