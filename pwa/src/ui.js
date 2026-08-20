@@ -131,11 +131,23 @@ export const SHELL_HTML = `<!DOCTYPE html>
 </html>`;
 
 export const SERVICE_WORKER = `// El push viene vacío: acá se pregunta qué falta y se arma el texto.
+//
+// La consulta tiene timeout corto y la notificación se muestra siempre, con
+// texto genérico si el servidor no contesta. iOS penaliza a las apps que
+// reciben un push y no notifican, así que quedarse esperando una respuesta es
+// peor que avisar de más.
+function conTimeout(promesa, ms) {
+  return Promise.race([
+    promesa,
+    new Promise(function(_, rechazar) { setTimeout(function() { rechazar(new Error('timeout')); }, ms); })
+  ]);
+}
+
 self.addEventListener('push', function(event) {
   event.waitUntil((async function() {
     var titulo = '🧘 Hábitos', cuerpo = 'Cargá lo que falta del día', url = '/';
     try {
-      var r = await fetch('/api/pending?modo=auto', { cache: 'no-store' });
+      var r = await conTimeout(fetch('/api/pending?modo=auto', { cache: 'no-store' }), 3000);
       var d = await r.json();
       if (d && d.pendingNum === 0) {
         // Igual hay que mostrar algo: iOS castiga a las apps que reciben push

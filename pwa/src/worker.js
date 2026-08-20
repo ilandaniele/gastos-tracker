@@ -174,7 +174,24 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(avisar(env, 'auto', false));
+    // El resultado del cron se guarda en KV: es la única forma de saber por qué
+    // no llegó un aviso sin poder mirar los logs en vivo.
+    ctx.waitUntil((async () => {
+      let r;
+      try {
+        r = await avisar(env, 'auto', false);
+      } catch (e) {
+        r = { ok: false, excepcion: String(e && e.stack || e) };
+      }
+      try {
+        const previo = (await env.SUBS.get('log:cron', 'json')) || [];
+        previo.unshift({ cuando: new Date().toISOString(),
+                         hora: new Intl.DateTimeFormat('es-UY', { timeZone: 'America/Montevideo',
+                                 hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
+                         cron: event && event.cron, r });
+        await env.SUBS.put('log:cron', JSON.stringify(previo.slice(0, 20)));
+      } catch (e) {}
+    })());
   }
 };
 
