@@ -564,9 +564,14 @@
   var habitLoadedOnce = false;
   var AGUA_STEP = 250, AGUA_META = 2400;
 
-  // Estado local del dia que se esta editando. NADA se guarda hasta
-  // que se toca "Guardar dia" (salvo las comidas, que son un log aparte).
-  var H = { date: '', meals: [], waters: [], saved: {}, dirty: false, editingRow: null, editingWater: null };
+  // Estado local del dia que se esta editando. Los campos y el agua viven como
+  // borrador local hasta tocar "Guardar dia". Las comidas siguen siendo un log
+  // aparte y se guardan desde su propio boton.
+  var H = {
+    date: '', meals: [], waters: [], serverWaters: [], saved: {}, dirty: false,
+    editingRow: null, editingWater: null, waterSeq: 0, loadSeq: 0, draftStorageFailed: false
+  };
+  var HABIT_DRAFT_PREFIX = 'gastos-tracker.habitos.borrador.v1.';
 
   function hEl(id) { return document.getElementById(id); }
 
@@ -594,13 +599,133 @@
   }
   function fmtMl(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
-  function markDirty() {
-    H.dirty = true;
-    var f = hEl('dirtyFlag'); if (f) f.classList.add('show');
+  function waterLabel(ml) {
+    var n = Number(ml) || 0;
+    if (n <= 150) return 'Sorbo';
+    if (n <= 220) return 'Taza';
+    if (n <= 300) return 'Vaso';
+    if (n <= 420) return 'Vaso grande';
+    if (n <= 600) return 'Media botella';
+    if (n <= 880) return 'Botella';
+    if (n <= 1200) return 'Botella 1L';
+    return 'Botella grande';
   }
-  function clearDirty() {
+
+  function nextWaterId() {
+    H.waterSeq += 1;
+    return 'draft-' + Date.now() + '-' + H.waterSeq;
+  }
+
+  function normalizeWaters(list) {
+    var out = [];
+    list = Array.isArray(list) ? list : [];
+    for (var i = 0; i < list.length; i++) {
+      var src = list[i] || {};
+      var ml = parseInt(String(src.ml == null ? '' : src.ml).replace(/\D/g, ''), 10);
+      if (!isFinite(ml) || ml <= 0) continue;
+      var row = parseInt(src.row, 10);
+      if (!isFinite(row) || row <= 0) row = null;
+      out.push({
+        id: String(src.id || (row ? 'row-' + row : nextWaterId())),
+        row: row,
+        hora: String(src.hora || ''),
+        tipo: String(src.tipo || waterLabel(ml)),
+        ml: ml
+      });
+    }
+    return out;
+  }
+
+  function waterSignature(list) {
+    return normalizeWaters(list).map(function(w) {
+      return [w.row || '', w.hora, w.tipo, w.ml].join('|');
+    }).join('||');
+  }
+
+  function watersChanged() {
+    return waterSignature(H.waters) !== waterSignature(H.serverWaters);
+  }
+
+  function waterIsPending(w) {
+    if (!w || !w.row) return true;
+    for (var i = 0; i < H.serverWaters.length; i++) {
+      var s = H.serverWaters[i];
+      if (s.row === w.row) return s.hora !== w.hora || s.tipo !== w.tipo || s.ml !== w.ml;
+    }
+    return true;
+  }
+
+  function collectDayDraft() {
+    var val = function(id) { var el = hEl(id); return el ? String(el.value || '') : ''; };
+    return {
+      levante: getWheel('levH', 'levM'), acoste: getWheel('acoH', 'acoM'),
+      trabajo: val('habTrabajo').trim(), avance: val('habAvance'), animo: val('habAnimo'),
+      ejercicio: val('ejerText').trim(), ejercicioMin: val('ejerMin').trim(),
+      medite: H.medite || '', mediteMin: val('mediteMin').trim(), lei: H.lei || '',
+      mast: val('mastInput'), abordajes: val('abordInput'), notas: val('habNotas')
+    };
+  }
+
+  function draftKey(dateStr) { return HABIT_DRAFT_PREFIX + dateStr; }
+
+  function readDraft(dateStr) {
+    if (!dateStr) return null;
+    try {
+      var raw = window.localStorage.getItem(draftKey(dateStr));
+      if (!raw) return null;
+      var d = JSON.parse(raw);
+      return d && d.date === dateStr && d.day ? d : null;
+    } catch (e) {
+      H.draftStorageFailed = true;
+      return null;
+    }
+  }
+
+  function persistDraft() {
+    if (!habitLoadedOnce || !H.date || !H.dirty) return false;
+    try {
+      window.localStorage.setItem(draftKey(H.date), JSON.stringify({
+        version: 1, date: H.date, updatedAt: Date.now(),
+        day: collectDayDraft(), waters: normalizeWaters(H.waters),
+        saved: H.saved || {}, serverWaters: normalizeWaters(H.serverWaters)
+      }));
+      H.draftStorageFailed = false;
+      return true;
+    } catch (e) {
+      H.draftStorageFailed = true;
+      return false;
+    }
+  }
+
+  function removeDraft(dateStr) {
+    if (!dateStr) return;
+    try { window.localStorage.removeItem(draftKey(dateStr)); }
+    catch (e) { H.draftStorageFailed = true; }
+  }
+
+  function showDirty(restored) {
+    var f = hEl('dirtyFlag');
+    if (!f) return;
+    f.classList.add('show');
+    if (H.draftStorageFailed) {
+      f.textContent = 'Cambios sin guardar · este navegador no pudo conservar el borrador';
+    } else if (restored) {
+      f.textContent = 'Borrador recuperado · tocá Guardar día para confirmar';
+    } else {
+      f.textContent = 'Borrador local · tocá Guardar día para confirmar';
+    }
+  }
+
+  function markDirty(message) {
+    H.dirty = true;
+    persistDraft();
+    showDirty(false);
+    if (typeof message === 'string' && message) habStatus(message, 'draft');
+  }
+  function clearDirty(removeLocal) {
     H.dirty = false;
     var f = hEl('dirtyFlag'); if (f) f.classList.remove('show');
+    if (removeLocal) removeDraft(H.date);
   }
 
   // ---------- Ruedas de hora ----------
@@ -642,36 +767,59 @@
   // ---------- Carga de un dia ----------
   function loadDay(dateStr) {
     var d = dateStr || todayISO();
+    var loadSeq = ++H.loadSeq;
+    // Pintar primero el borrador permite seguir viendo lo escrito aun si justo
+    // no hay red al reabrir la app. La respuesta del servidor completa despues
+    // la linea base necesaria para confirmar borrados correctamente.
+    var earlyDraft = readDraft(d);
+    if (earlyDraft) {
+      habitLoadedOnce = true;
+      H.date = d;
+      H.meals = [];
+      H.saved = earlyDraft.saved || {};
+      H.serverWaters = normalizeWaters(earlyDraft.serverWaters || []);
+      H.waters = normalizeWaters(earlyDraft.waters || []);
+      if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
+      paintDay(earlyDraft.day);
+      renderMeals();
+      renderWaters();
+      pintarEstadoDia();
+      H.dirty = true;
+      showDirty(true);
+    }
     habStatus('Cargando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
+        if (loadSeq !== H.loadSeq) return;
         habStatus('', '');
         habitLoadedOnce = true;
         if (!r || !r.ok) { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         H.date = r.date || d;
         H.meals = r.meals || [];
-        H.waters = r.waters || [];
+        H.serverWaters = normalizeWaters(r.waters || []);
+        H.waters = normalizeWaters(H.serverWaters);
         H.saved = r.day || {};
         if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
-        paintDay(H.saved);
+        var draft = readDraft(H.date);
+        if (draft) {
+          paintDay(draft.day || H.saved);
+          H.waters = normalizeWaters(draft.waters || H.serverWaters);
+          H.dirty = true;
+          showDirty(true);
+          habStatus('Borrador recuperado en este dispositivo', 'draft');
+        } else {
+          paintDay(H.saved);
+          clearDirty(false);
+        }
         renderMeals();
         renderWaters();
         pintarEstadoDia();
-        clearDirty();
       })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .withFailureHandler(function(err) {
+        if (loadSeq !== H.loadSeq) return;
+        habStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
       .getHabitDaySafe(d);
-  }
-
-  // Relee el día sin tocar lo que el usuario esté escribiendo: sólo
-  // actualiza H.saved y el badge de estado.
-  function refreshSaved() {
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.ok) { H.saved = r.day || {}; pintarEstadoDia(); }
-      })
-      .withFailureHandler(function() {})
-      .getHabitDaySafe(H.date);
   }
 
   // Muestra si el día elegido ya tiene datos guardados
@@ -684,7 +832,7 @@
      'medite','mediteMin','lei','abordajes','notas'].forEach(function(k) {
       if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
     });
-    var extras = (H.meals || []).length + (H.waters || []).length;
+    var extras = (H.meals || []).length + (H.serverWaters || []).length;
     if (n || extras) {
       el.textContent = 'guardado · ' + n + ' campo' + (n === 1 ? '' : 's') +
                        (extras ? ' · ' + extras + ' registro' + (extras === 1 ? '' : 's') : '');
@@ -700,7 +848,7 @@
     setWheel('levH', 'levM', d.levante || '');
     setWheel('acoH', 'acoM', d.acoste || '');
     pintarSueno();
-    if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo) : '';
+    if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo).replace('.', ',') : '';
     if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
     if (hEl('ejerText'))   hEl('ejerText').value   = d.ejercicio || '';
     if (hEl('ejerMin'))    hEl('ejerMin').value    = d.ejercicioMin != null ? String(d.ejercicioMin) : '';
@@ -708,7 +856,7 @@
     setSiNo('medite', d.medite || '');
     setSiNo('lei',    d.lei || '');
     setSlider('habAvance', 'avanceVal', d.avance);
-    setSlider('habAnimo',  'animoVal',  d.animo);
+    setMood(d.animo);
     if (hEl('mastInput'))  hEl('mastInput').value  = d.mast != null ? d.mast : 0;
     if (hEl('abordInput')) hEl('abordInput').value = d.abordajes != null ? d.abordajes : 0;
     if (hEl('aguaHora') && !hEl('aguaHora').value) hEl('aguaHora').value = nowHM();
@@ -787,12 +935,10 @@
     goToDay(iso);
   }
   function goToDay(iso) {
-    if (H.dirty) {
-      if (confirm('Tenés cambios sin guardar.\n\nAceptar = guardarlos y cambiar de día\nCancelar = cambiar sin guardar')) {
-        saveDay({ silent: true, then: function() { loadDay(iso); } });
-        return;
-      }
-    }
+    // Cada fecha tiene su propio borrador. Cambiar de día nunca confirma datos
+    // en la hoja ni descarta lo escrito: se persiste localmente y se recupera
+    // al volver a esa fecha.
+    if (H.dirty) persistDraft();
     loadDay(iso);
   }
   if (hEl('dayPrev'))  hEl('dayPrev').addEventListener('click', function() { shiftDay(-1); });
@@ -815,16 +961,20 @@
     if (el) el.addEventListener('change', pintarSueno);
   });
 
-  // "ahora" solo completa la rueda; se guarda con "Guardar dia"
+  // "ahora" solo completa la rueda y persiste la previsualizacion local.
   if (hEl('btnLevante')) hEl('btnLevante').addEventListener('click', function() {
-    setWheel('levH', 'levM', nowHM()); markDirty(); pintarSueno();
+    setWheel('levH', 'levM', nowHM());
+    markDirty('Hora agregada al borrador · guardá el día para confirmarla');
+    pintarSueno();
   });
   if (hEl('btnAcoste')) hEl('btnAcoste').addEventListener('click', function() {
-    setWheel('acoH', 'acoM', nowHM()); markDirty(); pintarSueno();
+    setWheel('acoH', 'acoM', nowHM());
+    markDirty('Hora agregada al borrador · guardá el día para confirmarla');
+    pintarSueno();
   });
 
-  // ---------- Sliders ----------
-  [['habAvance','avanceVal'], ['habAnimo','animoVal']].forEach(function(pair) {
+  // ---------- Avance y animo ----------
+  [['habAvance','avanceVal']].forEach(function(pair) {
     var s = hEl(pair[0]);
     if (!s) return;
     s.addEventListener('input', function() {
@@ -832,6 +982,38 @@
       if (b) b.textContent = (s.value === '0') ? '—' : s.value;
     });
   });
+
+  function setMood(val) {
+    var input = hEl('habAnimo');
+    var n = parseInt(val, 10);
+    if (!isFinite(n) || n < 1 || n > 5) n = 0;
+    if (input) input.value = String(n);
+    var labels = ['', 'muy bajo', 'bajo', 'normal', 'bueno', 'muy bueno'];
+    var badge = hEl('animoVal');
+    if (badge) badge.textContent = n ? (n + ' · ' + labels[n]) : '—';
+    var buttons = document.querySelectorAll('#animoRating button');
+    for (var i = 0; i < buttons.length; i++) {
+      var active = parseInt(buttons[i].getAttribute('data-value'), 10) === n;
+      buttons[i].classList.toggle('activo', active);
+      buttons[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
+  (function() {
+    var buttons = document.querySelectorAll('#animoRating button');
+    for (var i = 0; i < buttons.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          setMood(parseInt(btn.getAttribute('data-value'), 10));
+          markDirty();
+        });
+      })(buttons[i]);
+    }
+    if (hEl('clearAnimo')) hEl('clearAnimo').addEventListener('click', function() {
+      setMood(0);
+      markDirty();
+    });
+  })();
 
   // ---------- Numericos con +/- (solo cambian el campo en pantalla) ----------
   function bumpField(inputId, delta, after) {
@@ -928,7 +1110,7 @@
       });
   });
 
-  // ---------- Agua: registro de tomas (se guardan al instante) ----------
+  // ---------- Agua: previsualizacion local hasta Guardar dia ----------
   function renderAgua() {
     var total = 0;
     for (var i = 0; i < H.waters.length; i++) total += (H.waters[i].ml || 0);
@@ -954,17 +1136,18 @@
     var html = '';
     for (var i = 0; i < H.waters.length; i++) {
       var w = H.waters[i];
-      html += '<div class="hmeal-row" data-row="' + w.row + '">' +
+      var pending = waterIsPending(w);
+      html += '<div class="hmeal-row' + (pending ? ' pending' : '') + '" data-id="' + w.id + '">' +
         '<span class="mt">' + esc(w.hora) + '</span>' +
         '<span class="mn">' + esc(w.tipo) + '</span>' +
-        '<span class="mm">' + fmtMl(w.ml) + ' ml</span>' +
+        '<span class="mm">' + fmtMl(w.ml) + ' ml' + (pending ? ' · borrador' : '') + '</span>' +
       '</div>';
     }
     box.innerHTML = html;
     var rows = box.querySelectorAll('.hmeal-row');
     for (var k = 0; k < rows.length; k++) {
       (function(el) {
-        el.addEventListener('click', function() { openWaterModal(parseInt(el.getAttribute('data-row'), 10)); });
+        el.addEventListener('click', function() { openWaterModal(el.getAttribute('data-id')); });
       })(rows[k]);
     }
   }
@@ -972,18 +1155,11 @@
   function addWater(ml, tipo) {
     if (!ml || ml <= 0) { habStatus('Poné una cantidad válida', 'err'); return; }
     var hora = (hEl('aguaHora') && hEl('aguaHora').value) || nowHM();
-    habStatus('Guardando...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.ok) {
-          if (hEl('aguaMl')) hEl('aguaMl').value = '';
-          if (hEl('aguaHora')) hEl('aguaHora').value = nowHM();
-          habStatus('✓ ' + (r.written && r.written.tipo) + ' · ' + fmtMl(ml) + ' ml — total ' + fmtMl(r.total) + ' ml', 'ok');
-          reloadLog();
-        } else { habStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
-      })
-      .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .addWaterSafe({ date: H.date, ml: ml, tipo: tipo || '', hora: hora });
+    H.waters.push({ id: nextWaterId(), row: null, hora: hora, tipo: tipo || waterLabel(ml), ml: ml });
+    if (hEl('aguaMl')) hEl('aguaMl').value = '';
+    if (hEl('aguaHora')) hEl('aguaHora').value = nowHM();
+    renderWaters();
+    markDirty('Vista previa: +' + fmtMl(ml) + ' ml · todavía no está guardado');
   }
 
   (function() {
@@ -1006,11 +1182,11 @@
   });
 
   // Modal de edicion de agua
-  function openWaterModal(row) {
+  function openWaterModal(id) {
     var w = null;
-    for (var i = 0; i < H.waters.length; i++) if (H.waters[i].row === row) { w = H.waters[i]; break; }
+    for (var i = 0; i < H.waters.length; i++) if (H.waters[i].id === id) { w = H.waters[i]; break; }
     if (!w) return;
-    H.editingWater = row;
+    H.editingWater = id;
     if (hEl('wdMl'))   hEl('wdMl').value   = w.ml || '';
     if (hEl('wdTipo')) hEl('wdTipo').value = w.tipo || '';
     if (hEl('wdHora')) hEl('wdHora').value = w.hora || '';
@@ -1029,34 +1205,26 @@
     if (H.editingWater == null) return;
     var ml = parseInt(String(hEl('wdMl') ? hEl('wdMl').value : '').replace(/\D/g, ''), 10);
     if (!isFinite(ml) || ml <= 0) { habStatus('Cantidad inválida', 'err'); return; }
-    habStatus('Guardando...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        closeWaterModal();
-        if (r && r.ok) { habStatus('✓ Actualizado — total ' + fmtMl(r.total) + ' ml', 'ok'); reloadLog(); }
-        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
-      })
-      .withFailureHandler(function(err) { closeWaterModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .updateWaterSafe({
-        row: H.editingWater, date: H.date, ml: ml,
-        tipo: (hEl('wdTipo') && hEl('wdTipo').value.trim()) || '',
-        hora: (hEl('wdHora') && hEl('wdHora').value) || ''
-      });
+    for (var i = 0; i < H.waters.length; i++) {
+      if (H.waters[i].id !== H.editingWater) continue;
+      H.waters[i].ml = ml;
+      H.waters[i].tipo = (hEl('wdTipo') && hEl('wdTipo').value.trim()) || waterLabel(ml);
+      H.waters[i].hora = (hEl('wdHora') && hEl('wdHora').value) || nowHM();
+      break;
+    }
+    closeWaterModal();
+    renderWaters();
+    markDirty('Toma actualizada en el borrador · guardá el día para confirmar');
   });
 
   if (hEl('wdDelete')) hEl('wdDelete').addEventListener('click', function() {
     if (H.editingWater == null) return;
-    if (!confirm('¿Borrar esta toma?')) return;
-    var row = H.editingWater;
-    habStatus('Borrando...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        closeWaterModal();
-        if (r && r.ok) { habStatus('✓ Borrada: ' + r.deleted, 'ok'); reloadLog(); }
-        else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
-      })
-      .withFailureHandler(function(err) { closeWaterModal(); habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
-      .deleteWaterSafe({ row: row, date: H.date });
+    if (!confirm('¿Quitar esta toma del borrador? El cambio se confirma al guardar el día.')) return;
+    var id = H.editingWater;
+    H.waters = H.waters.filter(function(w) { return w.id !== id; });
+    closeWaterModal();
+    renderWaters();
+    markDirty('Toma quitada del borrador · guardá el día para confirmar');
   });
 
   // ---------- Ejercicio: atajos ----------
@@ -1145,10 +1313,14 @@
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
+          var keepWaterDraft = watersChanged();
           H.meals = r.meals || [];
-          H.waters = r.waters || [];
+          H.serverWaters = normalizeWaters(r.waters || []);
+          if (!keepWaterDraft) H.waters = normalizeWaters(H.serverWaters);
           renderMeals();
           renderWaters();
+          pintarEstadoDia();
+          if (H.dirty) persistDraft();
         }
       })
       .withFailureHandler(function() {})
@@ -1212,10 +1384,15 @@
   });
 
   // ---------- Guardar el dia ----------
-  // Un solo camino de guardado para el boton manual y para el autoguardado.
-  // opts: { silent: no muestra spinner, then: callback al terminar }
+  // Este es el unico punto que confirma el borrador contra la hoja.
+  // opts: { then: callback al terminar }
   function saveDay(opts) {
     opts = opts || {};
+    if (!H.dirty) {
+      habStatus('No hay cambios en el borrador', 'draft');
+      if (opts.then) opts.then(false);
+      return;
+    }
     var payload = { date: H.date };
     var campos = [];
 
@@ -1240,7 +1417,18 @@
     poner('acoste',  getWheel('acoH', 'acoM'), 'acosté');
 
     var tr = hEl('habTrabajo');
-    poner('trabajo', tr ? normDec(tr.value.trim()) : '', 'trabajo');
+    var trabajo = tr ? normDec(tr.value.trim()) : '';
+    if (trabajo !== '') {
+      var trabajoNum = Number(trabajo);
+      if (!isFinite(trabajoNum) || trabajoNum < 0 || trabajoNum > 24) {
+        habStatus('Las horas de trabajo tienen que estar entre 0 y 24', 'err');
+        if (tr) tr.focus();
+        if (opts.then) opts.then(false);
+        return;
+      }
+      trabajo = String(trabajoNum);
+    }
+    poner('trabajo', trabajo, 'trabajo');
     var av = hEl('habAvance');
     poner('avance', (av && av.value !== '0') ? av.value : '', 'avance');
     var an = hEl('habAnimo');
@@ -1256,36 +1444,55 @@
     var nt = hEl('habNotas');
     poner('notas', nt ? nt.value.trim() : '', 'notas');
 
-    // El agua no va acá: se lleva como registro de tomas, con su propio guardado.
+    // El agua se manda como la foto completa de la previsualizacion. El servidor
+    // reemplaza solamente las tomas de esta fecha; las comidas no se tocan.
+    var waterDraft = watersChanged();
+    if (waterDraft) {
+      payload.waters = H.waters.map(function(w) {
+        return { hora: w.hora, tipo: w.tipo, ml: w.ml };
+      });
+      campos.push('agua');
+    }
+
     // El contador pasa por poner() como el resto: antes se mandaba SIEMPRE, así
     // que un autoguardado con H.saved a medio cargar escribía 0 encima del
     // valor real, y además 'campos' nunca quedaba vacío.
     var ms = hEl('mastInput');
     var msv = ms ? parseInt(String(ms.value).replace(/\D/g,''), 10) : NaN;
-    poner('mast', (isFinite(msv) && msv > 0) ? msv : '', 'contador');
+    if (isFinite(msv) && msv > 0) poner('mast', msv, 'contador');
+    else if ((Number(prev.mast) || 0) > 0) poner('mast', '', 'contador');
     var ab = hEl('abordInput');
     var abv = ab ? parseInt(String(ab.value).replace(/\D/g,''), 10) : NaN;
-    poner('abordajes', (isFinite(abv) && abv > 0) ? abv : '', 'abordajes');
+    if (isFinite(abv) && abv > 0) poner('abordajes', abv, 'abordajes');
+    else if ((Number(prev.abordajes) || 0) > 0) poner('abordajes', '', 'abordajes');
 
     if (borrar.length) payload.clear = borrar.join(',');
 
     if (!campos.length) {
-      if (!opts.silent) habStatus('No hay nada para guardar', 'err');
+      clearDirty(true);
+      habStatus('El borrador no tiene cambios efectivos', 'draft');
       if (opts.then) opts.then(false);
       return;
     }
 
-    if (!opts.silent) habStatus('Guardando día...', 'loading');
+    habStatus('Guardando día...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
-          clearDirty();
+          H.saved = r.day || collectDayDraft();
+          H.meals = r.meals || H.meals;
+          if (Array.isArray(r.waters)) {
+            H.serverWaters = normalizeWaters(r.waters);
+            H.waters = normalizeWaters(H.serverWaters);
+          } else if (waterDraft) {
+            H.serverWaters = normalizeWaters(H.waters);
+          }
+          clearDirty(true);
           pintarSueno();
-          // Releer del sheet para que H.saved refleje lo que quedó guardado.
-          // Sin esto el próximo guardado compararía contra un estado viejo y
-          // podría pedir borrar algo que ya no corresponde.
-          if (!opts.then) refreshSaved();
-          habStatus((opts.silent ? '✓ Guardado automático · ' : '✓ Guardado · ') + campos.join(', '), 'ok');
+          renderMeals();
+          renderWaters();
+          pintarEstadoDia();
+          habStatus('✓ Guardado · ' + campos.join(', '), 'ok');
         } else {
           habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
         }
@@ -1300,22 +1507,19 @@
 
   if (hEl('saveHabit')) hEl('saveHabit').addEventListener('click', function() { saveDay(); });
 
-  // ---------- Autoguardado y cambio de día ----------
-  // El form vive en el celular hasta que se guarda, asi que la red de
-  // seguridad tiene que correr acá y no en un trigger del servidor.
+  // ---------- Persistencia local y cambio de día ----------
   var rolloverTimer = null;
+  var observedToday = todayISO();
 
-  // Guarda lo pendiente y pasa al dia nuevo con el form limpio.
+  // Conserva lo pendiente como borrador y pasa al dia nuevo con el form limpio.
   function rolloverDay() {
     // Si nunca se abrió la pestaña no hay nada que rotar: H.date está vacío
     // y cargar el día acá dispararía una llamada al server al pedo.
     if (!habitLoadedOnce) { programarMedianoche(); return; }
     var siguiente = todayISO();
-    if (H.dirty) {
-      saveDay({ silent: true, then: function() { loadDay(siguiente); } });
-    } else if (H.date !== siguiente) {
-      loadDay(siguiente);
-    }
+    if (H.dirty) persistDraft();
+    if (H.date !== siguiente) loadDay(siguiente);
+    observedToday = siguiente;
     programarMedianoche();
   }
 
@@ -1331,26 +1535,26 @@
   }
   programarMedianoche();
 
-  // Si la app se va a segundo plano con cambios sin guardar, guardarlos.
-  // En iOS 'visibilitychange' a hidden es mucho mas confiable que beforeunload.
+  // Al ir a segundo plano se escribe solamente localStorage. No se confirma
+  // nada en la hoja sin tocar Guardar dia.
   document.addEventListener('visibilitychange', function() {
     // No se filtra por pestaña visible: si hay cambios de hábitos sin guardar
     // hay que rescatarlos aunque el usuario esté parado en Gastos.
     if (!habitLoadedOnce) return;
 
     if (document.visibilityState === 'hidden') {
-      if (H.dirty) saveDay({ silent: true });
+      if (H.dirty) persistDraft();
     } else {
-      // Al volver: si cambio el dia (quedo abierta toda la noche), rotar.
-      if (H.date !== todayISO()) rolloverDay();
+      // Rotar solo si realmente cambio la fecha mientras la app estaba cerrada.
+      // Esto evita saltar a hoy al volver de editar intencionalmente otro dia.
+      if (observedToday !== todayISO()) rolloverDay();
       else programarMedianoche();
     }
   });
 
-  // Ultimo recurso al cerrar la pestaña. No siempre llega a completarse,
-  // pero no cuesta nada intentarlo.
+  // Ultimo respaldo sin red al cerrar la pestaña/PWA.
   window.addEventListener('pagehide', function() {
-    if (habitLoadedOnce && H.dirty) saveDay({ silent: true });
+    if (habitLoadedOnce && H.dirty) persistDraft();
   });
 
   // ---------- Borrar el dia ----------
@@ -1359,7 +1563,7 @@
     habStatus('Borrando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
-        if (r && r.ok) { habStatus('✓ Día borrado', 'ok'); loadDay(H.date); }
+        if (r && r.ok) { removeDraft(H.date); habStatus('✓ Día borrado', 'ok'); loadDay(H.date); }
         else habStatus('✗ ' + ((r && r.error) || 'error'), 'err');
       })
       .withFailureHandler(function(err) { habStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })

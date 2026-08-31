@@ -115,7 +115,7 @@
     <button type="button" id="dayToday" class="hdatetoday">hoy</button>
   </div>
   <div class="hdaystatus sin" id="dayStatus">sin datos todavía</div>
-  <div class="hdirty" id="dirtyFlag">Hay cambios sin guardar</div>
+  <div class="hdirty" id="dirtyFlag">Borrador local · tocá Guardar día para confirmar</div>
 
   <!-- SUENO -->
   <div class="hcard">
@@ -192,17 +192,33 @@
     <div id="mealList" class="hmeal-list"></div>
   </div>
 
-  <!-- TRABAJO Y AVANCE -->
+  <!-- TRABAJO -->
   <div class="hcard">
-    <div class="hcard-title">💼 Trabajo y avance</div>
+    <div class="hcard-title">💼 Trabajo</div>
     <label class="hlabel">Horas trabajadas</label>
-    <input type="text" id="habTrabajo" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="ej: 6,5" autocomplete="off">
+    <div class="hwork-field">
+      <input type="text" id="habTrabajo" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="ej: 6,5" autocomplete="off">
+      <span>horas</span>
+    </div>
+    <div class="hfield-hint">Acepta coma o punto, de 0 a 24 horas.</div>
+  </div>
+
+  <!-- BALANCE DEL DIA -->
+  <div class="hcard">
+    <div class="hcard-title">🧭 Balance del día</div>
     <label class="hlabel">Avance del día <span id="avanceVal" class="hbadge">—</span></label>
     <input type="range" id="habAvance" min="0" max="5" step="1" value="0" class="hslider">
     <div class="hscale"><span>sin datos</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
-    <label class="hlabel">Ánimo <span id="animoVal" class="hbadge">—</span></label>
-    <input type="range" id="habAnimo" min="0" max="5" step="1" value="0" class="hslider">
-    <div class="hscale"><span>sin datos</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+    <label class="hlabel">¿Cómo estuvo tu ánimo? <span id="animoVal" class="hbadge">—</span></label>
+    <input type="hidden" id="habAnimo" value="0">
+    <div class="hrating" id="animoRating" role="group" aria-label="Ánimo del 1 al 5">
+      <button type="button" data-value="1" aria-label="Ánimo muy bajo"><span>😞</span><small>1</small></button>
+      <button type="button" data-value="2" aria-label="Ánimo bajo"><span>🙁</span><small>2</small></button>
+      <button type="button" data-value="3" aria-label="Ánimo normal"><span>😐</span><small>3</small></button>
+      <button type="button" data-value="4" aria-label="Ánimo bueno"><span>🙂</span><small>4</small></button>
+      <button type="button" data-value="5" aria-label="Ánimo muy bueno"><span>😄</span><small>5</small></button>
+    </div>
+    <button type="button" id="clearAnimo" class="hrating-clear">Dejar sin datos</button>
   </div>
 
   <!-- EJERCICIO -->
@@ -356,7 +372,7 @@
     <div class="hmodal-actions">
       <button type="button" id="wdDelete" class="hdanger">Borrar</button>
       <button type="button" id="wdCancel" class="hsecondary">Cancelar</button>
-      <button type="button" id="wdSave">Guardar</button>
+      <button type="button" id="wdSave">Aplicar al borrador</button>
     </div>
   </div>
 </div>

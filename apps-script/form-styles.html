@@ -110,6 +110,7 @@
   .hcounter-val small { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
   #habStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
   #habStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
+  #habStatus.draft { display: block; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
   #habStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
   #habStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
   .hkpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -140,6 +141,18 @@
   .hdatetoday { font-size: 13px !important; font-weight: 600; background: #f0fdfa !important; color: #0f766e !important; border: 1px solid #a7f3d0; }
   .hdirty { display: none; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 13px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-weight: 600; }
   .hdirty.show { display: block; }
+  .hwork-field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+  .hwork-field input { min-width: 0; font-size: 20px; font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums; }
+  .hwork-field span { color: #64748b; font-size: 13px; font-weight: 600; padding-right: 4px; }
+  .hfield-hint { color: #94a3b8; font-size: 11px; margin-top: 6px; }
+  .hrating { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+  .hrating button { margin: 0; padding: 9px 2px 7px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; border-radius: 9px; }
+  .hrating button span { display: block; font-size: 23px; line-height: 1.1; filter: grayscale(0.75); opacity: 0.72; }
+  .hrating button small { display: block; margin-top: 4px; font-size: 10px; font-weight: 700; }
+  .hrating button.activo { background: #ecfdf5; color: #0f766e; border-color: #34d399; box-shadow: 0 0 0 1px #34d399 inset; }
+  .hrating button.activo span { filter: none; opacity: 1; }
+  .hrating-clear { width: auto; display: block; margin: 7px 0 0 auto; padding: 5px 8px; background: transparent; color: #94a3b8; font-size: 11px; font-weight: 600; }
+  .hrating-clear:active { background: #f1f5f9; color: #64748b; }
   .hhint { font-size: 10px; color: #aaa; font-weight: 400; text-transform: none; letter-spacing: 0; }
 
   /* --- ruedas de hora --- */
@@ -173,6 +186,8 @@
   .hmeal-row:active { background: #fafafa; }
   .hwater { min-height: 24px; }
   #aguaList .hmeal-row .mm { background: #f0f9ff; color: #0369a1; }
+  #aguaList .hmeal-row.pending { background: #fffbeb; }
+  #aguaList .hmeal-row.pending .mm { background: #fef3c7; color: #92400e; }
   .hphoto { width: 100%; margin: 10px 0 0; padding: 12px; font-size: 14px; font-weight: 600;
              background: #6366f1; color: white; border: none; border-radius: 8px; }
   .hphoto:active { background: #4f46e5; }

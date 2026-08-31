@@ -138,7 +138,7 @@ const ROUTES = {
   dash: () => getDashboardData(),
   // === HABITOS ===
   habitsData: p => getHabitsData(p.month || currentHabitTab()),
-  habitDay: p => upsertHabitDay(p),
+  habitDay: p => saveHabitDayData(p),
   addMeal: p => addMealEntry(p),
   habitToday: p => getHabitDay(p.date || null),
   updateMeal: p => updateMealRow(p),
@@ -2185,7 +2185,14 @@ function upsertHabitDay(p) {
   for (const [field, raw] of numFields) {
     if (raw === undefined || raw === '' || raw === null) continue;
     const v = toNumber(String(raw).replace(',', '.'));
-    if (v != null && setCell(field, v)) written[field] = v;
+    if (v == null) throw new Error('Valor inválido para ' + field);
+    if (field === 'trabajo' && (v < 0 || v > 24)) {
+      throw new Error('Las horas de trabajo tienen que estar entre 0 y 24');
+    }
+    if ((field === 'avance' || field === 'animo') && (v < 1 || v > 5)) {
+      throw new Error(field + ' tiene que estar entre 1 y 5');
+    }
+    if (setCell(field, v)) written[field] = v;
   }
 
   // --- Ejercicio (texto). El form manda el valor completo, así que reemplaza. ---
@@ -3553,6 +3560,103 @@ function deleteWaterEntry(p) {
   return { ok: true, tab: tabName, deleted: tipo + ' (' + ml + ' ml)', total: total };
 }
 
+// Reemplaza la foto completa de las tomas de agua de una fecha. Se usa al
+// confirmar el borrador del formulario: agregar, editar y borrar agua no toca
+// la hoja hasta ese momento. Las filas de comida de la misma fecha se conservan.
+function replaceWaterEntries(p) {
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const target = parseLocalDate(dateStr);
+  if (!target) throw new Error('Fecha inválida');
+  const tabName = p.month || habitTabFor(dateStr);
+  if (p.month && p.month !== habitTabFor(dateStr)) {
+    throw new Error('La fecha ' + dateStr + ' no pertenece a "' + p.month + '"');
+  }
+
+  const raw = Array.isArray(p.waters) ? p.waters : [];
+  if (raw.length > 100) throw new Error('Demasiadas tomas de agua para un solo día');
+  const waters = raw.map((item, i) => {
+    const src = item || {};
+    const ml = toNumber(String(src.ml != null ? src.ml : '').replace(',', '.'));
+    if (ml == null || ml <= 0) throw new Error('Cantidad de agua inválida en la toma ' + (i + 1));
+    const parsedTime = _parseHM(src.hora);
+    const hora = parsedTime == null
+      ? Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm')
+      : _fmtHM(parsedTime);
+    return { ml: ml, hora: hora, tipo: String(src.tipo || '').trim() || _waterLabel(ml) };
+  });
+
+  const targetKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let sheet, total;
+  const written = [];
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    sheet = getOrCreateHabitTab(ss, tabName);
+
+    // Borrar de abajo hacia arriba evita que se corran las filas que todavía
+    // faltan revisar. Registro (col G) distingue agua de comida.
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+      const vals = sheet.getRange(
+        HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, 7
+      ).getValues();
+      for (let i = vals.length - 1; i >= 0; i--) {
+        const row = vals[i];
+        if (!row[0] || String(row[6] || '').trim().toLowerCase() !== 'agua') continue;
+        const d = Object.prototype.toString.call(row[0]) === '[object Date]' ? row[0] : parseLocalDate(row[0]);
+        if (!d) continue;
+        const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+        if (key === targetKey) sheet.deleteRow(HABIT_MEAL_FIRST_ROW + i);
+      }
+    }
+
+    for (const water of waters) {
+      const insertAt = _nextLogRow(sheet);
+      if (insertAt > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 1);
+      sheet.getRange(insertAt, 2).setNumberFormat('@');
+      sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+        parseLocalDate(dateStr), water.hora, water.tipo, '', 'Agua', '', 'Agua', water.ml, '', ''
+      ]]);
+      sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+      written.push({ row: insertAt, hora: water.hora, tipo: water.tipo, ml: water.ml });
+    }
+
+    SpreadsheetApp.flush();
+    total = _recalcWaterTotal(sheet, dateStr);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, tab: tabName, date: dateStr, total: total, waters: written };
+}
+
+// Confirma en una sola accion logica los campos del dia y, si vino, la
+// previsualizacion completa de agua. Devuelve el dia releido porque al borrar
+// filas de agua pueden cambiar los numeros de fila de las comidas.
+function saveHabitDayData(data) {
+  const p = data || {};
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  p.date = dateStr;
+  const dayFields = [
+    'levante', 'acoste', 'trabajo', 'avance', 'animo', 'ejercicio',
+    'ejercicioMin', 'medite', 'mediteMin', 'lei', 'notas', 'mast', 'abordajes'
+  ];
+  const hasDayChanges = !!p.clear || dayFields.some(field => p[field] !== undefined);
+  let dayResult = { ok: true, tab: p.month || habitTabFor(dateStr), date: dateStr, written: {} };
+  if (hasDayChanges) dayResult = upsertHabitDay(p);
+
+  let waterResult = null;
+  if (Array.isArray(p.waters)) waterResult = replaceWaterEntries(p);
+
+  const fresh = getHabitDay(dateStr);
+  if (!fresh || !fresh.ok) throw new Error((fresh && fresh.error) || 'No se pudo releer el día guardado');
+  fresh.written = dayResult.written || {};
+  if (waterResult) fresh.water = { total: waterResult.total, count: waterResult.waters.length };
+  return fresh;
+}
+
 // Primera fila libre del log (mira la col A, que la usan comidas y agua)
 function _nextLogRow(sheet) {
   const lastRow = sheet.getLastRow();
@@ -3746,7 +3850,7 @@ function clearHabitDay(dateOpt, confirm) {
 
 // === Wrappers para google.script.run (siempre devuelven objeto plano) ===
 function habitDaySafe(data) {
-  try { return upsertHabitDay(data || {}); }
+  try { return saveHabitDayData(data || {}); }
   catch (err) { Logger.log('habitDaySafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
