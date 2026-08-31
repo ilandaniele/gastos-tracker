@@ -134,14 +134,13 @@ navegador:
 - si leíste
 - a cuántas abordaste
 - el contador
-- el avance del día
 
 No pide la hora de levantarte: esa se contesta al otro día.
 
 **modo=manana**. Solo la hora de levantarte, que es lo que cierra el cálculo
 de sueño de esa noche.
 
-**Sin modo** (el de siempre, para el día). Agua, comidas, trabajo y avance,
+**Sin modo** (el de siempre, para el día). Agua, comidas y trabajo,
 entre las 9 y las 23.
 
 ---

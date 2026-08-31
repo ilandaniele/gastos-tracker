@@ -2679,7 +2679,6 @@ function _habitPendingNoche(now, opts) {
   if (!d.lei)                    faltantes.push('si leíste');
   if (d.abordajes == null)       faltantes.push('a cuántas abordaste');
   if (d.mast == null)            faltantes.push('el contador');
-  if (d.avance == null)          faltantes.push('el avance del día');
 
   const pending = faltantes.length > 0;
   return Object.assign(base, {
@@ -2772,7 +2771,6 @@ function habitPending(opts) {
 
     // --- Cierre del día ---
     if (tNow >= 21) {
-      if (d.avance == null)  faltantes.push('falta el avance del día');
       if (d.trabajo == null) faltantes.push('faltan las horas trabajadas');
     }
 

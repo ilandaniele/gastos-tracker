@@ -658,8 +658,8 @@
   function collectDayDraft() {
     var val = function(id) { var el = hEl(id); return el ? String(el.value || '') : ''; };
     return {
-      levante: getWheel('levH', 'levM'), acoste: getWheel('acoH', 'acoM'),
-      trabajo: val('habTrabajo').trim(), avance: val('habAvance'), animo: val('habAnimo'),
+      levante: getWheel('levTime'), acoste: getWheel('acoTime'),
+      trabajo: val('habTrabajo').trim(), animo: val('habAnimo'),
       ejercicio: val('ejerText').trim(), ejercicioMin: val('ejerMin').trim(),
       medite: H.medite || '', mediteMin: val('mediteMin').trim(), lei: H.lei || '',
       mast: val('mastInput'), abordajes: val('abordInput'), notas: val('habNotas')
@@ -728,40 +728,18 @@
     if (removeLocal) removeDraft(H.date);
   }
 
-  // ---------- Ruedas de hora ----------
-  function fillWheels() {
-    var hs = ['--'], ms = ['--'], i;
-    for (i = 0; i < 24; i++) hs.push(String(i).padStart(2, '0'));
-    for (i = 0; i < 60; i += 5) ms.push(String(i).padStart(2, '0'));
-    [['levH', hs], ['acoH', hs], ['levM', ms], ['acoM', ms]].forEach(function(pair) {
-      var el = hEl(pair[0]);
-      if (!el) return;
-      el.innerHTML = pair[1].map(function(v) { return '<option value="' + (v === '--' ? '' : v) + '">' + v + '</option>'; }).join('');
-    });
+  // ---------- Hora de acostarse / levantarse ----------
+  // input type="time" nativo: en el celular abre el selector propio del
+  // sistema (rueda/reloj), mucho mas rapido que elegir hora y minuto en dos
+  // combos separados de 24 y 12 opciones.
+  function getWheel(id) {
+    var el = hEl(id);
+    return (el && el.value) || '';
   }
-  fillWheels();
-
-  function getWheel(hId, mId) {
-    var h = hEl(hId), m = hEl(mId);
-    if (!h || !m || !h.value) return '';
-    return h.value + ':' + (m.value || '00');
-  }
-  function setWheel(hId, mId, hm) {
-    var h = hEl(hId), m = hEl(mId);
-    if (!h || !m) return;
-    if (!hm) { h.value = ''; m.value = ''; return; }
-    var parts = String(hm).split(':');
-    var hh = parseInt(parts[0] || '0', 10);
-    var mm = parseInt(parts[1] || '0', 10);
-    if (!isFinite(hh)) hh = 0;
-    if (!isFinite(mm)) mm = 0;
-    // Redondear al múltiplo de 5 más cercano. Si redondea a 60 hay que subir
-    // la hora: antes 07:58 quedaba en 07:00, una hora para atrás, y eso se
-    // metía directo en el cálculo de horas dormidas.
-    var r = Math.round(mm / 5) * 5;
-    if (r >= 60) { r = 0; hh = (hh + 1) % 24; }
-    h.value = String(hh).padStart(2, '0');
-    m.value = String(r).padStart(2, '0');
+  function setWheel(id, hm) {
+    var el = hEl(id);
+    if (!el) return;
+    el.value = hm || '';
   }
 
   // ---------- Carga de un dia ----------
@@ -828,7 +806,7 @@
     if (!el) return;
     var s = H.saved || {};
     var n = 0;
-    ['levante','acoste','trabajo','avance','animo','ejercicio','ejercicioMin',
+    ['levante','acoste','trabajo','animo','ejercicio','ejercicioMin',
      'medite','mediteMin','lei','abordajes','notas'].forEach(function(k) {
       if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
     });
@@ -845,8 +823,8 @@
 
   function paintDay(d) {
     d = d || {};
-    setWheel('levH', 'levM', d.levante || '');
-    setWheel('acoH', 'acoM', d.acoste || '');
+    setWheel('levTime', d.levante || '');
+    setWheel('acoTime', d.acoste || '');
     pintarSueno();
     if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo).replace('.', ',') : '';
     if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
@@ -855,7 +833,6 @@
     if (hEl('mediteMin'))  hEl('mediteMin').value  = d.mediteMin != null ? String(d.mediteMin) : '';
     setSiNo('medite', d.medite || '');
     setSiNo('lei',    d.lei || '');
-    setSlider('habAvance', 'avanceVal', d.avance);
     setMood(d.animo);
     if (hEl('mastInput'))  hEl('mastInput').value  = d.mast != null ? d.mast : 0;
     if (hEl('abordInput')) hEl('abordInput').value = d.abordajes != null ? d.abordajes : 0;
@@ -869,8 +846,8 @@
   // por lo tanto fue el día anterior. Se muestra la fecha para que no quede
   // ninguna duda de a qué noche corresponde.
   function pintarSueno() {
-    var aco = getWheel('acoH', 'acoM');
-    var lev = getWheel('levH', 'levM');
+    var aco = getWheel('acoTime');
+    var lev = getWheel('levTime');
     var out = hEl('hsSueno'), sub = hEl('acosteDia');
 
     if (!aco || !lev) {
@@ -918,13 +895,6 @@
     }
   })();
 
-  function setSlider(sliderId, badgeId, val) {
-    var s = hEl(sliderId), b = hEl(badgeId);
-    if (!s) return;
-    s.value = (val != null && isFinite(val)) ? val : 0;
-    if (b) b.textContent = (String(s.value) === '0') ? '—' : s.value;
-  }
-
   // ---------- Navegacion de dias ----------
   function shiftDay(delta) {
     var base = (hEl('dayPicker') && hEl('dayPicker').value) || todayISO();
@@ -947,7 +917,7 @@
   if (hEl('dayPicker')) hEl('dayPicker').addEventListener('change', function() { goToDay(hEl('dayPicker').value); });
 
   // ---------- Marcar cambios ----------
-  ['levH','levM','acoH','acoM','habTrabajo','habAvance','habAnimo','habNotas',
+  ['levTime','acoTime','habTrabajo','habAnimo','habNotas',
    'ejerText','ejerMin','mediteMin','mastInput','abordInput'].forEach(function(id) {
     var el = hEl(id);
     if (!el) return;
@@ -955,34 +925,25 @@
     el.addEventListener('input', markDirty);
   });
 
-  // Las ruedas de hora recalculan el sueño en vivo, sin esperar al guardado
-  ['levH','levM','acoH','acoM'].forEach(function(id) {
+  // La hora de acostarse/levantarse recalcula el sueño en vivo, sin esperar al guardado
+  ['levTime','acoTime'].forEach(function(id) {
     var el = hEl(id);
     if (el) el.addEventListener('change', pintarSueno);
   });
 
-  // "ahora" solo completa la rueda y persiste la previsualizacion local.
+  // "ahora" solo completa el campo y persiste la previsualizacion local.
   if (hEl('btnLevante')) hEl('btnLevante').addEventListener('click', function() {
-    setWheel('levH', 'levM', nowHM());
+    setWheel('levTime', nowHM());
     markDirty('Hora agregada al borrador · guardá el día para confirmarla');
     pintarSueno();
   });
   if (hEl('btnAcoste')) hEl('btnAcoste').addEventListener('click', function() {
-    setWheel('acoH', 'acoM', nowHM());
+    setWheel('acoTime', nowHM());
     markDirty('Hora agregada al borrador · guardá el día para confirmarla');
     pintarSueno();
   });
 
-  // ---------- Avance y animo ----------
-  [['habAvance','avanceVal']].forEach(function(pair) {
-    var s = hEl(pair[0]);
-    if (!s) return;
-    s.addEventListener('input', function() {
-      var b = hEl(pair[1]);
-      if (b) b.textContent = (s.value === '0') ? '—' : s.value;
-    });
-  });
-
+  // ---------- Animo ----------
   function setMood(val) {
     var input = hEl('habAnimo');
     var n = parseInt(val, 10);
@@ -1413,8 +1374,8 @@
       }
     }
 
-    poner('levante', getWheel('levH', 'levM'), 'levanté');
-    poner('acoste',  getWheel('acoH', 'acoM'), 'acosté');
+    poner('levante', getWheel('levTime'), 'levanté');
+    poner('acoste',  getWheel('acoTime'), 'acosté');
 
     var tr = hEl('habTrabajo');
     var trabajo = tr ? normDec(tr.value.trim()) : '';
@@ -1429,8 +1390,6 @@
       trabajo = String(trabajoNum);
     }
     poner('trabajo', trabajo, 'trabajo');
-    var av = hEl('habAvance');
-    poner('avance', (av && av.value !== '0') ? av.value : '', 'avance');
     var an = hEl('habAnimo');
     poner('animo', (an && an.value !== '0') ? an.value : '', 'ánimo');
     var et = hEl('ejerText');

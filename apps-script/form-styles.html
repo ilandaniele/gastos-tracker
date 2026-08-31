@@ -96,12 +96,6 @@
   .hmeal-row .mm { font-size: 11px; color: #0f766e; background: #f0fdfa; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
   .hlabel { display: block; font-size: 12px; color: #666; margin: 14px 0 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
   .hbadge { background: #0f766e; color: white; padding: 1px 9px; border-radius: 10px; font-size: 12px; margin-left: 6px; }
-  .hslider { width: 100%; margin: 6px 0 2px; padding: 0; height: 32px; background: transparent; -webkit-appearance: none; appearance: none; border: none; }
-  .hslider::-webkit-slider-runnable-track { height: 7px; background: #e5e5e5; border-radius: 4px; }
-  .hslider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; background: #0f766e; border-radius: 50%; margin-top: -10px; }
-  .hslider::-moz-range-track { height: 7px; background: #e5e5e5; border-radius: 4px; }
-  .hslider::-moz-range-thumb { width: 28px; height: 28px; background: #0f766e; border-radius: 50%; border: none; }
-  .hscale { display: flex; justify-content: space-between; font-size: 10px; color: #aaa; padding: 0 2px; }
   .hcounter { display: flex; align-items: center; justify-content: center; gap: 22px; }
   .hcounter button { width: 54px; height: 54px; margin: 0; border-radius: 50%; font-size: 26px; font-weight: 700; background: #f5f5f5; color: #1a1a1a; padding: 0; }
   .hcounter button:active { background: #e5e5e5; }
@@ -155,11 +149,10 @@
   .hrating-clear:active { background: #f1f5f9; color: #64748b; }
   .hhint { font-size: 10px; color: #aaa; font-weight: 400; text-transform: none; letter-spacing: 0; }
 
-  /* --- ruedas de hora --- */
-  .hwheel-row { display: grid; grid-template-columns: 1fr 72px 10px 72px 62px; gap: 5px; align-items: center; margin-bottom: 9px; }
-  .hwheel-row:last-of-type { margin-bottom: 0; }
-  .hwheel { padding: 11px 4px; font-size: 17px; text-align: center; font-variant-numeric: tabular-nums; text-align-last: center; }
-  .hcolon { text-align: center; font-weight: 700; color: #666; }
+  /* --- hora de acostarse / levantarse --- */
+  .htime-row { display: grid; grid-template-columns: 1fr 110px 62px; gap: 8px; align-items: center; margin-bottom: 9px; }
+  .htime-row:last-of-type { margin-bottom: 0; }
+  .htime-input { padding: 11px 8px; font-size: 17px; text-align: center; font-variant-numeric: tabular-nums; }
 
   /* --- numericos con +/- --- */
   .hnum-row { display: grid; grid-template-columns: 54px 1fr auto 54px; gap: 8px; align-items: center; }
