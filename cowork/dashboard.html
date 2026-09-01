@@ -337,11 +337,11 @@ const CAT_RULES = [
   [/claude|anthropic|gpt|chatgpt|github|copilot|google|fly\.io|fly io|openai|notion|spotify|netflix/i, "Suscripciones"],
   [/cine|cultural|stand up|concert|alfabeta|libro|teatro|m[uú]sica|entrada|phonetec|baile|fiesta|club\b/i, "Entretenimiento"],
   [/jab[oó]n|esponja|papel higi[eé]nico|skip|detergente|lavandina|trapo|escoba|san roque|mercadito papel/i, "Limpieza"],
-  [/garrafa|adaptador|tapones|llave|ferreter|cesto|plancha|sanitaria|distribuidora|cintas|acolchado|almohada|cristales|huevos|maple/i, "Hogar"],
+  [/alquiler|garrafa|adaptador|tapones|llave|ferreter|cesto|plancha|sanitaria|distribuidora|cintas|acolchado|almohada|cristales|huevos|maple/i, "Hogar"],
   [/zara|ropa|sweater|polo|gorra|conjunto|peluqueria|invictus|vinilo|reloj/i, "Ropa"],
   [/regalo|cumple|jano regalo/i, "Regalos"],
   [/gimnasio|gym\b|fútbol|futbol|escalada|acupuntura|proteina|crea/i, "Gimnasio"],
-  [/alquiler|gastos comunes|tributos|antel|luz|^oca$|sandra|viandas|^ble$|sas|abitab|paquete banco|poliza|dgi|martin vidal|mart[ií]n vidal|ema\b/i, "Servicios"],
+  [/gastos comunes|tributos|antel|luz|^oca$|sandra|viandas|^ble$|sas|abitab|paquete banco|poliza|dgi|martin vidal|mart[ií]n vidal|ema\b/i, "Servicios"],
 ];
 
 function classify(item) {
@@ -769,7 +769,7 @@ function renderCharts(scope) {
   const byCardUSD = agg(vUSD, e => e.card, e => e.amount);
   mkChart('chCardUSD', 'doughnut', Object.keys(byCardUSD), Object.values(byCardUSD));
 
-  // FLIP CARD 3: Por categoría — incluye gastos FIJOS (Alquiler→Servicios, Sandra→Salud, etc.),
+  // FLIP CARD 3: Por categoría — incluye gastos FIJOS (Alquiler→Hogar, Sandra→Salud, etc.),
   // excluye solo cash-out de tarjetas. Respeta el toggle "Incluir gastos fijos" via el scope.
   const catScopeAll = scope.filter(e => !e.isPriorMonthCard);
   const catScopeUYU = catScopeAll.filter(e => e.currency === 'UYU');

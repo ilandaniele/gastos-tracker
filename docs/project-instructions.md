@@ -59,12 +59,12 @@ Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Li
 - `medicamento|farmashop|farmacia|análisis|dentista|bluecross|forros|preservativ` → Salud
 - `claude|anthropic|gpt|chatgpt|github|copilot|notion|spotify` → Suscripciones
 - `cine|cultural|stand up|teatro|entrada|club\b` → Entretenimiento
-- `garrafa|adaptador|tapones|llave|ferreter|plancha|sanitaria` → Hogar
+- `alquiler|garrafa|adaptador|tapones|llave|ferreter|plancha|sanitaria` → Hogar
 - `jabón|esponja|papel higiénico|skip|detergente|lavandina` → Limpieza
 - `zara|sweater|polo|peluqueria|invictus` → Ropa
 - `regalo|cumple` → Regalos
 - `gimnasio|fútbol|escalada|acupuntura` → Gimnasio
-- `alquiler|antel|luz|sandra|viandas|martín vidal|ema` → Servicios
+- `antel|luz|sandra|viandas|martín vidal|ema` → Servicios
 - nada matches → Otros
 
 ## Shortcuts
