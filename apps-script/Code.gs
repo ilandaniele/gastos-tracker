@@ -3009,7 +3009,36 @@ function getOrCreateArgBlock(sheet) {
 
   sheet.setColumnWidth(col, 90);
   sheet.setColumnWidth(col + 2, 190);
+
+  // Arrastra la deuda con mamá del mes anterior. Antes esta celda arrancaba
+  // en blanco (0) en cada mes nuevo y había que copiarla a mano; si nadie se
+  // acordaba, el mes "perdía el hilo" y mostraba deuda 0 aunque veníamos
+  // debiendo (o nos debían) de antes. Solo corre acá, al crear el bloque por
+  // primera vez: después de esto la celda vuelve a ser solo del usuario.
+  const heredada = _argDeudaFinMesAnterior(sheet);
+  if (heredada) {
+    sheet.getRange(blk.totalsRow + ARG_IDX_DEUDA_ANTES, blk.col + 1).setValue(heredada);
+  }
   return blk;
+}
+
+// Deuda final (USD) del bloque de Argentina del mes calendario anterior al de
+// esta hoja, o 0 si no hay mes anterior, no tiene tab, o no tiene bloque.
+function _argDeudaFinMesAnterior(sheet) {
+  try {
+    const prevName = _prevMonth(sheet.getName());
+    if (!prevName) return 0;
+    const prevSheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(prevName);
+    if (!prevSheet) return 0;
+    const prevBlk = _findArgBlock(prevSheet);
+    if (!prevBlk) return 0;
+    const entradas = _argRows(prevSheet, prevBlk);
+    const totales = _argTotales(entradas, _argLeerDeudaAntes(prevSheet, prevBlk));
+    return totales.deudaUsd || 0;
+  } catch (e) {
+    Logger.log('_argDeudaFinMesAnterior: ' + e.message);
+    return 0;
+  }
 }
 
 // Cuántas filas de datos entran sin pasarse del final de la hoja
