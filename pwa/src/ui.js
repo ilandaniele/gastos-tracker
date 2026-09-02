@@ -16,13 +16,26 @@ export const SHELL_HTML = `<!DOCTYPE html>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #f6f7f9;
                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  #app { position: fixed; inset: 0; border: 0; width: 100%; height: 100%; }
+  /* Este shell ya no mete la app de Apps Script en un iframe: Apps Script
+     sirve su propio contenido adentro de UN iframe interno suyo (así
+     funciona google.script.run). Meterlo en un segundo iframe acá encima
+     duplicaba el anidado, y en Safari mobile (que particiona cookies/storage
+     de terceros más agresivo que desktop) eso rompía en silencio el puente
+     de postMessage que usa google.script.run: se quedaba en "Cargando..."
+     para siempre, sin error. Por eso ahora se navega de verdad a la app
+     (top-level redirect) en vez de embeberla. */
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+             color: #6b7280; font-size: 14px; }
   /* El botón solo aparece si faltan permisos. Una vez activado no molesta más. */
   #bell { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
           z-index: 10; border: 0; border-radius: 999px; padding: 12px 18px;
           background: #0f766e; color: #fff; font-size: 15px; font-weight: 600;
           box-shadow: 0 4px 14px rgba(0,0,0,.25); display: none; }
   #bell.show { display: block; }
+  #skip { position: fixed; right: 16px; bottom: calc(64px + env(safe-area-inset-bottom));
+          z-index: 10; color: #6b7280; font-size: 13px; text-decoration: underline;
+          display: none; background: none; border: 0; padding: 4px; }
+  #skip.show { display: block; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom));
            z-index: 11; background: #111827; color: #fff; border-radius: 10px;
            padding: 12px 14px; font-size: 14px; display: none; line-height: 1.35; }
@@ -36,8 +49,9 @@ export const SHELL_HTML = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-<iframe id="app" src="__APP_URL__" allow="camera *; clipboard-write *"></iframe>
+<div id="loading">Abriendo…</div>
 <button id="bell">🔔 Activar avisos</button>
+<button id="skip">Entrar sin avisos</button>
 <div id="toast"></div>
 
 <div id="install">
@@ -52,16 +66,28 @@ export const SHELL_HTML = `<!DOCTYPE html>
 </div>
 
 <script>
-  var bell  = document.getElementById('bell');
-  var toast = document.getElementById('toast');
+  var APP_URL = '__APP_URL__';
+  var bell    = document.getElementById('bell');
+  var skip    = document.getElementById('skip');
+  var toast   = document.getElementById('toast');
+  var loading = document.getElementById('loading');
   var standalone = window.navigator.standalone === true ||
                    window.matchMedia('(display-mode: standalone)').matches;
   var esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  var yendo = false; // evita navegar dos veces si el usuario toca rápido
 
   function decir(msg, ms) {
     toast.textContent = msg;
     toast.classList.add('show');
     setTimeout(function() { toast.classList.remove('show'); }, ms || 4000);
+  }
+
+  // Navega de verdad a la app (no la mete en un iframe: ver nota arriba de
+  // #loading sobre por qué el iframe rompía google.script.run en mobile).
+  function ir() {
+    if (yendo) return;
+    yendo = true;
+    location.replace(APP_URL);
   }
 
   function b64ToU8(base64) {
@@ -74,18 +100,41 @@ export const SHELL_HTML = `<!DOCTYPE html>
   }
 
   // En iOS la suscripción a push solo funciona con la app abierta desde el
-  // ícono. Si entró por Safari se muestran las instrucciones y nada más.
+  // ícono. Si entró por Safari se muestran las instrucciones y nada más
+  // (no tiene sentido entrar: no va a poder activar avisos desde acá).
   if (esIOS && !standalone) {
+    loading.style.display = 'none';
     document.getElementById('install').classList.add('show');
-  }
+  } else (async function() {
+    // Sin soporte de push: no hay nada que activar, se entra directo.
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { ir(); return; }
+    try {
+      var reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      var sub = await reg.pushManager.getSubscription();
+      if (Notification.permission !== 'granted' || !sub) {
+        // Falta activar: se muestra el botón y se espera al usuario en vez
+        // de entrar directo (una sola vez; después de la primera activación
+        // esta rama no vuelve a tomarse).
+        loading.style.display = 'none';
+        bell.classList.add('show');
+        skip.classList.add('show');
+      } else {
+        fetch('/api/subscribe?standalone=' + (standalone ? '1' : '0'),
+              { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub) });
+        ir();
+      }
+    } catch (e) { ir(); }
+  })();
 
   async function activar() {
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        decir('Este navegador no soporta notificaciones push', 6000); return;
+        decir('Este navegador no soporta notificaciones push', 4000); return;
       }
       var permiso = await Notification.requestPermission();
-      if (permiso !== 'granted') { decir('No diste permiso para notificaciones', 5000); return; }
+      if (permiso !== 'granted') { decir('No diste permiso para notificaciones', 4000); return; }
 
       var reg = await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
@@ -103,30 +152,18 @@ export const SHELL_HTML = `<!DOCTYPE html>
         body: JSON.stringify(sub)
       });
       if (!r.ok) throw new Error('El servidor rechazó la suscripción');
-      bell.classList.remove('show');
-      decir('Listo. De noche te voy a recordar que cierres el día.', 5000);
+      decir('Listo. De noche te voy a recordar que cierres el día.', 2500);
     } catch (e) {
-      decir('No se pudo activar: ' + (e && e.message ? e.message : e), 7000);
+      decir('No se pudo activar: ' + (e && e.message ? e.message : e), 3000);
+    } finally {
+      // Se entra a la app haya salido bien o mal: no tiene sentido bloquear
+      // el uso normal por un permiso de notificaciones.
+      setTimeout(ir, 900);
     }
   }
 
   bell.addEventListener('click', activar);
-
-  // Mostrar el botón solo si hace falta: sin permiso todavía, o con permiso
-  // pero sin suscripción guardada (pasa si reinstaló la app).
-  (async function() {
-    if (esIOS && !standalone) return;
-    if (!('serviceWorker' in navigator)) return;
-    try {
-      var reg = await navigator.serviceWorker.register('/sw.js');
-      await navigator.serviceWorker.ready;
-      var sub = await reg.pushManager.getSubscription();
-      if (Notification.permission !== 'granted' || !sub) bell.classList.add('show');
-      else fetch('/api/subscribe?standalone=' + (standalone ? '1' : '0'),
-                 { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                   body: JSON.stringify(sub) });
-    } catch (e) { bell.classList.add('show'); }
-  })();
+  skip.addEventListener('click', ir);
 </script>
 </body>
 </html>`;
