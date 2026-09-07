@@ -216,7 +216,7 @@
 
   <!-- EJERCICIO -->
   <div class="hcard">
-    <div class="hcard-title">🏃 Ejercicio</div>
+    <div class="hcard-title">🏃 Ejercicio <span class="hhint" id="ejerTot">sin registrar</span></div>
     <div class="quick-scroll ejer" id="quickEjer">
       <button type="button" data-ejer="Gimnasio">🏋️Gym</button>
       <button type="button" data-ejer="Correr">🏃Correr</button>
@@ -228,10 +228,23 @@
       <button type="button" data-ejer="Funcional">🤸Funcional</button>
     </div>
     <div class="hejer-input">
-      <input type="text" id="ejerText" placeholder="¿Qué hiciste?" autocomplete="off">
+      <input type="text" id="ejerText" placeholder="¿Qué hiciste?" list="ejerTipos" autocomplete="off">
       <input type="text" id="ejerMin" inputmode="numeric" pattern="[0-9]*" placeholder="min">
+      <button type="button" id="btnAddEjer">+</button>
     </div>
+    <div id="ejerList" class="hmeal-list"></div>
   </div>
+
+  <datalist id="ejerTipos">
+    <option value="Gimnasio"></option>
+    <option value="Correr"></option>
+    <option value="Fútbol"></option>
+    <option value="Bici"></option>
+    <option value="Caminata"></option>
+    <option value="Natación"></option>
+    <option value="Yoga"></option>
+    <option value="Funcional"></option>
+  </datalist>
 
   <!-- MENTE -->
   <div class="hcard">
@@ -366,6 +379,24 @@
       <button type="button" id="wdDelete" class="hdanger">Borrar</button>
       <button type="button" id="wdCancel" class="hsecondary">Cancelar</button>
       <button type="button" id="wdSave">Aplicar al borrador</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR EJERCICIO -->
+<div id="ejerModal">
+  <div class="hmodal-box">
+    <h3>Editar ejercicio</h3>
+    <label class="hlabel">Qué hiciste</label>
+    <input type="text" id="edEjerTipo" list="ejerTipos" autocomplete="off">
+    <label class="hlabel">Minutos</label>
+    <input type="text" id="edEjerMin" inputmode="numeric" pattern="[0-9]*">
+    <label class="hlabel">Hora</label>
+    <input type="time" id="edEjerHora">
+    <div class="hmodal-actions">
+      <button type="button" id="edEjerDelete" class="hdanger">Borrar</button>
+      <button type="button" id="edEjerCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="edEjerSave">Aplicar al borrador</button>
     </div>
   </div>
 </div>

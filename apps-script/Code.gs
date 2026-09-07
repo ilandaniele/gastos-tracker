@@ -82,8 +82,11 @@ function _siNo(v) {
   return '';
 }
 
-const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas y agua)';
-const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml','kcal','Ingredientes'];
+const HABIT_MEAL_TITLE = 'REGISTRO DEL DÍA (comidas, agua y ejercicio)';
+// La columna 8 es la cantidad numérica del registro: ml si es agua, minutos si
+// es ejercicio. Las comidas no la usan. La columna 7 (Registro) es la que
+// distingue los tres tipos de fila.
+const HABIT_MEAL_HEADERS = ['Fecha','Hora','Detalle','Macro','Tipo','Procesado','Registro','ml / min','kcal','Ingredientes'];
 
 // Envases de agua. El label se elige por cantidad cuando se carga un ml libre.
 const WATER_GOAL_ML = 2400;   // objetivo diario de agua
@@ -154,6 +157,7 @@ const ROUTES = {
   deleteHabitSheet: p => deleteHabitSheetIfEmpty(p.month, p.confirm),
   reorderSheets: p => reorderSheets(String(p.dryRun || '') === '1'),
   addWater: p => addWaterEntry(p),
+  addExercise: p => addExerciseEntry(p),
   updateWater: p => updateWaterEntry(p),
   deleteWater: p => deleteWaterEntry(p),
   clearHabitDay: p => clearHabitDay(p.date, p.confirm),
@@ -2305,7 +2309,7 @@ function getHabitDay(dateOpt) {
     const dateStr = dateOpt || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     const tabName = habitTabFor(dateStr);
     const sheet = ss.getSheetByName(tabName);
-    if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [], waters: [] };
+    if (!sheet) return { ok: true, exists: false, date: dateStr, tab: tabName, meals: [], waters: [], ejercicios: [] };
     const row = _habitFindDayRow(sheet, dateStr);
     let day = null;
     if (row > 0) {
@@ -2332,8 +2336,8 @@ function getHabitDay(dateOpt) {
         notas: String(g('notas') || '')
       };
     }
-    // Log del día: comidas y agua
-    const meals = [], waters = [];
+    // Log del día: comidas, agua y ejercicio
+    const meals = [], waters = [], ejercicios = [];
     const lastRow = sheet.getLastRow();
     if (lastRow >= HABIT_MEAL_FIRST_ROW) {
       const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
@@ -2350,6 +2354,9 @@ function getHabitDay(dateOpt) {
         if (reg === 'agua') {
           waters.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]),
                         tipo: String(r[2] || ''), ml: toNumber(r[7]) || 0 });
+        } else if (reg === 'ejercicio') {
+          ejercicios.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]),
+                            tipo: String(r[2] || ''), min: toNumber(r[7]) || 0 });
         } else {
           meals.push({ row: HABIT_MEAL_FIRST_ROW + i, hora: _readHM(r[1]), comida: String(r[2] || ''),
                        macro: String(r[3] || ''), tipo: String(r[4] || ''), procesado: String(r[5] || ''),
@@ -2357,7 +2364,17 @@ function getHabitDay(dateOpt) {
         }
       }
     }
-    return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day, meals: meals, waters: waters };
+    // Días cargados antes de que el ejercicio fuera una lista: la fila diaria
+    // tiene el texto y los minutos pero no hay filas en el log. Se devuelve como
+    // una entrada sin fila para que el form la muestre y no se pierda; al
+    // guardar cualquier cambio se reescribe como registro del log.
+    if (!ejercicios.length && day && (day.ejercicio || (day.ejercicioMin || 0) > 0)) {
+      ejercicios.push({ row: null, hora: '', tipo: day.ejercicio || 'Ejercicio',
+                        min: day.ejercicioMin || 0, legacy: true });
+    }
+
+    return { ok: true, exists: !!day, date: dateStr, tab: tabName, day: day,
+             meals: meals, waters: waters, ejercicios: ejercicios };
   } catch (err) {
     Logger.log('getHabitDay error: ' + err.message);
     return { ok: false, error: err.message };
@@ -2409,7 +2426,8 @@ function readHabitMonth(tabName) {
     const mv = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
     for (const r of mv) {
       if (!r[0] || !String(r[2] || '').trim()) continue;
-      if (String(r[6] || '').trim().toLowerCase() === 'agua') continue; // el agua no es comida
+      const reg = String(r[6] || '').trim().toLowerCase();
+      if (reg === 'agua' || reg === 'ejercicio') continue; // ni el agua ni el ejercicio son comida
       const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
       meals.push({
         date: d ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
@@ -3659,9 +3677,179 @@ function replaceWaterEntries(p) {
   return { ok: true, tab: tabName, date: dateStr, total: total, waters: written };
 }
 
-// Confirma en una sola accion logica los campos del dia y, si vino, la
-// previsualizacion completa de agua. Devuelve el dia releido porque al borrar
-// filas de agua pueden cambiar los numeros de fila de las comidas.
+// === EJERCICIO: log de varias sesiones por dia ===
+// Antes el dia tenia un solo texto y un solo numero de minutos, asi que dos
+// entrenamientos distintos no entraban: habia que escribirlos a mano en la
+// misma linea y sumar los minutos de cabeza. Ahora cada sesion es una fila del
+// log (Registro = "Ejercicio", minutos en la col 8) y la fila diaria guarda el
+// resumen calculado, para que todo el analisis del mes siga leyendo lo mismo.
+
+// Normaliza una entrada que viene del cliente. Un ejercicio sin minutos es
+// valido (fuiste al gimnasio y no cronometraste); uno sin tipo no.
+function _normExercise(src, idx) {
+  const s = src || {};
+  const donde = idx != null ? ' en la entrada ' + (idx + 1) : '';
+  const tipo = String(s.tipo || s.ejercicio || s.detalle || '').trim();
+  if (!tipo) throw new Error('Falta qué ejercicio hiciste' + donde);
+  if (tipo.length > 120) throw new Error('El nombre del ejercicio es demasiado largo' + donde);
+
+  let min = 0;
+  const rawMin = s.min !== undefined ? s.min : s.minutos;
+  if (rawMin !== undefined && rawMin !== '' && rawMin !== null) {
+    const n = toNumber(String(rawMin).replace(',', '.'));
+    if (n == null || n < 0) throw new Error('Minutos de ejercicio inválidos' + donde);
+    if (n > 1440) throw new Error('Un ejercicio no puede durar más de 24 horas' + donde);
+    min = Math.round(n);
+  }
+
+  const parsed = _parseHM(s.hora);
+  const hora = parsed == null
+    ? Utilities.formatDate(new Date(), 'America/Montevideo', 'HH:mm')
+    : _fmtHM(parsed);
+  return { tipo: tipo, min: min, hora: hora };
+}
+
+// Recalcula el resumen del dia a partir del log. "Ejercicio" queda con los
+// tipos unidos por " + " (que es exactamente como los separa el analisis del
+// mes) y "Min ejerc." con la suma de minutos.
+function _recalcExerciseSummary(sheet, dateStr) {
+  const target = parseLocalDate(dateStr);
+  if (!target) return { texto: '', min: 0, count: 0 };
+  const tKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+
+  const tipos = [];
+  const vistos = {};
+  let min = 0, count = 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+    const vals = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
+    for (const r of vals) {
+      if (!r[0]) continue;
+      if (String(r[6] || '').trim().toLowerCase() !== 'ejercicio') continue;
+      const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+      if (!d) continue;
+      if (d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() !== tKey) continue;
+      count++;
+      min += toNumber(r[7]) || 0;
+      // Dos sesiones de gimnasio son "Gimnasio", no "Gimnasio + Gimnasio"
+      const tipo = String(r[2] || '').trim();
+      const key = _stripAccents(tipo);
+      if (tipo && !vistos[key]) { vistos[key] = true; tipos.push(tipo); }
+    }
+  }
+
+  const texto = tipos.join(' + ');
+  const row = _habitFindDayRow(sheet, dateStr);
+  if (row > 0) {
+    const hmap = _habitHeaderMap(sheet);
+    const cT = _habitColOf(hmap, 'ejercicio');
+    const cM = _habitColOf(hmap, 'ejercicioMin');
+    if (cT > 0) sheet.getRange(row, cT).setValue(texto);
+    if (cM > 0) sheet.getRange(row, cM).setValue(min > 0 ? min : '');
+  }
+  return { texto: texto, min: min, count: count };
+}
+
+// Escribe una fila de ejercicio en el log. Asume que el lock ya esta tomado.
+function _writeExerciseRow(sheet, dateStr, e) {
+  const insertAt = _nextLogRow(sheet);
+  if (insertAt > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 1);
+  sheet.getRange(insertAt, 2).setNumberFormat('@');
+  sheet.getRange(insertAt, 1, 1, HABIT_MEAL_HEADERS.length).setValues([[
+    parseLocalDate(dateStr), e.hora, e.tipo, '', 'Ejercicio', '', 'Ejercicio', e.min || '', '', ''
+  ]]);
+  sheet.getRange(insertAt, 1).setNumberFormat('dd/MM/yyyy');
+  return insertAt;
+}
+
+// Agrega una sesion sola, al instante. p: { date, tipo, min, hora, month }
+function addExerciseEntry(p) {
+  const e = _normExercise(p);
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  if (p.month && p.month !== habitTabFor(dateStr)) {
+    throw new Error('La fecha ' + dateStr + ' no pertenece a "' + p.month + '"');
+  }
+  const tabName = p.month || habitTabFor(dateStr);
+
+  // Mismo lock que comidas y agua, y por el mismo motivo: los tres comparten el
+  // log y compiten por la misma fila libre.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let insertAt, resumen;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateHabitTab(ss, tabName);
+    insertAt = _writeExerciseRow(sheet, dateStr, e);
+    SpreadsheetApp.flush();
+    resumen = _recalcExerciseSummary(sheet, dateStr);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: tabName, row: insertAt, date: dateStr, resumen: resumen,
+           written: { tipo: e.tipo, min: e.min, hora: e.hora } };
+}
+
+// Reemplaza la foto completa de los ejercicios de una fecha. Igual que el agua:
+// agregar, editar y borrar en el form no toca la hoja hasta que se confirma el
+// dia. Las filas de comida y de agua de la misma fecha se conservan.
+function replaceExerciseEntries(p) {
+  const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  const target = parseLocalDate(dateStr);
+  if (!target) throw new Error('Fecha inválida');
+  if (p.month && p.month !== habitTabFor(dateStr)) {
+    throw new Error('La fecha ' + dateStr + ' no pertenece a "' + p.month + '"');
+  }
+  const tabName = p.month || habitTabFor(dateStr);
+
+  const raw = Array.isArray(p.ejercicios) ? p.ejercicios : [];
+  if (raw.length > 30) throw new Error('Demasiados ejercicios para un solo día');
+  const ejers = raw.map((item, i) => _normExercise(item, i));
+
+  const targetKey = target.getFullYear() + '-' + target.getMonth() + '-' + target.getDate();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let resumen;
+  const written = [];
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateHabitTab(ss, tabName);
+
+    // Borrar de abajo hacia arriba evita que se corran las filas que todavía
+    // faltan revisar. Registro (col G) distingue ejercicio de comida y agua.
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+      const vals = sheet.getRange(
+        HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, 7
+      ).getValues();
+      for (let i = vals.length - 1; i >= 0; i--) {
+        const row = vals[i];
+        if (!row[0] || String(row[6] || '').trim().toLowerCase() !== 'ejercicio') continue;
+        const d = Object.prototype.toString.call(row[0]) === '[object Date]' ? row[0] : parseLocalDate(row[0]);
+        if (!d) continue;
+        const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+        if (key === targetKey) sheet.deleteRow(HABIT_MEAL_FIRST_ROW + i);
+      }
+    }
+
+    for (const e of ejers) {
+      const at = _writeExerciseRow(sheet, dateStr, e);
+      written.push({ row: at, hora: e.hora, tipo: e.tipo, min: e.min });
+    }
+
+    SpreadsheetApp.flush();
+    resumen = _recalcExerciseSummary(sheet, dateStr);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, tab: tabName, date: dateStr, resumen: resumen, ejercicios: written };
+}
+
+// Confirma en una sola accion logica los campos del dia y, si vinieron, las
+// previsualizaciones completas de agua y de ejercicio. Devuelve el dia releido
+// porque al borrar filas pueden cambiar los numeros de fila de las comidas.
 function saveHabitDayData(data) {
   const p = data || {};
   const dateStr = p.date || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
@@ -3677,10 +3865,17 @@ function saveHabitDayData(data) {
   let waterResult = null;
   if (Array.isArray(p.waters)) waterResult = replaceWaterEntries(p);
 
+  // El ejercicio va DESPUES de la fila diaria a proposito: el resumen que
+  // escribe (texto + minutos) es la fuente de verdad y tiene que pisar
+  // cualquier 'ejercicio' suelto que haya venido en el mismo guardado.
+  let exResult = null;
+  if (Array.isArray(p.ejercicios)) exResult = replaceExerciseEntries(p);
+
   const fresh = getHabitDay(dateStr);
   if (!fresh || !fresh.ok) throw new Error((fresh && fresh.error) || 'No se pudo releer el día guardado');
   fresh.written = dayResult.written || {};
   if (waterResult) fresh.water = { total: waterResult.total, count: waterResult.waters.length };
+  if (exResult) fresh.ejercicio = { min: exResult.resumen.min, count: exResult.ejercicios.length };
   return fresh;
 }
 
@@ -3717,8 +3912,10 @@ function migrateLogTable(sheet) {
     sheet.getRange(HABIT_MEAL_HEADER_ROW, 7).setValue('Registro').setFontWeight('bold').setBackground('#fef3c7');
     changed = true;
   }
-  if (norm[7] !== 'ml') {
-    sheet.getRange(HABIT_MEAL_HEADER_ROW, 8).setValue('ml').setFontWeight('bold').setBackground('#fef3c7');
+  // Antes se llamaba solo 'ml'; ahora la misma columna guarda los minutos de
+  // ejercicio, así que se renombra sola al abrir una hoja vieja.
+  if (norm[7] !== 'ml / min') {
+    sheet.getRange(HABIT_MEAL_HEADER_ROW, 8).setValue('ml / min').setFontWeight('bold').setBackground('#fef3c7');
     changed = true;
   }
   if (norm[8] !== 'kcal') {

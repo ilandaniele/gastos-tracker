@@ -154,8 +154,8 @@ Todos opcionales, se manda solo lo que se quiere escribir:
 | `date`         | `2026-08-18` | Qué día. Si falta, hoy.                   |
 | `levante`      | `07:15`      | Hora de levantarse                        |
 | `acoste`       | `23:40`      | Hora de acostarse (calcula las hs sueño)  |
-| `ejercicio`    | `Gimnasio`   | Qué hiciste                               |
-| `ejercicioMin` | `60`         | Minutos                                   |
+| `ejercicio`    | `Gimnasio`   | Qué hiciste (ver nota abajo)              |
+| `ejercicioMin` | `60`         | Minutos (ver nota abajo)                  |
 | `medite`       | `si` / `no`  | Se guarda como Sí/No                      |
 | `mediteMin`    | `15`         | Minutos meditados                         |
 | `lei`          | `si` / `no`  | Leí o estudié                             |
@@ -166,3 +166,34 @@ Todos opcionales, se manda solo lo que se quiere escribir:
 | `avance`       | `4`          | Del 1 al 5                                |
 | `animo`        | `3`          | Del 1 al 5                                |
 | `notas`        | `texto`      | Notas del día                             |
+
+---
+
+## Ejercicio: varias sesiones en el mismo día
+
+Cada sesión es una fila del log del día (la tabla "REGISTRO DEL DÍA" de la hoja
+del mes, con `Registro = Ejercicio` y los minutos en la columna `ml / min`). La
+fila diaria guarda el **resumen calculado**: la columna `Ejercicio` con los tipos
+unidos por `+` y `Min ejerc.` con la suma de minutos. El análisis del mes sigue
+leyendo esas dos columnas, así que no cambió nada de los reportes.
+
+Para agregar una sesión suelta desde un atajo:
+
+```
+<URL>?action=addExercise&tipo=Gimnasio&min=60&date=2026-09-07&hora=19:30
+```
+
+| Parámetro | Ejemplo      | Qué hace                                       |
+|-----------|--------------|------------------------------------------------|
+| `tipo`    | `Gimnasio`   | Obligatorio. Qué ejercicio fue.                |
+| `min`     | `60`         | Opcional. Sin minutos también es válido.       |
+| `hora`    | `19:30`      | Opcional. Si falta, la hora actual.            |
+| `date`    | `2026-09-07` | Opcional. Si falta, hoy.                       |
+
+Cada llamada **suma** una sesión y recalcula el resumen del día.
+
+`habitDay` con `ejercicio` / `ejercicioMin` sigue funcionando, pero escribe
+directamente en la fila diaria sin pasar por el log: sirve para corregir el
+resumen a mano, no para cargar sesiones. Si después se guarda el día desde el
+formulario, el resumen se recalcula desde el log y pisa lo que se haya puesto
+por ahí.

@@ -568,8 +568,9 @@
   // borrador local hasta tocar "Guardar dia". Las comidas siguen siendo un log
   // aparte y se guardan desde su propio boton.
   var H = {
-    date: '', meals: [], waters: [], serverWaters: [], saved: {}, dirty: false,
-    editingRow: null, editingWater: null, waterSeq: 0, loadSeq: 0, draftStorageFailed: false
+    date: '', meals: [], waters: [], serverWaters: [], ejers: [], serverEjers: [],
+    saved: {}, dirty: false, editingRow: null, editingWater: null, editingEjer: null,
+    waterSeq: 0, ejerSeq: 0, loadSeq: 0, draftStorageFailed: false
   };
   var HABIT_DRAFT_PREFIX = 'gastos-tracker.habitos.borrador.v1.';
 
@@ -655,12 +656,63 @@
     return true;
   }
 
+  // ---------- Ejercicio: misma mecanica que el agua ----------
+  // Cada sesion es una entrada propia con su tipo y sus minutos. Se editan en
+  // el borrador local y recien al guardar el dia se reemplaza la foto completa
+  // en la hoja, igual que las tomas de agua.
+  function nextEjerId() {
+    H.ejerSeq += 1;
+    return 'ejer-' + Date.now() + '-' + H.ejerSeq;
+  }
+
+  function normalizeEjers(list) {
+    var out = [];
+    list = Array.isArray(list) ? list : [];
+    for (var i = 0; i < list.length; i++) {
+      var src = list[i] || {};
+      var tipo = String(src.tipo || '').trim();
+      if (!tipo) continue;
+      var min = parseInt(String(src.min == null ? '' : src.min).replace(/\D/g, ''), 10);
+      if (!isFinite(min) || min < 0) min = 0;
+      var row = parseInt(src.row, 10);
+      if (!isFinite(row) || row <= 0) row = null;
+      out.push({
+        id: String(src.id || (row ? 'row-' + row : nextEjerId())),
+        row: row,
+        hora: String(src.hora || ''),
+        tipo: tipo,
+        min: min
+      });
+    }
+    return out;
+  }
+
+  function ejerKey(e) { return [e.row || '', e.hora, e.tipo, e.min].join('|'); }
+
+  function ejerSignature(list) {
+    return normalizeEjers(list).map(ejerKey).join('||');
+  }
+
+  function ejersChanged() {
+    return ejerSignature(H.ejers) !== ejerSignature(H.serverEjers);
+  }
+
+  // Pendiente = no hay una entrada identica del lado del servidor. Se compara
+  // por contenido y no por fila porque los dias viejos llegan sin fila: el
+  // ejercicio vivia solo en la fila diaria y todavia no tiene log propio.
+  function ejerIsPending(e) {
+    var k = ejerKey(e);
+    for (var i = 0; i < H.serverEjers.length; i++) {
+      if (ejerKey(H.serverEjers[i]) === k) return false;
+    }
+    return true;
+  }
+
   function collectDayDraft() {
     var val = function(id) { var el = hEl(id); return el ? String(el.value || '') : ''; };
     return {
       levante: getWheel('levTime'), acoste: getWheel('acoTime'),
       trabajo: val('habTrabajo').trim(), animo: val('habAnimo'),
-      ejercicio: val('ejerText').trim(), ejercicioMin: val('ejerMin').trim(),
       medite: H.medite || '', mediteMin: val('mediteMin').trim(), lei: H.lei || '',
       mast: val('mastInput'), abordajes: val('abordInput'), notas: val('habNotas')
     };
@@ -687,6 +739,7 @@
       window.localStorage.setItem(draftKey(H.date), JSON.stringify({
         version: 1, date: H.date, updatedAt: Date.now(),
         day: collectDayDraft(), waters: normalizeWaters(H.waters),
+        ejers: normalizeEjers(H.ejers), serverEjers: normalizeEjers(H.serverEjers),
         saved: H.saved || {}, serverWaters: normalizeWaters(H.serverWaters)
       }));
       H.draftStorageFailed = false;
@@ -757,10 +810,13 @@
       H.saved = earlyDraft.saved || {};
       H.serverWaters = normalizeWaters(earlyDraft.serverWaters || []);
       H.waters = normalizeWaters(earlyDraft.waters || []);
+      H.serverEjers = normalizeEjers(earlyDraft.serverEjers || []);
+      H.ejers = normalizeEjers(earlyDraft.ejers || []);
       if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
       paintDay(earlyDraft.day);
       renderMeals();
       renderWaters();
+      renderEjers();
       pintarEstadoDia();
       H.dirty = true;
       showDirty(true);
@@ -776,12 +832,15 @@
         H.meals = r.meals || [];
         H.serverWaters = normalizeWaters(r.waters || []);
         H.waters = normalizeWaters(H.serverWaters);
+        H.serverEjers = normalizeEjers(r.ejercicios || []);
+        H.ejers = normalizeEjers(H.serverEjers);
         H.saved = r.day || {};
         if (hEl('dayPicker')) hEl('dayPicker').value = H.date;
         var draft = readDraft(H.date);
         if (draft) {
           paintDay(draft.day || H.saved);
           H.waters = normalizeWaters(draft.waters || H.serverWaters);
+          H.ejers = normalizeEjers(draft.ejers || H.serverEjers);
           H.dirty = true;
           showDirty(true);
           habStatus('Borrador recuperado en este dispositivo', 'draft');
@@ -791,6 +850,7 @@
         }
         renderMeals();
         renderWaters();
+        renderEjers();
         pintarEstadoDia();
       })
       .withFailureHandler(function(err) {
@@ -806,11 +866,15 @@
     if (!el) return;
     var s = H.saved || {};
     var n = 0;
-    ['levante','acoste','trabajo','animo','ejercicio','ejercicioMin',
+    // El ejercicio no entra aca: vive en el log y se cuenta como registro,
+    // igual que las comidas y el agua. Sumarlo tambien como campo de la fila
+    // diaria (donde queda el resumen calculado) lo contaria dos veces.
+    ['levante','acoste','trabajo','animo',
      'medite','mediteMin','lei','abordajes','notas'].forEach(function(k) {
       if (s[k] !== undefined && s[k] !== null && s[k] !== '') n++;
     });
-    var extras = (H.meals || []).length + (H.serverWaters || []).length;
+    var extras = (H.meals || []).length + (H.serverWaters || []).length +
+                 (H.serverEjers || []).length;
     if (n || extras) {
       el.textContent = 'guardado · ' + n + ' campo' + (n === 1 ? '' : 's') +
                        (extras ? ' · ' + extras + ' registro' + (extras === 1 ? '' : 's') : '');
@@ -828,8 +892,8 @@
     pintarSueno();
     if (hEl('habTrabajo')) hEl('habTrabajo').value = d.trabajo != null ? String(d.trabajo).replace('.', ',') : '';
     if (hEl('habNotas'))   hEl('habNotas').value   = d.notas || '';
-    if (hEl('ejerText'))   hEl('ejerText').value   = d.ejercicio || '';
-    if (hEl('ejerMin'))    hEl('ejerMin').value    = d.ejercicioMin != null ? String(d.ejercicioMin) : '';
+    // ejerText/ejerMin no se pintan: no son el dato guardado sino la fila
+    // para cargar la proxima sesion, y la lista de abajo es la que manda.
     if (hEl('mediteMin'))  hEl('mediteMin').value  = d.mediteMin != null ? String(d.mediteMin) : '';
     setSiNo('medite', d.medite || '');
     setSiNo('lei',    d.lei || '');
@@ -918,7 +982,7 @@
 
   // ---------- Marcar cambios ----------
   ['levTime','acoTime','habTrabajo','habAnimo','habNotas',
-   'ejerText','ejerMin','mediteMin','mastInput','abordInput'].forEach(function(id) {
+   'mediteMin','mastInput','abordInput'].forEach(function(id) {
     var el = hEl(id);
     if (!el) return;
     el.addEventListener('change', markDirty);
@@ -1188,7 +1252,59 @@
     markDirty('Toma quitada del borrador · guardá el día para confirmar');
   });
 
-  // ---------- Ejercicio: atajos ----------
+  // ---------- Ejercicio: previsualizacion local hasta Guardar dia ----------
+  function renderEjers() {
+    var n = H.ejers.length;
+    var tot = 0;
+    for (var i = 0; i < n; i++) tot += (H.ejers[i].min || 0);
+    var lbl = hEl('ejerTot');
+    if (lbl) {
+      lbl.textContent = !n ? 'sin registrar'
+        : n + (n === 1 ? ' sesión' : ' sesiones') + (tot ? ' · ' + tot + ' min' : '');
+    }
+    var box = hEl('ejerList');
+    if (!box) return;
+    if (!n) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin ejercicio registrado este día</div>';
+      return;
+    }
+    var html = '';
+    for (var j = 0; j < n; j++) {
+      var e = H.ejers[j];
+      var pending = ejerIsPending(e);
+      html += '<div class="hmeal-row' + (pending ? ' pending' : '') + '" data-id="' + e.id + '">' +
+        '<span class="mt">' + esc(e.hora) + '</span>' +
+        '<span class="mn">' + esc(e.tipo) + '</span>' +
+        '<span class="mm">' + (e.min ? e.min + ' min' : 'sin min') + (pending ? ' · borrador' : '') + '</span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('.hmeal-row');
+    for (var k = 0; k < rows.length; k++) {
+      (function(el) {
+        el.addEventListener('click', function() { openEjerModal(el.getAttribute('data-id')); });
+      })(rows[k]);
+    }
+  }
+
+  function addEjer(tipo, min) {
+    tipo = String(tipo || '').trim();
+    if (!tipo) {
+      habStatus('Escribí o elegí qué ejercicio hiciste', 'err');
+      if (hEl('ejerText')) hEl('ejerText').focus();
+      return;
+    }
+    if (!isFinite(min) || min < 0) min = 0;
+    H.ejers.push({ id: nextEjerId(), row: null, hora: nowHM(), tipo: tipo, min: min });
+    if (hEl('ejerText')) hEl('ejerText').value = '';
+    if (hEl('ejerMin')) hEl('ejerMin').value = '';
+    renderEjers();
+    markDirty('Vista previa: ' + tipo + (min ? ' · ' + min + ' min' : '') + ' · todavía no está guardado');
+  }
+
+  // El atajo solo completa el nombre y salta a los minutos. Antes concatenaba
+  // todo en un mismo texto ("Gimnasio + Correr") con un unico total de minutos,
+  // que era la razon por la que dos entrenamientos del mismo dia no entraban.
   (function() {
     var eb = document.querySelectorAll('#quickEjer button');
     for (var i = 0; i < eb.length; i++) {
@@ -1196,16 +1312,73 @@
         btn.addEventListener('click', function() {
           var t = hEl('ejerText');
           if (!t) return;
-          var val = btn.getAttribute('data-ejer') || '';
-          var cur = t.value.trim();
-          // Si ya hay algo distinto, se suma en vez de reemplazar
-          if (!cur) t.value = val;
-          else if (cur.toLowerCase().indexOf(val.toLowerCase()) < 0) t.value = cur + ' + ' + val;
-          markDirty();
+          t.value = btn.getAttribute('data-ejer') || '';
+          var m = hEl('ejerMin');
+          if (m) m.focus();
         });
       })(eb[i]);
     }
   })();
+
+  if (hEl('btnAddEjer')) hEl('btnAddEjer').addEventListener('click', function() {
+    var t = hEl('ejerText'), m = hEl('ejerMin');
+    addEjer(t ? t.value : '', parseInt(String(m ? m.value : '').replace(/\D/g, ''), 10));
+  });
+  ['ejerText', 'ejerMin'].forEach(function(id) {
+    var el = hEl(id);
+    if (!el) return;
+    el.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); if (hEl('btnAddEjer')) hEl('btnAddEjer').click(); }
+    });
+  });
+
+  // Modal de edicion de ejercicio
+  function openEjerModal(id) {
+    var e = null;
+    for (var i = 0; i < H.ejers.length; i++) if (H.ejers[i].id === id) { e = H.ejers[i]; break; }
+    if (!e) return;
+    H.editingEjer = id;
+    if (hEl('edEjerTipo')) hEl('edEjerTipo').value = e.tipo || '';
+    if (hEl('edEjerMin'))  hEl('edEjerMin').value  = e.min || '';
+    if (hEl('edEjerHora')) hEl('edEjerHora').value = e.hora || '';
+    if (hEl('ejerModal'))  hEl('ejerModal').classList.add('show');
+  }
+  function closeEjerModal() {
+    H.editingEjer = null;
+    if (hEl('ejerModal')) hEl('ejerModal').classList.remove('show');
+  }
+  if (hEl('edEjerCancel')) hEl('edEjerCancel').addEventListener('click', closeEjerModal);
+  if (hEl('ejerModal')) hEl('ejerModal').addEventListener('click', function(ev) {
+    if (ev.target === hEl('ejerModal')) closeEjerModal();
+  });
+
+  if (hEl('edEjerSave')) hEl('edEjerSave').addEventListener('click', function() {
+    if (H.editingEjer == null) return;
+    var tipo = (hEl('edEjerTipo') && hEl('edEjerTipo').value.trim()) || '';
+    if (!tipo) { habStatus('Poné qué ejercicio fue', 'err'); return; }
+    var min = parseInt(String(hEl('edEjerMin') ? hEl('edEjerMin').value : '').replace(/\D/g, ''), 10);
+    if (!isFinite(min) || min < 0) min = 0;
+    for (var i = 0; i < H.ejers.length; i++) {
+      if (H.ejers[i].id !== H.editingEjer) continue;
+      H.ejers[i].tipo = tipo;
+      H.ejers[i].min = min;
+      H.ejers[i].hora = (hEl('edEjerHora') && hEl('edEjerHora').value) || H.ejers[i].hora || nowHM();
+      break;
+    }
+    closeEjerModal();
+    renderEjers();
+    markDirty('Ejercicio actualizado en el borrador · guardá el día para confirmar');
+  });
+
+  if (hEl('edEjerDelete')) hEl('edEjerDelete').addEventListener('click', function() {
+    if (H.editingEjer == null) return;
+    if (!confirm('¿Quitar este ejercicio del borrador? El cambio se confirma al guardar el día.')) return;
+    var id = H.editingEjer;
+    H.ejers = H.ejers.filter(function(e) { return e.id !== id; });
+    closeEjerModal();
+    renderEjers();
+    markDirty('Ejercicio quitado del borrador · guardá el día para confirmar');
+  });
 
   // ---------- Comidas (log aparte: se guardan al instante) ----------
   (function() {
@@ -1275,11 +1448,15 @@
       .withSuccessHandler(function(r) {
         if (r && r.ok) {
           var keepWaterDraft = watersChanged();
+          var keepEjerDraft = ejersChanged();
           H.meals = r.meals || [];
           H.serverWaters = normalizeWaters(r.waters || []);
           if (!keepWaterDraft) H.waters = normalizeWaters(H.serverWaters);
+          H.serverEjers = normalizeEjers(r.ejercicios || []);
+          if (!keepEjerDraft) H.ejers = normalizeEjers(H.serverEjers);
           renderMeals();
           renderWaters();
+          renderEjers();
           pintarEstadoDia();
           if (H.dirty) persistDraft();
         }
@@ -1392,10 +1569,6 @@
     poner('trabajo', trabajo, 'trabajo');
     var an = hEl('habAnimo');
     poner('animo', (an && an.value !== '0') ? an.value : '', 'ánimo');
-    var et = hEl('ejerText');
-    poner('ejercicio', et ? et.value.trim() : '', 'ejercicio');
-    var em = hEl('ejerMin');
-    poner('ejercicioMin', em ? normDec(em.value.trim()) : '', 'min');
     poner('medite', H.medite || '', 'meditación');
     var mm = hEl('mediteMin');
     poner('mediteMin', mm ? normDec(mm.value.trim()) : '', 'min medit.');
@@ -1411,6 +1584,26 @@
         return { hora: w.hora, tipo: w.tipo, ml: w.ml };
       });
       campos.push('agua');
+    }
+
+    // Si quedo algo escrito en la fila de carga y nunca se toco el "+", se
+    // agrega igual: perder el ejercicio recien tipeado por no haber apretado un
+    // boton seria justo el problema que este cambio viene a arreglar.
+    var etPend = hEl('ejerText');
+    if (etPend && etPend.value.trim()) {
+      var emPend = hEl('ejerMin');
+      addEjer(etPend.value, parseInt(String(emPend ? emPend.value : '').replace(/\D/g, ''), 10));
+    }
+
+    // El ejercicio viaja igual: la foto completa del dia. El servidor reescribe
+    // sus filas del log y recalcula el resumen (texto + minutos) de la fila
+    // diaria, que es lo que sigue leyendo el analisis del mes.
+    var ejerDraft = ejersChanged();
+    if (ejerDraft) {
+      payload.ejercicios = H.ejers.map(function(e) {
+        return { hora: e.hora, tipo: e.tipo, min: e.min };
+      });
+      campos.push('ejercicio');
     }
 
     // El contador pasa por poner() como el resto: antes se mandaba SIEMPRE, así
@@ -1446,10 +1639,17 @@
           } else if (waterDraft) {
             H.serverWaters = normalizeWaters(H.waters);
           }
+          if (Array.isArray(r.ejercicios)) {
+            H.serverEjers = normalizeEjers(r.ejercicios);
+            H.ejers = normalizeEjers(H.serverEjers);
+          } else if (ejerDraft) {
+            H.serverEjers = normalizeEjers(H.ejers);
+          }
           clearDirty(true);
           pintarSueno();
           renderMeals();
           renderWaters();
+          renderEjers();
           pintarEstadoDia();
           habStatus('✓ Guardado · ' + campos.join(', '), 'ok');
         } else {

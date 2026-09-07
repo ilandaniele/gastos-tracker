@@ -160,7 +160,9 @@
   .hnumbtn { margin: 0; width: 54px; height: 50px; border-radius: 10px; font-size: 24px; font-weight: 700; background: #f5f5f5; color: #1a1a1a; padding: 0; }
   .hnumbtn:active { background: #e5e5e5; }
   .hunit { font-size: 13px; color: #888; font-weight: 600; }
-  .hejer-input { display: grid; grid-template-columns: 1fr 84px; gap: 8px; margin-top: 10px; }
+  .hejer-input { display: grid; grid-template-columns: 1fr 72px 46px; gap: 8px; margin-top: 10px; }
+  .hejer-input input { padding: 10px; font-size: 15px; }
+  .hejer-input button { margin: 0; padding: 10px; font-size: 20px; font-weight: 700; background: #1d4ed8; }
 
   /* --- botones secundarios --- */
   .hdanger { background: #fef2f2 !important; color: #b91c1c !important; border: 1px solid #fecaca !important; }
@@ -169,8 +171,8 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal, #waterModal, #argModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show, #waterModal.show, #argModal.show { display: flex; }
+  #mealModal, #waterModal, #ejerModal, #argModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show, #ejerModal.show, #argModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
@@ -181,6 +183,9 @@
   #aguaList .hmeal-row .mm { background: #f0f9ff; color: #0369a1; }
   #aguaList .hmeal-row.pending { background: #fffbeb; }
   #aguaList .hmeal-row.pending .mm { background: #fef3c7; color: #92400e; }
+  #ejerList .hmeal-row .mm { background: #eff6ff; color: #1e40af; }
+  #ejerList .hmeal-row.pending { background: #fffbeb; }
+  #ejerList .hmeal-row.pending .mm { background: #fef3c7; color: #92400e; }
   .hphoto { width: 100%; margin: 10px 0 0; padding: 12px; font-size: 14px; font-weight: 600;
              background: #6366f1; color: white; border: none; border-radius: 8px; }
   .hphoto:active { background: #4f46e5; }
