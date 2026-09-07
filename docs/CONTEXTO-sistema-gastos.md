@@ -141,10 +141,47 @@ Gimnasio, Itaú Crédito, Oca
 
 ## 8. Cómo redeployar el webhook (cada cambio de código)
 
-1. Editor Apps Script → pegar el código nuevo de `expense-webhook.gs` → Ctrl+S.
+Son **dos pasos separados**: subir el código no cambia lo que sirve la URL de
+producción. Hay que publicar además una versión nueva del deployment.
+
+### Con clasp (desde el repo, sin pegar nada)
+
+```bash
+cd apps-script
+npx @google/clasp@3 push
+npx @google/clasp@3 create-deployment -i <DEPLOYMENT_ID> -d "qué cambió"
+```
+
+- **Tiene que ser `clasp@3`.** Con la v2 falla en
+  `Cannot read properties of undefined (reading 'access_token')`: las
+  credenciales de `~/.clasprc.json` están en formato v3 (`{tokens:{default:…}}`)
+  y la v2 espera el formato viejo.
+- El `<DEPLOYMENT_ID>` de producción es el que está en `pwa/wrangler.toml`
+  (`APPS_SCRIPT_URL`) — el mismo `AKfycb…` que va en la URL. `list-deployments`
+  muestra cinco; los `api exec` son viejos y no se tocan.
+- Pasar `-i` **reusa** el deployment, así que la URL NO cambia. Sin `-i` se crea
+  uno nuevo con otra URL, que es justamente lo que hay que evitar.
+- `push` pisa lo que haya en el editor. Si tocaste algo ahí y no está en el repo,
+  primero `clasp pull` en una carpeta aparte y comparar.
+- `apps-script/.clasp.json` está en `.gitignore`, así que en una máquina nueva hay
+  que recrearlo con el `scriptId` y correr `clasp login`.
+
+### A mano (fallback)
+
+1. Editor Apps Script → pegar el código nuevo → Ctrl+S.
 2. Deploy → **Manage deployments** → ✏️ Edit (lápiz) en el deployment existente.
 3. Version → **New version** → Deploy.
 4. La URL NO cambia.
+
+### Verificar que quedó vivo
+
+```bash
+curl -s "<WEBHOOK_URL>?action=habitToday&k=<clave>"
+```
+
+Si devuelve JSON con `"ok":true`, la versión nueva está sirviendo. Si dice
+`No autorizado`, falta la clave; si da 404, la URL apunta a un deployment
+borrado.
 
 ---
 
