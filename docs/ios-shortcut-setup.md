@@ -53,9 +53,14 @@ Para cada opción, agregá un bloque que setea variables `card` y `currency`:
 - Action: **Get Contents of URL**
 - URL: 
 ```
-https://script.google.com/macros/s/AKfycbzmN4924Cvy3LHES6vHjGvy_QoOGU8v4KNCTIztfoTTDB-XAuKd2KWqQScnZgFQw1Bdfw/exec?item=[item]&amount=[amount]&currency=[currency]&card=[card]&category=[category]&date=[date]
+https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec?item=[item]&amount=[amount]&currency=[currency]&card=[card]&category=[category]&date=[date]&k=[CLAVE]
 ```
 Reemplazá `[var]` arrastrando las variables al campo URL.
+
+`[CLAVE]` no es una variable del atajo: va escrita a mano. Es la clave que
+exige la webapp desde que se cerró el acceso público — está en
+`pwa/.secrets-local.md` (no va a git). Sin ella la respuesta es
+`{"ok":false,"error":"No autorizado"}`.
 
 - Method: GET
 

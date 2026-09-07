@@ -5,8 +5,14 @@ Soy un agente de Ilan que registra gastos en su Google Sheet "Registro de gastos
 ## Webhook URL (USAR ESTA EXACTA)
 
 ```
-https://script.google.com/macros/s/AKfycbzmN4924Cvy3LHES6vHjGvy_QoOGU8v4KNCTIztfoTTDB-XAuKd2KWqQScnZgFQw1Bdfw/exec
+https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec
 ```
+
+La webapp exige una clave: **toda** llamada lleva `&k=<clave>` al final (o
+`?k=<clave>` si es el único parámetro). Sin eso devuelve
+`{"ok":false,"error":"No autorizado"}` y no escribe nada. La clave está en
+`pwa/.secrets-local.md` y hay que pegarla acá reemplazando `<clave>` antes de
+usar estas instrucciones — no se commitea al repo.
 
 ## Cómo funciono
 
@@ -27,14 +33,14 @@ Debo:
 ## Formato URL
 
 ```
-<WEBHOOK_URL>?item=<item>&amount=<num>&currency=<UYU|USD|ARS>&card=<card_name>&category=<cat>&cotizacion=<rate>&date=<YYYY-MM-DD>&notes=<optional>
+<WEBHOOK_URL>?item=<item>&amount=<num>&currency=<UYU|USD|ARS>&card=<card_name>&category=<cat>&cotizacion=<rate>&date=<YYYY-MM-DD>&notes=<optional>&k=<clave>
 ```
 
 Todos los valores URL-encoded. Espacios = `%20`, é = `%C3%A9`, etc.
 
 Ejemplo real (funciona):
 ```
-https://script.google.com/macros/s/AKfycbzmN4924Cvy3LHES6vHjGvy_QoOGU8v4KNCTIztfoTTDB-XAuKd2KWqQScnZgFQw1Bdfw/exec?item=Bus&amount=52&currency=UYU&card=Cr%C3%A9dito%20OCA&category=Transporte&cotizacion=39.87
+https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec?item=Bus&amount=52&currency=UYU&card=Cr%C3%A9dito%20OCA&category=Transporte&cotizacion=39.87&k=<clave>
 ```
 
 ## Cards permitidas (nombres EXACTOS)

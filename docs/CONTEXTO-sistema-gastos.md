@@ -23,9 +23,14 @@ una Google Sheet existente llamada **"Registro de gastos"**. Tiene 4 componentes
 |---|---|
 | Sheet ID | `1kEcFTH2XgS5KF9qh3PFcq1HItDnmf_gXpohfQW8V3RI` |
 | Sheet URL | https://docs.google.com/spreadsheets/d/1kEcFTH2XgS5KF9qh3PFcq1HItDnmf_gXpohfQW8V3RI/edit |
-| Webhook URL | `https://script.google.com/macros/s/AKfycbzmN4924Cvy3LHES6vHjGvy_QoOGU8v4KNCTIztfoTTDB-XAuKd2KWqQScnZgFQw1Bdfw/exec` |
+| Webhook URL | `https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec` |
 | Apps Script | Bound a la Sheet → Extensions → Apps Script |
 | Cowork artifact | id `expense-dashboard` ("Expense Dashboard") |
+
+**La webapp exige una clave**: entrar al link pelado devuelve "🔒 No autorizado".
+Hay que agregar `?k=<clave>` (o `&k=<clave>` si ya hay otros parámetros) a cada
+llamada. La clave está en `pwa/.secrets-local.md`, que no va a git — ver
+[`acceso-privado.md`](acceso-privado.md).
 
 **Importante**: el Apps Script y la Sheet viven en la nube de Google. Desde una computadora
 nueva NO hay que reinstalar nada — solo abrir la Sheet → Extensions → Apps Script.
