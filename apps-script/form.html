@@ -217,21 +217,24 @@
   <!-- EJERCICIO -->
   <div class="hcard">
     <div class="hcard-title">🏃 Ejercicio <span class="hhint" id="ejerTot">sin registrar</span></div>
-    <div class="quick-scroll ejer" id="quickEjer">
-      <button type="button" data-ejer="Gimnasio">🏋️Gym</button>
-      <button type="button" data-ejer="Correr">🏃Correr</button>
-      <button type="button" data-ejer="Fútbol">⚽Fútbol</button>
-      <button type="button" data-ejer="Bici">🚴Bici</button>
-      <button type="button" data-ejer="Caminata">🚶Caminar</button>
-      <button type="button" data-ejer="Natación">🏊Natación</button>
-      <button type="button" data-ejer="Yoga">🧘Yoga</button>
-      <button type="button" data-ejer="Funcional">🤸Funcional</button>
-    </div>
     <div class="hejer-input">
-      <input type="text" id="ejerText" placeholder="¿Qué hiciste?" list="ejerTipos" autocomplete="off">
+      <select id="ejerTipo" aria-label="Qué ejercicio hiciste">
+        <option value="">Elegí qué hiciste…</option>
+        <option value="Gimnasio">🏋️ Gimnasio</option>
+        <option value="Correr">🏃 Correr</option>
+        <option value="Fútbol">⚽ Fútbol</option>
+        <option value="Bici">🚴 Bici</option>
+        <option value="Caminata">🚶 Caminar</option>
+        <option value="Natación">🏊 Natación</option>
+        <option value="Yoga">🧘 Yoga</option>
+        <option value="Funcional">🤸 Funcional</option>
+        <option value="__otro">✏️ Otro…</option>
+      </select>
       <input type="text" id="ejerMin" inputmode="numeric" pattern="[0-9]*" placeholder="min">
       <button type="button" id="btnAddEjer">+</button>
     </div>
+    <input type="text" id="ejerText" class="hejer-otro" placeholder="¿Qué ejercicio hiciste?"
+           list="ejerTipos" autocomplete="off" hidden>
     <div id="ejerList" class="hmeal-list"></div>
   </div>
 

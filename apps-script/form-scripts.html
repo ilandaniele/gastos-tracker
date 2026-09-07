@@ -1290,39 +1290,54 @@
   function addEjer(tipo, min) {
     tipo = String(tipo || '').trim();
     if (!tipo) {
-      habStatus('Escribí o elegí qué ejercicio hiciste', 'err');
-      if (hEl('ejerText')) hEl('ejerText').focus();
+      habStatus('Elegí qué ejercicio hiciste', 'err');
+      var foco = hEl('ejerTipo') && hEl('ejerTipo').value === EJER_OTRO ? hEl('ejerText') : hEl('ejerTipo');
+      if (foco) foco.focus();
       return;
     }
     if (!isFinite(min) || min < 0) min = 0;
     H.ejers.push({ id: nextEjerId(), row: null, hora: nowHM(), tipo: tipo, min: min });
-    if (hEl('ejerText')) hEl('ejerText').value = '';
-    if (hEl('ejerMin')) hEl('ejerMin').value = '';
+    resetEjerCompositor();
     renderEjers();
     markDirty('Vista previa: ' + tipo + (min ? ' · ' + min + ' min' : '') + ' · todavía no está guardado');
   }
 
-  // El atajo solo completa el nombre y salta a los minutos. Antes concatenaba
-  // todo en un mismo texto ("Gimnasio + Correr") con un unico total de minutos,
-  // que era la razon por la que dos entrenamientos del mismo dia no entraban.
-  (function() {
-    var eb = document.querySelectorAll('#quickEjer button');
-    for (var i = 0; i < eb.length; i++) {
-      (function(btn) {
-        btn.addEventListener('click', function() {
-          var t = hEl('ejerText');
-          if (!t) return;
-          t.value = btn.getAttribute('data-ejer') || '';
-          var m = hEl('ejerMin');
-          if (m) m.focus();
-        });
-      })(eb[i]);
+  // El tipo sale de un select nativo (en el celular abre la ruedita del sistema).
+  // Antes era una fila de botones con scroll horizontal, y en una pantalla de
+  // 375px entraban 4 de 8: "Caminar" quedaba cortado justo en el borde y las
+  // ultimas tres no se veian nunca.
+  // "Otro..." destapa el campo libre, asi se puede cargar cualquier cosa.
+  var EJER_OTRO = '__otro';
+
+  function ejerTipoElegido() {
+    var sel = hEl('ejerTipo');
+    if (!sel) return (hEl('ejerText') && hEl('ejerText').value) || '';
+    if (sel.value === EJER_OTRO) return (hEl('ejerText') && hEl('ejerText').value) || '';
+    return sel.value || '';
+  }
+
+  function resetEjerCompositor() {
+    var sel = hEl('ejerTipo');
+    if (sel) sel.value = '';
+    var libre = hEl('ejerText');
+    if (libre) { libre.value = ''; libre.hidden = true; }
+    if (hEl('ejerMin')) hEl('ejerMin').value = '';
+  }
+
+  if (hEl('ejerTipo')) hEl('ejerTipo').addEventListener('change', function() {
+    var libre = hEl('ejerText');
+    var otro = this.value === EJER_OTRO;
+    if (libre) {
+      libre.hidden = !otro;
+      if (otro) libre.focus();
+      else libre.value = '';
     }
-  })();
+    if (!otro && this.value && hEl('ejerMin')) hEl('ejerMin').focus();
+  });
 
   if (hEl('btnAddEjer')) hEl('btnAddEjer').addEventListener('click', function() {
-    var t = hEl('ejerText'), m = hEl('ejerMin');
-    addEjer(t ? t.value : '', parseInt(String(m ? m.value : '').replace(/\D/g, ''), 10));
+    var m = hEl('ejerMin');
+    addEjer(ejerTipoElegido(), parseInt(String(m ? m.value : '').replace(/\D/g, ''), 10));
   });
   ['ejerText', 'ejerMin'].forEach(function(id) {
     var el = hEl(id);
@@ -1589,10 +1604,10 @@
     // Si quedo algo escrito en la fila de carga y nunca se toco el "+", se
     // agrega igual: perder el ejercicio recien tipeado por no haber apretado un
     // boton seria justo el problema que este cambio viene a arreglar.
-    var etPend = hEl('ejerText');
-    if (etPend && etPend.value.trim()) {
+    var tipoPend = ejerTipoElegido().trim();
+    if (tipoPend) {
       var emPend = hEl('ejerMin');
-      addEjer(etPend.value, parseInt(String(emPend ? emPend.value : '').replace(/\D/g, ''), 10));
+      addEjer(tipoPend, parseInt(String(emPend ? emPend.value : '').replace(/\D/g, ''), 10));
     }
 
     // El ejercicio viaja igual: la foto completa del dia. El servidor reescribe
