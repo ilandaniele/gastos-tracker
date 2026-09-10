@@ -99,7 +99,12 @@ Después      Secciones del viaje a Argentina (el parser las IGNORA)
 **Tarjetas válidas**: Débito UYU (default), Crédito OCA, Crédito Itaú UYU, Crédito Itaú USD, Débito USD
 
 **Categorías**: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento,
-Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Otros
+Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros
+
+`Acciones/Bonos/Ahorros` es para la plata que sale de la cuenta hacia el ahorro:
+no es consumo. Su regla de clasificación va **primera** en `CAT_RULES` y exige
+plural en "acciones" y "bonos" a propósito — en singular, "bono" es el aguinaldo
+o un vale y "acción" es acción de gracias, y los dos caían mal ahí.
 
 **Labels fijos** (tabla fija de Mayo): Alquiler, Gastos comunes, Tributos domiciliarios,
 Antel Internet, Luz, Itau paquete, Sandra Psicologa, Antel móvil, Viandas, Ble, BlueCross,
@@ -170,6 +175,17 @@ la app dice "sin precio" en vez de un +0% que haría creer que no se movió.
 min por ticker. El endpoint batch (`v7/finance/quote`) NO sirve: pide auth. Si
 Yahoo no contesta se conserva el último precio que haya en la hoja — un total un
 poco viejo es mejor que un total en cero.
+
+Se usa `regularMarketPrice`, que es el **cierre de la rueda regular**, no el
+after-hours. Verificado el 2026-09-10 contra dos fuentes independientes: CNBC
+daba 218,36 al cierre de las 16:00 ET (idéntico) y Nasdaq 218,7395 a las 17:56
+ET, que es extended hours — poco volumen y no representativo para valuar.
+
+**Monedas**: el precio se devuelve **siempre en USD**. Una acción que cotiza en
+otra moneda se convierte con `<MONEDA>USD=X`, del mismo endpoint de Yahoo (no
+hace falta otra fuente). Sin esto, una acción japonesa a 2994 JPY entraba al
+total como US$ 2994 — un error de ~150x. Si no se consigue el tipo de cambio se
+devuelve `null`: mejor sin precio que con un total inflado.
 
 **Logos**: se arman con el dominio de la empresa, del mapa `TICKER_INFO` en
 `Code.gs` (única fuente: el form lo recibe inyectado en la plantilla). Primero

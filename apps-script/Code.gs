@@ -29,7 +29,8 @@ const FIXED_LABELS = [
 
 const CATEGORIES = [
   'Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento',
-  'Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Viajes','Otros'
+  'Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Viajes',
+  'Acciones/Bonos/Ahorros','Otros'
 ];
 
 const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD'];
@@ -342,6 +343,10 @@ function addExpenseSafe(data) {
 // === Auto-classify uncategorized rows ===
 // Server-side classifier (mirror of dashboard CAT_RULES). Order matters — first match wins.
 const CAT_RULES = [
+  // Primero: la plata que va a ahorro no es consumo. Van en PLURAL a proposito:
+  // en singular "bono" es el aguinaldo o un vale, y "accion" es accion de
+  // gracias — los dos caian mal en esta categoria.
+  [/acciones\b|bonos\b|broker|interactive brokers|ibkr|etf\b|cedear|nvda|nvidia|s&p ?500|sp500|inversi[oó]n|invertir|ahorro/i, 'Acciones/Bonos/Ahorros'],
   [/^(forros|preservativ|condon)/i, 'Salud'], // explicit before "jabón"
   [/medicamento|farmashop|farmacia|farmacity|an[aá]lisis|dentista|hospital|cl[ií]nica|bluecross|blue cross|aflusan|vozama|duspatalin|dumirox|drogu|polish/i, 'Salud'],
   // Viajes va ANTES que Transporte: classifyItem devuelve la primera regla que
@@ -1175,7 +1180,7 @@ function scanTicket(base64Image) {
     const prompt = 'Analizá esta foto de un ticket de comercio en Uruguay. Por cada línea de producto/servicio comprado extraé: ' +
       'name (nombre item, máximo 40 chars, sin código de barras), ' +
       'amount (precio FINAL en UYU después de aplicar descuentos visibles por item, número positivo), ' +
-      'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Otros). ' +
+      'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros). ' +
       'REGLAS: ' +
       '1. IGNORÁ líneas de total, subtotal, IVA, cambio, redondeo, descuento general, propina. ' +
       '2. Si hay descuento aplicado a un item específico (ej "2x1", "20% off", "ahorro $X"), restalo del precio. ' +
@@ -3154,19 +3159,11 @@ function _savingsRows(sheet) {
 // batch pide auth), asi que se cachea 15 min para no pegarle en cada pintada.
 // Si falla, el llamador se queda con el ultimo precio que haya en la hoja: es
 // preferible un total un poco viejo que un total en cero.
-function fetchStockPrice(ticker) {
-  const t = String(ticker || '').trim().toUpperCase();
-  if (!t) return null;
-  const cache = CacheService.getScriptCache();
-  const key = 'px_' + t;
-  try {
-    const hit = cache.get(key);
-    if (hit) return { precio: parseFloat(hit), fuente: 'cache' };
-  } catch (e) {}
-
+// Consulta cruda a Yahoo: precio y en que moneda cotiza.
+function _yahooQuote(symbol) {
   try {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
-                encodeURIComponent(t) + '?interval=1d&range=1d';
+                encodeURIComponent(symbol) + '?interval=1d&range=1d';
     const resp = UrlFetchApp.fetch(url, {
       muteHttpExceptions: true,
       headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -3177,12 +3174,66 @@ function fetchStockPrice(ticker) {
                  data.chart.result[0].meta;
     const precio = meta && toNumber(meta.regularMarketPrice);
     if (precio == null || precio <= 0) return null;
-    try { cache.put(key, String(precio), SAVINGS_PRICE_TTL_SEC); } catch (e) {}
-    return { precio: precio, fuente: 'yahoo', moneda: (meta.currency || 'USD') };
+    return { precio: precio, moneda: String(meta.currency || 'USD').toUpperCase() };
   } catch (err) {
-    Logger.log('fetchStockPrice ' + t + ': ' + err.message);
+    Logger.log('_yahooQuote ' + symbol + ': ' + err.message);
     return null;
   }
+}
+
+// Cuanto vale 1 unidad de esa moneda en dolares. Yahoo sirve los tipos de
+// cambio por el mismo endpoint (EURUSD=X), asi que no hace falta otra fuente.
+function _fxAUsd(moneda) {
+  const m = String(moneda || 'USD').toUpperCase();
+  if (m === 'USD') return 1;
+  const cache = CacheService.getScriptCache();
+  const key = 'fx_' + m;
+  try {
+    const hit = cache.get(key);
+    if (hit) return parseFloat(hit);
+  } catch (e) {}
+  const q = _yahooQuote(m + 'USD=X');
+  if (!q || !q.precio) return null;
+  try { cache.put(key, String(q.precio), SAVINGS_PRICE_TTL_SEC); } catch (e) {}
+  return q.precio;
+}
+
+// Precio del dia de un ticker, SIEMPRE en dolares. Una accion que cotiza en
+// otra moneda se convierte: sumar 2994 yenes como si fueran 2994 dolares
+// inflaba el total unas 150 veces. Se cachea 15 min por ticker.
+function fetchStockPrice(ticker) {
+  const t = String(ticker || '').trim().toUpperCase();
+  if (!t) return null;
+  const cache = CacheService.getScriptCache();
+  const key = 'px_' + t;
+  try {
+    const hit = cache.get(key);
+    if (hit) {
+      const c = JSON.parse(hit);
+      return { precio: c.p, fuente: 'cache', moneda: c.m, monedaOriginal: c.o, precioOriginal: c.po };
+    }
+  } catch (e) {}
+
+  const q = _yahooQuote(t);
+  if (!q) return null;
+
+  let precio = q.precio;
+  if (q.moneda !== 'USD') {
+    const fx = _fxAUsd(q.moneda);
+    if (!fx) {
+      Logger.log('fetchStockPrice ' + t + ': sin cambio para ' + q.moneda);
+      return null;   // mejor sin precio que con un total inflado
+    }
+    precio = q.precio * fx;
+  }
+
+  const out = { precio: precio, fuente: 'yahoo', moneda: 'USD',
+                monedaOriginal: q.moneda, precioOriginal: q.precio };
+  try {
+    cache.put(key, JSON.stringify({ p: precio, m: 'USD', o: q.moneda, po: q.precio }),
+              SAVINGS_PRICE_TTL_SEC);
+  } catch (e) {}
+  return out;
 }
 
 // Recalcula precio y valor de cada fila, y pinta los totales de arriba.
