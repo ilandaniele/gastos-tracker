@@ -107,6 +107,50 @@ Gimnasio, Itaú Crédito, Oca
 
 ---
 
+## 5b. Pestaña "Ahorros"
+
+Los ahorros **no** son de un mes: una acción comprada en marzo se sigue teniendo
+en septiembre. Por eso viven en su propia pestaña `Ahorros` (una sola, no una por
+mes) y no en un bloque del tab del mes como Argentina. La crea el código solo la
+primera vez que se abre la sección.
+
+```
+Fila 1      💰 AHORROS
+Filas 2-7   Totales calculados: Total (USD) | Total (UYU) | En acciones (USD) |
+            En banco (USD) | En bonos (USD) | Cotización usada
+Fila 9      Headers
+Fila 10+    Un movimiento por fila
+```
+
+**Columnas**: `Fecha | Tipo | Entidad | Ticker | Cantidad | Precio USD | Monto |
+Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
+
+**Tipos**: `Acción`, `Banco`, `Bono`.
+
+- **Acción**: se carga ticker + cuántas + a qué precio. `Invertido USD` sale de
+  multiplicar. El valor de hoy usa el precio del día.
+- **Banco / Bono**: se carga entidad + monto + moneda. Valen lo que dice el monto;
+  si es UYU se pasa a USD con la cotización del BCU.
+
+Cada fila es **un movimiento**, no una posición: dos compras de NVDA son dos filas
+y se agrupan al mostrarlas (cantidad sumada, valuadas al mismo precio). Así no se
+pierde a qué precio compraste cada vez.
+
+**Precio de las acciones**: sale de Yahoo Finance
+(`query1.finance.yahoo.com/v8/finance/chart/<TICKER>`), sin API key, cacheado 15
+min por ticker. El endpoint batch (`v7/finance/quote`) NO sirve: pide auth. Si
+Yahoo no contesta se conserva el último precio que haya en la hoja — un total un
+poco viejo es mejor que un total en cero.
+
+**Logos**: se arman con el dominio de la empresa, del mapa `TICKER_INFO` en
+`Code.gs` (única fuente: el form lo recibe inyectado en la plantilla). Primero
+DuckDuckGo (`icons.duckduckgo.com/ip3/<dominio>.ico`), si falla Google
+(`google.com/s2/favicons`), y si fallan los dos queda un badge con el ticker.
+Clearbit **no** sirve: HubSpot lo discontinuó y el dominio ni siquiera resuelve.
+Un ticker que no esté en el mapa igual se puede cargar: solo pierde el logo.
+
+---
+
 ## 6. Endpoints del webhook
 
 | Endpoint | Qué hace |
@@ -121,6 +165,12 @@ Gimnasio, Itaú Crédito, Oca
 | `?action=testFetch` | Verifica que el scope UrlFetch funciona |
 | `?action=setKey&key=...` | Guarda la API key de Gemini en Script Properties |
 | `?action=hasKey` | Verifica si la key está seteada |
+| `?action=ahorros` | Movimientos + posiciones agrupadas + totales |
+| `?action=addAhorro&tipo=Acción&ticker=NVDA&cantidad=12&precioUsd=140` | Agrega una compra |
+| `?action=addAhorro&tipo=Banco&entidad=Santander&monto=5000&moneda=USD` | Agrega un depósito |
+| `?action=updateAhorro&row=N&...` | Edita un movimiento |
+| `?action=deleteAhorro&row=N` | Borra un movimiento |
+| `?action=precioAccion&ticker=NVDA` | Precio del día de un ticker |
 
 ---
 

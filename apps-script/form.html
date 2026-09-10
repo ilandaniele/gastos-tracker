@@ -4,6 +4,7 @@
   <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
   <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
   <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
+  <button type="button" class="tab" data-panel="ahoPanel">💰 Ahorros</button>
   <button type="button" class="tab" data-panel="argPanel">🇦🇷 Arg</button>
 </div>
 
@@ -404,6 +405,112 @@
   </div>
 </div>
 
+<div id="ahoPanel" class="panel">
+  <h1>Ahorros <span id="ahoCotiz" class="hdate"></span></h1>
+
+  <!-- CUANTO TENGO -->
+  <div class="hcard ahototal">
+    <div class="ahobig" id="ahoTotalUsd">US$ 0</div>
+    <div class="ahosub" id="ahoTotalUyu">$ 0</div>
+    <div class="ahobreak">
+      <div><span>📈 Acciones</span><b id="ahoAcciones">US$ 0</b></div>
+      <div><span>🏦 Banco</span><b id="ahoBanco">US$ 0</b></div>
+      <div><span>📜 Bonos</span><b id="ahoBonos">US$ 0</b></div>
+    </div>
+  </div>
+
+  <!-- AGREGAR -->
+  <div class="hcard">
+    <div class="hcard-title">➕ Agregar ahorro</div>
+    <div class="argtipos">
+      <button type="button" class="ahotipo activo" data-tipo="Acción">📈 Acción</button>
+      <button type="button" class="ahotipo" data-tipo="Banco">🏦 Banco</button>
+      <button type="button" class="ahotipo" data-tipo="Bono">📜 Bono</button>
+    </div>
+
+    <label class="hlabel">Fecha</label>
+    <input type="date" id="ahoFecha">
+
+    <div id="ahoCamposAccion">
+      <label class="hlabel">Empresa</label>
+      <select id="ahoTicker" aria-label="Empresa"></select>
+      <input type="text" id="ahoTickerLibre" class="ahootro" placeholder="Ticker (ej: BABA)"
+             autocomplete="off" hidden>
+      <div class="hscan-row">
+        <div><label class="hlabel">Cuántas acciones</label>
+          <input type="text" id="ahoCantidad" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 12" autocomplete="off"></div>
+        <div><label class="hlabel">Precio de compra (USD)</label>
+          <input type="text" id="ahoPrecio" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 140" autocomplete="off"></div>
+      </div>
+      <div class="argcalc" id="ahoCalc"></div>
+    </div>
+
+    <div id="ahoCamposMonto">
+      <label class="hlabel" id="ahoLblEntidad">Banco</label>
+      <input type="text" id="ahoEntidad" placeholder="ej: Santander" autocomplete="off">
+      <div class="hscan-row">
+        <div><label class="hlabel">Monto</label>
+          <input type="text" id="ahoMonto" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 5000" autocomplete="off"></div>
+        <div><label class="hlabel">Moneda</label>
+          <select id="ahoMoneda"><option value="USD">USD</option><option value="UYU">UYU</option></select></div>
+      </div>
+    </div>
+
+    <label class="hlabel">Notas</label>
+    <input type="text" id="ahoNotas" placeholder="opcional" autocomplete="off">
+
+    <button type="button" id="ahoAdd">Agregar</button>
+    <div id="ahoStatus"></div>
+  </div>
+
+  <!-- POSICIONES -->
+  <div class="hcard">
+    <div class="hcard-title">📊 Lo que tengo
+      <button type="button" id="ahoRefresh" class="hmini">↻</button>
+    </div>
+    <div id="ahoList" class="aholist"></div>
+  </div>
+
+  <!-- MOVIMIENTOS -->
+  <div class="hcard">
+    <div class="hcard-title">📋 Movimientos <span class="hhint">tocá uno para editarlo</span></div>
+    <div id="ahoMovs" class="hmeal-list"></div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR AHORRO -->
+<div id="ahoModal">
+  <div class="hmodal-box">
+    <h3 id="ahoModalTit">Editar ahorro</h3>
+    <label class="hlabel">Fecha</label>
+    <input type="date" id="amFecha">
+    <div id="amCamposAccion">
+      <label class="hlabel">Ticker</label>
+      <input type="text" id="amTicker" autocomplete="off">
+      <div class="hscan-row">
+        <div><label class="hlabel">Cantidad</label><input type="text" id="amCantidad" inputmode="decimal"></div>
+        <div><label class="hlabel">Precio compra</label><input type="text" id="amPrecio" inputmode="decimal"></div>
+      </div>
+    </div>
+    <div id="amCamposMonto">
+      <label class="hlabel">Entidad</label>
+      <input type="text" id="amEntidad" autocomplete="off">
+      <div class="hscan-row">
+        <div><label class="hlabel">Monto</label><input type="text" id="amMonto" inputmode="decimal"></div>
+        <div><label class="hlabel">Moneda</label>
+          <select id="amMoneda"><option value="USD">USD</option><option value="UYU">UYU</option></select></div>
+      </div>
+    </div>
+    <label class="hlabel">Notas</label>
+    <input type="text" id="amNotas" autocomplete="off">
+    <div class="hmodal-actions">
+      <button type="button" id="amDelete" class="hdanger">Borrar</button>
+      <button type="button" id="amCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="amSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div id="argPanel" class="panel">
   <h1>Argentina <span id="argMes" class="hdate"></span></h1>
 
@@ -517,6 +624,7 @@
   // Reglas y categorías inyectadas desde Code.gs: una sola fuente de verdad.
   var CAT_RULES_RAW = <?!= catRulesJson ?>;
   var CATEGORIAS    = <?!= categoriasJson ?>;
+  var TICKERS       = <?!= tickersJson ?>;
 </script>
 <?!= include('form-scripts') ?>
 </body></html>

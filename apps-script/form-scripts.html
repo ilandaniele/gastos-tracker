@@ -429,6 +429,7 @@
     // que quedó en la hoja y no el form viejo. Si hay cambios sin guardar se
     // respetan y no se pisan.
     if (panelId === 'argPanel') loadArg();
+    if (panelId === 'ahoPanel') loadAhorros();
     if (panelId === 'habitPanel') {
       if (!habitLoadedOnce) loadHabitToday();
       else if (!H.dirty) loadDay(H.date || todayISO());
@@ -441,6 +442,350 @@
     (function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-panel')); }); })(tabBtns[t]);
   }
   document.getElementById('refreshDash').addEventListener('click', function(){ loadDashboard(); });
+
+  // === AHORROS =============================================================
+  // Los ahorros no son de un mes: se leen enteros de su propia hoja. Cada
+  // movimiento es una compra o un deposito; las posiciones salen de agruparlos.
+  var AHO = { tipo: 'Acción', movimientos: [], posiciones: [], editando: null, cargado: false };
+
+  function ahoEl(id) { return document.getElementById(id); }
+
+  function ahoStatus(txt, cls) {
+    var el = ahoEl('ahoStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = txt || '';
+  }
+
+  function ahoUsd(n) {
+    var v = Math.round((Number(n) || 0) * 100) / 100;
+    return 'US$ ' + v.toLocaleString('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+  function ahoUyu(n) {
+    return '$ ' + Math.round(Number(n) || 0).toLocaleString('es-UY');
+  }
+
+  // El logo sale del dominio de la empresa. Si DuckDuckGo no lo tiene se prueba
+  // Google, y si tampoco queda un badge con el ticker: la fila nunca se rompe
+  // por un logo que no cargo.
+  function ahoLogo(dominio, ticker, tipo) {
+    var tk = String(ticker || '').slice(0, 4);
+    if (!dominio) {
+      var ico = tipo === 'Banco' ? '🏦' : (tipo === 'Bono' ? '📜' : (tk || '?'));
+      return '<span class="aholg badge">' + esc(ico) + '</span>';
+    }
+    return '<img class="aholg" alt="" src="https://icons.duckduckgo.com/ip3/' + esc(dominio) + '.ico"' +
+           ' data-goo="https://www.google.com/s2/favicons?domain=' + esc(dominio) + '&sz=64"' +
+           ' data-tk="' + esc(tk) + '">';
+  }
+
+  // Engancha el fallback despues de pintar. Se hace con listeners y no con
+  // onerror inline porque el codigo vive dentro de una IIFE.
+  function ahoEngancharLogos(box) {
+    var imgs = box.querySelectorAll('img.aholg');
+    for (var i = 0; i < imgs.length; i++) {
+      (function(img) {
+        function falla() {
+          if (img.getAttribute('data-paso') === '2') {
+            var sp = document.createElement('span');
+            sp.className = 'aholg badge';
+            sp.textContent = img.getAttribute('data-tk') || '?';
+            if (img.parentNode) img.parentNode.replaceChild(sp, img);
+            return;
+          }
+          img.setAttribute('data-paso', '2');
+          img.src = img.getAttribute('data-goo');
+        }
+        img.addEventListener('error', falla);
+        // Si venia fallado del cache el evento ya paso y no se dispara solo
+        if (img.complete && img.naturalWidth === 0) falla();
+      })(imgs[i]);
+    }
+  }
+
+  function ahoPintarTotales(t) {
+    t = t || {};
+    if (ahoEl('ahoTotalUsd')) ahoEl('ahoTotalUsd').textContent = ahoUsd(t.totalUsd);
+    if (ahoEl('ahoTotalUyu')) ahoEl('ahoTotalUyu').textContent = ahoUyu(t.totalUyu);
+    if (ahoEl('ahoAcciones')) ahoEl('ahoAcciones').textContent = ahoUsd(t.enAcciones);
+    if (ahoEl('ahoBanco'))    ahoEl('ahoBanco').textContent    = ahoUsd(t.enBanco);
+    if (ahoEl('ahoBonos'))    ahoEl('ahoBonos').textContent    = ahoUsd(t.enBonos);
+    if (ahoEl('ahoCotiz')) {
+      ahoEl('ahoCotiz').textContent = t.cotizacion ? ('US$ 1 = $ ' + Math.round(t.cotizacion * 100) / 100) : '';
+    }
+  }
+
+  function ahoPintarPosiciones() {
+    var box = ahoEl('ahoList');
+    if (!box) return;
+    if (!AHO.posiciones.length) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Todavía no cargaste ningún ahorro</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < AHO.posiciones.length; i++) {
+      var p = AHO.posiciones[i];
+      var sub = p.tipo === 'Acción'
+        ? (p.cantidad + (p.cantidad === 1 ? ' acción' : ' acciones') +
+           (p.precioHoy ? ' · US$ ' + (Math.round(p.precioHoy * 100) / 100) : ''))
+        : (p.tipo === 'Banco' ? 'Banco' : 'Bono');
+      html += '<div class="ahorow">' +
+        ahoLogo(p.dominio, p.ticker, p.tipo) +
+        '<span class="ahonom"><b>' + esc(p.nombre) + '</b><span>' + esc(sub) + '</span></span>' +
+        '<span class="ahoval"><b>' + ahoUsd(p.valorHoyUsd) + '</b>' +
+        (p.tipo === 'Acción' ? '<span>puesto ' + ahoUsd(p.invertidoUsd) + '</span>' : '') +
+        '</span></div>';
+    }
+    box.innerHTML = html;
+    ahoEngancharLogos(box);
+  }
+
+  function ahoPintarMovimientos() {
+    var box = ahoEl('ahoMovs');
+    if (!box) return;
+    if (!AHO.movimientos.length) {
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos</div>';
+      return;
+    }
+    var html = '';
+    for (var i = AHO.movimientos.length - 1; i >= 0; i--) {
+      var m = AHO.movimientos[i];
+      var det = m.tipo === 'Acción'
+        ? (m.ticker + ' · ' + m.cantidad + ' x US$ ' + m.precioUsd)
+        : (m.entidad + (m.moneda === 'UYU' ? ' · $ ' + m.monto : ' · US$ ' + m.monto));
+      html += '<div class="hmeal-row" data-row="' + m.row + '">' +
+        '<span class="mt">' + esc((m.fecha || '').slice(5)) + '</span>' +
+        '<span class="mn">' + esc(det) + '</span>' +
+        '<span class="mm">' + ahoUsd(m.invertidoUsd) + '</span>' +
+      '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('.hmeal-row');
+    for (var k = 0; k < rows.length; k++) {
+      (function(el) {
+        el.addEventListener('click', function() { ahoAbrirModal(parseInt(el.getAttribute('data-row'), 10)); });
+      })(rows[k]);
+    }
+  }
+
+  function ahoPintar(d) {
+    AHO.movimientos = (d && d.movimientos) || [];
+    AHO.posiciones = (d && d.posiciones) || [];
+    ahoPintarTotales(d && d.totales);
+    ahoPintarPosiciones();
+    ahoPintarMovimientos();
+  }
+
+  function loadAhorros(msgOk) {
+    ahoStatus(msgOk ? 'Guardando...' : 'Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { ahoStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        AHO.cargado = true;
+        ahoStatus(msgOk || '', msgOk ? 'ok' : '');
+        ahoPintar(r);
+      })
+      .withFailureHandler(function(err) {
+        ahoStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .getSavingsDataSafe();
+  }
+
+  // El selector de empresas se arma con el mismo mapa que usa el backend
+  (function() {
+    var sel = ahoEl('ahoTicker');
+    if (!sel || typeof TICKERS !== 'object') return;
+    var tks = Object.keys(TICKERS).sort(function(a, b) {
+      return TICKERS[a].nombre.localeCompare(TICKERS[b].nombre);
+    });
+    var html = '<option value="">Elegí la empresa…</option>';
+    for (var i = 0; i < tks.length; i++) {
+      html += '<option value="' + tks[i] + '">' + esc(TICKERS[tks[i]].nombre) + ' (' + tks[i] + ')</option>';
+    }
+    sel.innerHTML = html + '<option value="__otro">✏️ Otra…</option>';
+  })();
+
+  function ahoTickerElegido() {
+    var sel = ahoEl('ahoTicker');
+    if (!sel) return '';
+    if (sel.value === '__otro') {
+      var libre = ahoEl('ahoTickerLibre');
+      return libre ? libre.value.trim().toUpperCase() : '';
+    }
+    return sel.value || '';
+  }
+
+  if (ahoEl('ahoTicker')) ahoEl('ahoTicker').addEventListener('change', function() {
+    var libre = ahoEl('ahoTickerLibre');
+    var otro = this.value === '__otro';
+    if (libre) {
+      libre.hidden = !otro;
+      if (otro) libre.focus(); else libre.value = '';
+    }
+    ahoCalcular();
+  });
+
+  // Muestra cuanto vas a poner antes de guardar, para no cargar un cero de mas
+  function ahoCalcular() {
+    var box = ahoEl('ahoCalc');
+    if (!box) return;
+    var c = parseFloat(String((ahoEl('ahoCantidad') || {}).value || '').replace(',', '.'));
+    var p = parseFloat(String((ahoEl('ahoPrecio') || {}).value || '').replace(',', '.'));
+    box.textContent = (isFinite(c) && isFinite(p) && c > 0 && p > 0)
+      ? ('Vas a poner ' + ahoUsd(c * p)) : '';
+  }
+  ['ahoCantidad', 'ahoPrecio'].forEach(function(id) {
+    var el = ahoEl(id);
+    if (el) el.addEventListener('input', ahoCalcular);
+  });
+
+  // Acción muestra ticker+cantidad+precio; banco y bono, entidad+monto
+  function ahoSetTipo(tipo) {
+    AHO.tipo = tipo;
+    var bs = document.querySelectorAll('.ahotipo');
+    for (var i = 0; i < bs.length; i++) {
+      bs[i].classList.toggle('activo', bs[i].getAttribute('data-tipo') === tipo);
+    }
+    var esAccion = tipo === 'Acción';
+    if (ahoEl('ahoCamposAccion')) ahoEl('ahoCamposAccion').hidden = !esAccion;
+    if (ahoEl('ahoCamposMonto')) ahoEl('ahoCamposMonto').hidden = esAccion;
+    if (ahoEl('ahoLblEntidad')) ahoEl('ahoLblEntidad').textContent = tipo === 'Bono' ? 'Bono' : 'Banco';
+    if (ahoEl('ahoEntidad')) {
+      ahoEl('ahoEntidad').placeholder = tipo === 'Bono' ? 'ej: Bono UY 2030' : 'ej: Santander';
+    }
+    ahoStatus('', '');
+  }
+  (function() {
+    var bs = document.querySelectorAll('.ahotipo');
+    for (var i = 0; i < bs.length; i++) {
+      (function(b) {
+        b.addEventListener('click', function() { ahoSetTipo(b.getAttribute('data-tipo')); });
+      })(bs[i]);
+    }
+    ahoSetTipo('Acción');
+  })();
+
+  function ahoLimpiarForm() {
+    ['ahoCantidad', 'ahoPrecio', 'ahoEntidad', 'ahoMonto', 'ahoNotas', 'ahoTickerLibre'].forEach(function(id) {
+      if (ahoEl(id)) ahoEl(id).value = '';
+    });
+    if (ahoEl('ahoTicker')) ahoEl('ahoTicker').value = '';
+    if (ahoEl('ahoTickerLibre')) ahoEl('ahoTickerLibre').hidden = true;
+    ahoCalcular();
+  }
+
+  if (ahoEl('ahoAdd')) ahoEl('ahoAdd').addEventListener('click', function() {
+    var payload = {
+      tipo: AHO.tipo,
+      fecha: (ahoEl('ahoFecha') && ahoEl('ahoFecha').value) || todayISO(),
+      notas: (ahoEl('ahoNotas') && ahoEl('ahoNotas').value.trim()) || ''
+    };
+    if (AHO.tipo === 'Acción') {
+      payload.ticker = ahoTickerElegido();
+      if (!payload.ticker) { ahoStatus('Elegí la empresa', 'err'); return; }
+      payload.cantidad = (ahoEl('ahoCantidad') && ahoEl('ahoCantidad').value.trim()) || '';
+      payload.precioUsd = (ahoEl('ahoPrecio') && ahoEl('ahoPrecio').value.trim()) || '';
+      if (!payload.cantidad) { ahoStatus('¿Cuántas acciones compraste?', 'err'); return; }
+      if (!payload.precioUsd) { ahoStatus('¿A qué precio las compraste?', 'err'); return; }
+    } else {
+      payload.entidad = (ahoEl('ahoEntidad') && ahoEl('ahoEntidad').value.trim()) || '';
+      if (!payload.entidad) { ahoStatus(AHO.tipo === 'Bono' ? '¿Qué bono?' : '¿Qué banco?', 'err'); return; }
+      payload.monto = (ahoEl('ahoMonto') && ahoEl('ahoMonto').value.trim()) || '';
+      if (!payload.monto) { ahoStatus('Poné el monto', 'err'); return; }
+      payload.moneda = (ahoEl('ahoMoneda') && ahoEl('ahoMoneda').value) || 'USD';
+    }
+    ahoStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { ahoStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        ahoLimpiarForm();
+        loadAhorros('✓ Agregado');
+      })
+      .withFailureHandler(function(err) {
+        ahoStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addSavingsSafe(payload);
+  });
+
+  if (ahoEl('ahoRefresh')) ahoEl('ahoRefresh').addEventListener('click', loadAhorros);
+
+  // ---------- Modal de edicion ----------
+  function ahoAbrirModal(row) {
+    var m = null;
+    for (var i = 0; i < AHO.movimientos.length; i++) {
+      if (AHO.movimientos[i].row === row) { m = AHO.movimientos[i]; break; }
+    }
+    if (!m) return;
+    AHO.editando = m;
+    var esAccion = m.tipo === 'Acción';
+    if (ahoEl('ahoModalTit')) ahoEl('ahoModalTit').textContent = 'Editar ' + m.tipo.toLowerCase();
+    if (ahoEl('amFecha')) ahoEl('amFecha').value = m.fecha || '';
+    if (ahoEl('amCamposAccion')) ahoEl('amCamposAccion').hidden = !esAccion;
+    if (ahoEl('amCamposMonto')) ahoEl('amCamposMonto').hidden = esAccion;
+    if (ahoEl('amTicker')) ahoEl('amTicker').value = m.ticker || '';
+    if (ahoEl('amCantidad')) ahoEl('amCantidad').value = m.cantidad != null ? m.cantidad : '';
+    if (ahoEl('amPrecio')) ahoEl('amPrecio').value = m.precioUsd != null ? m.precioUsd : '';
+    if (ahoEl('amEntidad')) ahoEl('amEntidad').value = m.entidad || '';
+    if (ahoEl('amMonto')) ahoEl('amMonto').value = m.monto != null ? m.monto : '';
+    if (ahoEl('amMoneda')) ahoEl('amMoneda').value = m.moneda || 'USD';
+    if (ahoEl('amNotas')) ahoEl('amNotas').value = m.notas || '';
+    if (ahoEl('ahoModal')) ahoEl('ahoModal').classList.add('show');
+  }
+  function ahoCerrarModal() {
+    AHO.editando = null;
+    if (ahoEl('ahoModal')) ahoEl('ahoModal').classList.remove('show');
+  }
+  if (ahoEl('amCancel')) ahoEl('amCancel').addEventListener('click', ahoCerrarModal);
+  if (ahoEl('ahoModal')) ahoEl('ahoModal').addEventListener('click', function(ev) {
+    if (ev.target === ahoEl('ahoModal')) ahoCerrarModal();
+  });
+
+  if (ahoEl('amSave')) ahoEl('amSave').addEventListener('click', function() {
+    var m = AHO.editando;
+    if (!m) return;
+    var payload = {
+      row: m.row, tipo: m.tipo,
+      fecha: (ahoEl('amFecha') && ahoEl('amFecha').value) || m.fecha,
+      notas: (ahoEl('amNotas') && ahoEl('amNotas').value.trim()) || ''
+    };
+    if (m.tipo === 'Acción') {
+      payload.ticker = (ahoEl('amTicker') && ahoEl('amTicker').value.trim().toUpperCase()) || '';
+      payload.cantidad = (ahoEl('amCantidad') && ahoEl('amCantidad').value.trim()) || '';
+      payload.precioUsd = (ahoEl('amPrecio') && ahoEl('amPrecio').value.trim()) || '';
+    } else {
+      payload.entidad = (ahoEl('amEntidad') && ahoEl('amEntidad').value.trim()) || '';
+      payload.monto = (ahoEl('amMonto') && ahoEl('amMonto').value.trim()) || '';
+      payload.moneda = (ahoEl('amMoneda') && ahoEl('amMoneda').value) || 'USD';
+    }
+    ahoStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { ahoStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        ahoCerrarModal();
+        loadAhorros('✓ Actualizado');
+      })
+      .withFailureHandler(function(err) {
+        ahoStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .updateSavingsSafe(payload);
+  });
+
+  if (ahoEl('amDelete')) ahoEl('amDelete').addEventListener('click', function() {
+    var m = AHO.editando;
+    if (!m) return;
+    if (!confirm('¿Borrar este movimiento de los ahorros?')) return;
+    ahoStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { ahoStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        ahoCerrarModal();
+        loadAhorros('✓ Borrado');
+      })
+      .withFailureHandler(function(err) {
+        ahoStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .deleteSavingsSafe({ row: m.row });
+  });
 
   // === Dashboard ===
   function fmt(n, cur) {

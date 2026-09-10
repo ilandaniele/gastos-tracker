@@ -149,6 +149,15 @@ const ROUTES = {
   habitPending: p => habitPending(p),
   echoParams: p => ({ ok: true, p: p }),
   argData: p => getArgentinaData(p.month),
+  ahorros: () => getSavingsData(),
+  addAhorro: p => addSavingsEntry(p),
+  updateAhorro: p => updateSavingsEntry(p),
+  deleteAhorro: p => deleteSavingsEntry(p),
+  precioAccion: p => {
+    const px = fetchStockPrice(p.ticker);
+    return px ? { ok: true, ticker: String(p.ticker).toUpperCase(), ...px }
+              : { ok: false, error: 'No se pudo traer el precio de ' + p.ticker };
+  },
   argAdd: p => addArgentinaEntry(p),
   argUpdate: p => updateArgentinaEntry(p),
   argDelete: p => deleteArgentinaEntry(p),
@@ -308,6 +317,9 @@ function formHtml() {
     .map(c => '<option>' + c + '</option>').join('');
   t.catRulesJson = JSON.stringify(catRulesSerializables());
   t.categoriasJson = JSON.stringify(categoriasOrdenadas());
+  // El mapa de empresas vive solo en Code.gs; el form lo usa para armar el
+  // selector y para saber de que dominio sacar el logo.
+  t.tickersJson = JSON.stringify(TICKER_INFO);
   return t.evaluate().getContent();
 }
 
@@ -2957,6 +2969,425 @@ function deleteHabitSheetIfEmpty(tabName, confirm) {
 
 
 // ============================================================================
+// === AHORROS: acciones, banco y bonos ======================================
+// Los ahorros son acumulativos, no de un mes: una accion comprada en marzo se
+// sigue teniendo en septiembre. Por eso viven en su propia hoja y no en un
+// bloque del tab del mes como Argentina.
+//
+// Cada fila es un movimiento (una compra, un deposito). Las posiciones salen de
+// agrupar: dos compras de NVDA son una sola posicion con el promedio ponderado.
+// La valuacion de las acciones usa el precio del dia; el banco y los bonos
+// valen lo que dice el monto.
+
+const SAVINGS_TAB = 'Ahorros';
+const SAVINGS_TITLE = '💰 AHORROS';
+const SAVINGS_HEADERS = ['Fecha', 'Tipo', 'Entidad', 'Ticker', 'Cantidad', 'Precio USD',
+                         'Monto', 'Moneda', 'Invertido USD', 'Precio hoy', 'Valor hoy USD', 'Notas'];
+const SAVINGS_TIPOS = ['Acción', 'Banco', 'Bono'];
+const SAVINGS_MONEDAS = ['USD', 'UYU'];
+const SAVINGS_TITLE_ROW = 1;
+const SAVINGS_TOTALS_ROW = 2;
+const SAVINGS_TOTAL_LABELS = ['Total (USD)', 'Total (UYU)', 'En acciones (USD)',
+                              'En banco (USD)', 'En bonos (USD)', 'Cotización usada'];
+const SAVINGS_HEADER_ROW = SAVINGS_TOTALS_ROW + SAVINGS_TOTAL_LABELS.length + 1;  // 9
+const SAVINGS_FIRST_ROW = SAVINGS_HEADER_ROW + 1;                                 // 10
+const SAVINGS_MAX_ROWS = 300;
+const SAVINGS_PRICE_TTL_SEC = 900;   // 15 min: los precios no se mueven tanto
+
+// Empresas conocidas: el ticker alcanza para sacar el nombre y el logo. Si el
+// ticker no esta aca igual se puede cargar — solo se pierde el logo lindo.
+const TICKER_INFO = {
+  NVDA:  { nombre: 'NVIDIA',          dominio: 'nvidia.com' },
+  AMD:   { nombre: 'AMD',             dominio: 'amd.com' },
+  AAPL:  { nombre: 'Apple',           dominio: 'apple.com' },
+  MSFT:  { nombre: 'Microsoft',       dominio: 'microsoft.com' },
+  GOOGL: { nombre: 'Alphabet',        dominio: 'google.com' },
+  GOOG:  { nombre: 'Alphabet',        dominio: 'google.com' },
+  AMZN:  { nombre: 'Amazon',          dominio: 'amazon.com' },
+  TSLA:  { nombre: 'Tesla',           dominio: 'tesla.com' },
+  META:  { nombre: 'Meta',            dominio: 'meta.com' },
+  NFLX:  { nombre: 'Netflix',         dominio: 'netflix.com' },
+  INTC:  { nombre: 'Intel',           dominio: 'intel.com' },
+  MELI:  { nombre: 'MercadoLibre',    dominio: 'mercadolibre.com' },
+  KO:    { nombre: 'Coca-Cola',       dominio: 'coca-cola.com' },
+  DIS:   { nombre: 'Disney',          dominio: 'disney.com' },
+  JPM:   { nombre: 'JPMorgan',        dominio: 'jpmorganchase.com' },
+  V:     { nombre: 'Visa',            dominio: 'visa.com' },
+  MA:    { nombre: 'Mastercard',      dominio: 'mastercard.com' },
+  PYPL:  { nombre: 'PayPal',          dominio: 'paypal.com' },
+  UBER:  { nombre: 'Uber',            dominio: 'uber.com' },
+  ABNB:  { nombre: 'Airbnb',          dominio: 'airbnb.com' },
+  PLTR:  { nombre: 'Palantir',        dominio: 'palantir.com' },
+  SHOP:  { nombre: 'Shopify',         dominio: 'shopify.com' },
+  SPOT:  { nombre: 'Spotify',         dominio: 'spotify.com' },
+  AVGO:  { nombre: 'Broadcom',        dominio: 'broadcom.com' },
+  TSM:   { nombre: 'TSMC',            dominio: 'tsmc.com' },
+  MU:    { nombre: 'Micron',          dominio: 'micron.com' },
+  QCOM:  { nombre: 'Qualcomm',        dominio: 'qualcomm.com' },
+  ARM:   { nombre: 'ARM',             dominio: 'arm.com' },
+  COIN:  { nombre: 'Coinbase',        dominio: 'coinbase.com' },
+  SPY:   { nombre: 'S&P 500 (SPY)',   dominio: 'ssga.com' },
+  VOO:   { nombre: 'S&P 500 (VOO)',   dominio: 'vanguard.com' },
+  VTI:   { nombre: 'Total Market',    dominio: 'vanguard.com' },
+  QQQ:   { nombre: 'Nasdaq 100',      dominio: 'invesco.com' }
+};
+
+function _tickerInfo(ticker) {
+  const t = String(ticker || '').trim().toUpperCase();
+  return TICKER_INFO[t] || null;
+}
+
+// Hoja de ahorros. Una sola para todo, no una por mes.
+function getOrCreateSavingsTab(ss) {
+  let sheet = ss.getSheetByName(SAVINGS_TAB);
+  if (sheet) { _savingsMigrar(sheet); return sheet; }
+
+  sheet = ss.insertSheet(SAVINGS_TAB);
+  sheet.getRange(SAVINGS_TITLE_ROW, 1).setValue(SAVINGS_TITLE)
+       .setFontWeight('bold').setFontSize(13);
+  _savingsEscribirEtiquetas(sheet);
+  sheet.getRange(SAVINGS_HEADER_ROW, 1, 1, SAVINGS_HEADERS.length)
+       .setValues([SAVINGS_HEADERS]).setFontWeight('bold').setBackground('#dcfce7');
+  sheet.setColumnWidth(1, 95);
+  sheet.setColumnWidth(3, 170);
+  sheet.setColumnWidth(SAVINGS_HEADERS.length, 200);
+  sheet.setFrozenRows(SAVINGS_HEADER_ROW);
+  return sheet;
+}
+
+// Autorepara encabezados y etiquetas si alguien los pisó a mano.
+function _savingsMigrar(sheet) {
+  const hdr = sheet.getRange(SAVINGS_HEADER_ROW, 1, 1, SAVINGS_HEADERS.length).getValues()[0];
+  const falta = SAVINGS_HEADERS.some((h, i) => _stripAccents(String(hdr[i] || '')) !== _stripAccents(h));
+  if (falta) {
+    sheet.getRange(SAVINGS_HEADER_ROW, 1, 1, SAVINGS_HEADERS.length)
+         .setValues([SAVINGS_HEADERS]).setFontWeight('bold').setBackground('#dcfce7');
+  }
+  sheet.getRange(SAVINGS_TITLE_ROW, 1).setValue(SAVINGS_TITLE);
+  _savingsEscribirEtiquetas(sheet);
+}
+
+function _savingsEscribirEtiquetas(sheet) {
+  const rng = sheet.getRange(SAVINGS_TOTALS_ROW, 1, SAVINGS_TOTAL_LABELS.length, 1);
+  const cur = rng.getValues().map(r => String(r[0] || ''));
+  if (cur.join('|') === SAVINGS_TOTAL_LABELS.join('|')) return;
+  rng.setValues(SAVINGS_TOTAL_LABELS.map(l => [l])).setFontColor('#666').setFontSize(10);
+  sheet.getRange(SAVINGS_TOTALS_ROW, 2, SAVINGS_TOTAL_LABELS.length, 1).setFontWeight('bold');
+}
+
+// El tipo tal como lo escribe la hoja puede venir sin tilde o en minuscula.
+// Se lo lleva a la forma oficial apenas se lee, asi nadie mas abajo tiene que
+// preocuparse por como estaba escrito.
+function _savingsTipoCanon(raw) {
+  const t = _stripAccents(String(raw || ''));
+  return SAVINGS_TIPOS.find(x => _stripAccents(x) === t) || String(raw || '').trim();
+}
+
+function _savingsCupo(sheet) {
+  return Math.max(0, Math.min(SAVINGS_MAX_ROWS, sheet.getMaxRows() - SAVINGS_FIRST_ROW + 1));
+}
+
+// Primera fila libre de la tabla (mira la fecha, col A)
+function _savingsNextRow(sheet) {
+  const cupo = _savingsCupo(sheet);
+  if (!cupo) throw new Error('La hoja de ahorros no tiene filas libres');
+  const vals = sheet.getRange(SAVINGS_FIRST_ROW, 1, cupo, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (!String(vals[i][0] || '').trim()) return SAVINGS_FIRST_ROW + i;
+  }
+  throw new Error('La hoja de ahorros llegó al máximo de ' + SAVINGS_MAX_ROWS + ' filas');
+}
+
+// Lee todos los movimientos cargados
+function _savingsRows(sheet) {
+  const cupo = _savingsCupo(sheet);
+  if (!cupo) return [];
+  const vals = sheet.getRange(SAVINGS_FIRST_ROW, 1, cupo, SAVINGS_HEADERS.length).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    if (!r[0] && !String(r[2] || '').trim()) continue;
+    const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+    out.push({
+      row: SAVINGS_FIRST_ROW + i,
+      fecha: d ? Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      tipo: _savingsTipoCanon(r[1]),
+      entidad: String(r[2] || '').trim(),
+      ticker: String(r[3] || '').trim().toUpperCase(),
+      cantidad: toNumber(r[4]),
+      precioUsd: toNumber(r[5]),
+      monto: toNumber(r[6]),
+      moneda: String(r[7] || 'USD').trim().toUpperCase(),
+      invertidoUsd: toNumber(r[8]) || 0,
+      precioHoy: toNumber(r[9]),
+      valorHoyUsd: toNumber(r[10]) || 0,
+      notas: String(r[11] || '')
+    });
+  }
+  return out;
+}
+
+// Precio del dia de un ticker. Yahoo devuelve de a un simbolo (el endpoint
+// batch pide auth), asi que se cachea 15 min para no pegarle en cada pintada.
+// Si falla, el llamador se queda con el ultimo precio que haya en la hoja: es
+// preferible un total un poco viejo que un total en cero.
+function fetchStockPrice(ticker) {
+  const t = String(ticker || '').trim().toUpperCase();
+  if (!t) return null;
+  const cache = CacheService.getScriptCache();
+  const key = 'px_' + t;
+  try {
+    const hit = cache.get(key);
+    if (hit) return { precio: parseFloat(hit), fuente: 'cache' };
+  } catch (e) {}
+
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+                encodeURIComponent(t) + '?interval=1d&range=1d';
+    const resp = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    if (resp.getResponseCode() !== 200) return null;
+    const data = JSON.parse(resp.getContentText());
+    const meta = data && data.chart && data.chart.result && data.chart.result[0] &&
+                 data.chart.result[0].meta;
+    const precio = meta && toNumber(meta.regularMarketPrice);
+    if (precio == null || precio <= 0) return null;
+    try { cache.put(key, String(precio), SAVINGS_PRICE_TTL_SEC); } catch (e) {}
+    return { precio: precio, fuente: 'yahoo', moneda: (meta.currency || 'USD') };
+  } catch (err) {
+    Logger.log('fetchStockPrice ' + t + ': ' + err.message);
+    return null;
+  }
+}
+
+// Recalcula precio y valor de cada fila, y pinta los totales de arriba.
+// Devuelve las filas ya valuadas para no tener que releer la hoja.
+function _savingsRepaint(sheet) {
+  const filas = _savingsRows(sheet);
+
+  // Un solo fetch por ticker, aunque haya varias compras de la misma empresa
+  const precios = {};
+  for (const f of filas) {
+    if (f.tipo !== 'Acción' || !f.ticker || precios[f.ticker] !== undefined) continue;
+    const px = fetchStockPrice(f.ticker);
+    precios[f.ticker] = px ? px.precio : null;
+  }
+
+  let enAcciones = 0, enBanco = 0, enBonos = 0;
+  const escribir = [];
+  for (const f of filas) {
+    let precioHoy = '', valor = 0;
+    if (f.tipo === 'Acción') {
+      // Sin precio nuevo se conserva el ultimo conocido, asi el total no se cae
+      const px = precios[f.ticker] != null ? precios[f.ticker] : f.precioHoy;
+      if (px != null && f.cantidad != null) { precioHoy = px; valor = f.cantidad * px; }
+      else { valor = f.invertidoUsd; }
+      enAcciones += valor;
+    } else {
+      valor = f.invertidoUsd;
+      if (f.tipo === 'Bono') enBonos += valor; else enBanco += valor;
+    }
+    f.precioHoy = precioHoy === '' ? null : precioHoy;
+    f.valorHoyUsd = valor;
+    escribir.push({ row: f.row, precioHoy: precioHoy, valor: valor });
+  }
+
+  for (const e of escribir) {
+    sheet.getRange(e.row, 10, 1, 2).setValues([[e.precioHoy, e.valor]]);
+  }
+
+  const totalUsd = enAcciones + enBanco + enBonos;
+  const cot = _savingsCotizacion();
+  sheet.getRange(SAVINGS_TOTALS_ROW, 2, SAVINGS_TOTAL_LABELS.length, 1).setValues([
+    [totalUsd], [totalUsd * cot], [enAcciones], [enBanco], [enBonos], [cot]
+  ]);
+
+  return {
+    filas: filas,
+    totales: {
+      totalUsd: totalUsd, totalUyu: totalUsd * cot, cotizacion: cot,
+      enAcciones: enAcciones, enBanco: enBanco, enBonos: enBonos
+    }
+  };
+}
+
+function _savingsCotizacion() {
+  try {
+    const r = fetchBcuRate();
+    if (r && r.rate) return r.rate;
+  } catch (e) {}
+  return COTIZ_FALLBACK;
+}
+
+// Agrupa los movimientos en posiciones: dos compras de NVDA son una sola
+// posicion, con la cantidad sumada y el precio promedio ponderado.
+function _savingsPosiciones(filas) {
+  const mapa = {};
+  for (const f of filas) {
+    const clave = f.tipo === 'Acción' ? 'A|' + f.ticker
+                                      : f.tipo + '|' + _stripAccents(f.entidad);
+    if (!mapa[clave]) {
+      const info = _tickerInfo(f.ticker);
+      mapa[clave] = {
+        clave: clave, tipo: f.tipo, ticker: f.ticker,
+        nombre: f.entidad || (info && info.nombre) || f.ticker,
+        dominio: info ? info.dominio : '',
+        cantidad: 0, invertidoUsd: 0, valorHoyUsd: 0,
+        precioHoy: f.precioHoy, movimientos: 0
+      };
+    }
+    const p = mapa[clave];
+    p.cantidad += (f.cantidad || 0);
+    p.invertidoUsd += (f.invertidoUsd || 0);
+    p.valorHoyUsd += (f.valorHoyUsd || 0);
+    p.movimientos += 1;
+    if (f.precioHoy != null) p.precioHoy = f.precioHoy;
+  }
+  return Object.keys(mapa).map(k => mapa[k])
+    .sort((a, b) => b.valorHoyUsd - a.valorHoyUsd);
+}
+
+// Normaliza lo que manda el cliente. Una accion necesita ticker y cantidad;
+// el banco y los bonos, un monto.
+function _normSaving(p) {
+  const tipoRaw = String(p.tipo || '').trim();
+  const tipo = SAVINGS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw));
+  if (!tipo) throw new Error('Tipo inválido: usá ' + SAVINGS_TIPOS.join(', '));
+
+  const fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  if (!parseLocalDate(fecha)) throw new Error('Fecha inválida');
+  const notas = String(p.notas || '').trim();
+
+  if (tipo === 'Acción') {
+    const ticker = String(p.ticker || '').trim().toUpperCase();
+    if (!ticker) throw new Error('Falta el ticker de la acción (NVDA, AMD, …)');
+    if (!/^[A-Z0-9.\-]{1,10}$/.test(ticker)) throw new Error('Ticker inválido: ' + ticker);
+    const cantidad = toNumber(String(p.cantidad == null ? '' : p.cantidad).replace(',', '.'));
+    if (cantidad == null || cantidad <= 0) throw new Error('Cantidad de acciones inválida');
+    const precio = toNumber(String(p.precioUsd == null ? '' : p.precioUsd).replace(',', '.'));
+    if (precio == null || precio < 0) throw new Error('Precio de compra inválido');
+    const info = _tickerInfo(ticker);
+    return {
+      fecha: fecha, tipo: tipo,
+      entidad: String(p.entidad || '').trim() || (info ? info.nombre : ticker),
+      ticker: ticker, cantidad: cantidad, precioUsd: precio,
+      monto: '', moneda: 'USD', invertidoUsd: cantidad * precio, notas: notas
+    };
+  }
+
+  const entidad = String(p.entidad || '').trim();
+  if (!entidad) throw new Error(tipo === 'Banco' ? 'Falta el banco' : 'Falta el nombre del bono');
+  const monto = toNumber(String(p.monto == null ? '' : p.monto).replace(',', '.'));
+  if (monto == null || monto <= 0) throw new Error('Monto inválido');
+  const moneda = SAVINGS_MONEDAS.indexOf(String(p.moneda || 'USD').toUpperCase()) >= 0
+    ? String(p.moneda || 'USD').toUpperCase() : 'USD';
+  const invertidoUsd = moneda === 'UYU' ? monto / _savingsCotizacion() : monto;
+  return {
+    fecha: fecha, tipo: tipo, entidad: entidad, ticker: '', cantidad: '', precioUsd: '',
+    monto: monto, moneda: moneda, invertidoUsd: invertidoUsd, notas: notas
+  };
+}
+
+function _savingsEscribirFila(sheet, row, e) {
+  sheet.getRange(row, 1, 1, 9).setValues([[
+    parseLocalDate(e.fecha), e.tipo, e.entidad, e.ticker, e.cantidad,
+    e.precioUsd, e.monto, e.moneda, e.invertidoUsd
+  ]]);
+  sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(row, SAVINGS_HEADERS.length).setValue(e.notas);
+}
+
+// Estado completo: movimientos, posiciones agrupadas y totales
+function getSavingsData() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateSavingsTab(ss);
+    const r = _savingsRepaint(sheet);
+    return {
+      ok: true, tab: SAVINGS_TAB,
+      movimientos: r.filas, posiciones: _savingsPosiciones(r.filas),
+      totales: r.totales, tipos: SAVINGS_TIPOS, monedas: SAVINGS_MONEDAS
+    };
+  } catch (err) {
+    Logger.log('getSavingsData: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Agrega un movimiento. p: { tipo, fecha, entidad, ticker, cantidad, precioUsd,
+//                            monto, moneda, notas }
+function addSavingsEntry(p) {
+  const e = _normSaving(p || {});
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let row, res;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateSavingsTab(ss);
+    row = _savingsNextRow(sheet);
+    _savingsEscribirFila(sheet, row, e);
+    SpreadsheetApp.flush();
+    res = _savingsRepaint(sheet);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: SAVINGS_TAB, row: row, written: e, totales: res.totales };
+}
+
+// Edita un movimiento ya cargado. p: { row, ...campos }
+function updateSavingsEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < SAVINGS_FIRST_ROW) throw new Error('Fila inválida');
+  const e = _normSaving(p || {});
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let res;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateSavingsTab(ss);
+    const cur = sheet.getRange(row, 1, 1, SAVINGS_HEADERS.length).getValues()[0];
+    if (!cur[0] && !String(cur[2] || '').trim()) {
+      throw new Error('Esa fila está vacía — recargá los ahorros e intentá de nuevo');
+    }
+    _savingsEscribirFila(sheet, row, e);
+    SpreadsheetApp.flush();
+    res = _savingsRepaint(sheet);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: SAVINGS_TAB, row: row, written: e, totales: res.totales };
+}
+
+// Borra un movimiento.
+function deleteSavingsEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < SAVINGS_FIRST_ROW) throw new Error('Fila inválida');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let borrado, res;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateSavingsTab(ss);
+    const cur = sheet.getRange(row, 1, 1, SAVINGS_HEADERS.length).getValues()[0];
+    if (!cur[0] && !String(cur[2] || '').trim()) throw new Error('Esa fila ya está vacía');
+    borrado = String(cur[2] || cur[3] || '');
+    // Se limpia en vez de deleteRow para no correr las filas de abajo: el
+    // cliente guarda el numero de fila como id.
+    sheet.getRange(row, 1, 1, SAVINGS_HEADERS.length).clearContent();
+    SpreadsheetApp.flush();
+    res = _savingsRepaint(sheet);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: SAVINGS_TAB, deleted: borrado, totales: res.totales };
+}
+
+
 // === ARGENTINA: cargas de plata, gastos en ARS y deuda con mama =============
 // ============================================================================
 //
@@ -3378,6 +3809,23 @@ function setArgDeudaAntes(monthOpt, usdRaw) {
 }
 
 // === Wrappers para google.script.run ===
+function getSavingsDataSafe() {
+  try { return getSavingsData(); }
+  catch (err) { Logger.log('getSavingsDataSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function addSavingsSafe(data) {
+  try { return addSavingsEntry(data || {}); }
+  catch (err) { Logger.log('addSavingsSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function updateSavingsSafe(data) {
+  try { return updateSavingsEntry(data || {}); }
+  catch (err) { Logger.log('updateSavingsSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function deleteSavingsSafe(data) {
+  try { return deleteSavingsEntry(data || {}); }
+  catch (err) { Logger.log('deleteSavingsSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
 function getArgentinaDataSafe(month) {
   try { return getArgentinaData(month); }
   catch (err) { return { ok: false, error: err.message }; }
