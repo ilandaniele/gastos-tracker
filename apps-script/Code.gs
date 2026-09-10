@@ -2987,7 +2987,10 @@ const SAVINGS_TIPOS = ['Acción', 'Banco', 'Bono'];
 const SAVINGS_MONEDAS = ['USD', 'UYU'];
 const SAVINGS_TITLE_ROW = 1;
 const SAVINGS_TOTALS_ROW = 2;
-const SAVINGS_TOTAL_LABELS = ['Total (USD)', 'Total (UYU)', 'En acciones (USD)',
+// La ganancia se mide SOLO sobre las acciones: el banco y los bonos valen lo
+// que pusiste, asi que meterlos en el promedio solo diluiria el porcentaje.
+const SAVINGS_TOTAL_LABELS = ['Total (USD)', 'Total (UYU)', 'Invertido en acciones (USD)',
+                              'Ganancia acciones (USD)', 'En acciones (USD)',
                               'En banco (USD)', 'En bonos (USD)', 'Cotización usada'];
 const SAVINGS_HEADER_ROW = SAVINGS_TOTALS_ROW + SAVINGS_TOTAL_LABELS.length + 1;  // 9
 const SAVINGS_FIRST_ROW = SAVINGS_HEADER_ROW + 1;                                 // 10
@@ -3065,6 +3068,19 @@ function _savingsMigrar(sheet) {
   }
   sheet.getRange(SAVINGS_TITLE_ROW, 1).setValue(SAVINGS_TITLE);
   _savingsEscribirEtiquetas(sheet);
+
+  // Al agregar filas de totales el header bajo de lugar y arriba quedo el
+  // viejo. Se borra SOLO si es realmente un header huerfano: si ahi hubiera
+  // datos de alguien, limpiar a ciegas se los comeria en silencio.
+  const primerHueco = SAVINGS_TOTALS_ROW + SAVINGS_TOTAL_LABELS.length;
+  for (let r = primerHueco; r < SAVINGS_HEADER_ROW; r++) {
+    const fila = sheet.getRange(r, 1, 1, SAVINGS_HEADERS.length).getValues()[0];
+    const esHeaderViejo = SAVINGS_HEADERS.every(
+      (h, i) => _stripAccents(String(fila[i] || '')) === _stripAccents(h));
+    const vacia = fila.every(v => v === '' || v == null);
+    if (esHeaderViejo || vacia) sheet.getRange(r, 1, 1, SAVINGS_HEADERS.length).clearContent();
+    else Logger.log('Ahorros: fila ' + r + ' tiene datos inesperados, no se toca');
+  }
 }
 
 function _savingsEscribirEtiquetas(sheet) {
@@ -3175,7 +3191,7 @@ function _savingsRepaint(sheet) {
     precios[f.ticker] = px ? px.precio : null;
   }
 
-  let enAcciones = 0, enBanco = 0, enBonos = 0;
+  let enAcciones = 0, enBanco = 0, enBonos = 0, invertidoAcciones = 0;
   const escribir = [];
   for (const f of filas) {
     let precioHoy = '', valor = 0;
@@ -3185,6 +3201,7 @@ function _savingsRepaint(sheet) {
       if (px != null && f.cantidad != null) { precioHoy = px; valor = f.cantidad * px; }
       else { valor = f.invertidoUsd; }
       enAcciones += valor;
+      invertidoAcciones += f.invertidoUsd;
     } else {
       valor = f.invertidoUsd;
       if (f.tipo === 'Bono') enBonos += valor; else enBanco += valor;
@@ -3199,18 +3216,29 @@ function _savingsRepaint(sheet) {
   }
 
   const totalUsd = enAcciones + enBanco + enBonos;
+  const gananciaUsd = enAcciones - invertidoAcciones;
   const cot = _savingsCotizacion();
   sheet.getRange(SAVINGS_TOTALS_ROW, 2, SAVINGS_TOTAL_LABELS.length, 1).setValues([
-    [totalUsd], [totalUsd * cot], [enAcciones], [enBanco], [enBonos], [cot]
+    [totalUsd], [totalUsd * cot], [invertidoAcciones], [gananciaUsd],
+    [enAcciones], [enBanco], [enBonos], [cot]
   ]);
 
   return {
     filas: filas,
     totales: {
       totalUsd: totalUsd, totalUyu: totalUsd * cot, cotizacion: cot,
-      enAcciones: enAcciones, enBanco: enBanco, enBonos: enBonos
+      enAcciones: enAcciones, enBanco: enBanco, enBonos: enBonos,
+      invertidoAcciones: invertidoAcciones, gananciaUsd: gananciaUsd,
+      gananciaPct: _savingsPct(gananciaUsd, invertidoAcciones)
     }
   };
+}
+
+// Porcentaje de ganancia. Sin nada invertido no hay porcentaje que calcular
+// (dividir por cero daria Infinity y la app mostraria "∞%").
+function _savingsPct(ganancia, invertido) {
+  if (!invertido) return null;
+  return Math.round((ganancia / invertido) * 1000) / 10;
 }
 
 function _savingsCotizacion() {
@@ -3245,8 +3273,16 @@ function _savingsPosiciones(filas) {
     p.movimientos += 1;
     if (f.precioHoy != null) p.precioHoy = f.precioHoy;
   }
-  return Object.keys(mapa).map(k => mapa[k])
-    .sort((a, b) => b.valorHoyUsd - a.valorHoyUsd);
+  return Object.keys(mapa).map(k => {
+    const p = mapa[k];
+    // Solo las acciones ganan o pierden: el banco y los bonos valen lo puesto
+    p.gananciaUsd = p.tipo === 'Acción' ? p.valorHoyUsd - p.invertidoUsd : 0;
+    p.gananciaPct = p.tipo === 'Acción' ? _savingsPct(p.gananciaUsd, p.invertidoUsd) : null;
+    // Sin precio del dia se valua al costo, pero eso NO es "no se movio": no
+    // sabemos cuanto vale. La app lo dice en vez de mostrar un +0% mentiroso.
+    p.sinPrecio = p.tipo === 'Acción' && p.precioHoy == null;
+    return p;
+  }).sort((a, b) => b.valorHoyUsd - a.valorHoyUsd);
 }
 
 // Normaliza lo que manda el cliente. Una accion necesita ticker y cantidad;

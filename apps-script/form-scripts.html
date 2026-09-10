@@ -461,6 +461,15 @@
     var v = Math.round((Number(n) || 0) * 100) / 100;
     return 'US$ ' + v.toLocaleString('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
+  // "+US$ 650 (+27,7%)" — el signo va siempre, para que se lea de un vistazo
+  // si ganaste o perdiste sin tener que comparar contra lo invertido.
+  function ahoGan(usd, pct) {
+    var signo = usd < 0 ? '−' : '+';
+    var txt = signo + ahoUsd(Math.abs(usd));
+    if (pct != null) txt += ' (' + signo + String(Math.abs(pct)).replace('.', ',') + '%)';
+    return txt;
+  }
+
   function ahoUyu(n) {
     return '$ ' + Math.round(Number(n) || 0).toLocaleString('es-UY');
   }
@@ -507,6 +516,17 @@
     t = t || {};
     if (ahoEl('ahoTotalUsd')) ahoEl('ahoTotalUsd').textContent = ahoUsd(t.totalUsd);
     if (ahoEl('ahoTotalUyu')) ahoEl('ahoTotalUyu').textContent = ahoUyu(t.totalUyu);
+    var gan = ahoEl('ahoGanancia');
+    if (gan) {
+      // Sin acciones cargadas no hay ganancia que mostrar, y un "+US$ 0" seco
+      // confunde mas de lo que informa.
+      if (!t.invertidoAcciones) { gan.hidden = true; }
+      else {
+        gan.hidden = false;
+        gan.textContent = (t.gananciaUsd < 0 ? '▼ ' : '▲ ') + ahoGan(t.gananciaUsd, t.gananciaPct);
+        gan.className = 'ahogan ' + (t.gananciaUsd < 0 ? 'baja' : 'sube');
+      }
+    }
     if (ahoEl('ahoAcciones')) ahoEl('ahoAcciones').textContent = ahoUsd(t.enAcciones);
     if (ahoEl('ahoBanco'))    ahoEl('ahoBanco').textContent    = ahoUsd(t.enBanco);
     if (ahoEl('ahoBonos'))    ahoEl('ahoBonos').textContent    = ahoUsd(t.enBonos);
@@ -533,7 +553,12 @@
         ahoLogo(p.dominio, p.ticker, p.tipo) +
         '<span class="ahonom"><b>' + esc(p.nombre) + '</b><span>' + esc(sub) + '</span></span>' +
         '<span class="ahoval"><b>' + ahoUsd(p.valorHoyUsd) + '</b>' +
-        (p.tipo === 'Acción' ? '<span>puesto ' + ahoUsd(p.invertidoUsd) + '</span>' : '') +
+        (p.sinPrecio
+          ? '<span class="gan nada">sin precio</span>'
+          : (p.tipo === 'Acción'
+            ? '<span class="gan ' + (p.gananciaUsd < 0 ? 'baja' : 'sube') + '">' +
+              ahoGan(p.gananciaUsd, p.gananciaPct) + '</span>'
+            : '')) +
         '</span></div>';
     }
     box.innerHTML = html;

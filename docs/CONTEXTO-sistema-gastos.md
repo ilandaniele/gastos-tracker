@@ -116,10 +116,11 @@ primera vez que se abre la sección.
 
 ```
 Fila 1      💰 AHORROS
-Filas 2-7   Totales calculados: Total (USD) | Total (UYU) | En acciones (USD) |
-            En banco (USD) | En bonos (USD) | Cotización usada
-Fila 9      Headers
-Fila 10+    Un movimiento por fila
+Filas 2-9   Totales calculados: Total (USD) | Total (UYU) |
+            Invertido en acciones (USD) | Ganancia acciones (USD) |
+            En acciones (USD) | En banco (USD) | En bonos (USD) | Cotización usada
+Fila 11     Headers
+Fila 12+    Un movimiento por fila
 ```
 
 **Columnas**: `Fecha | Tipo | Entidad | Ticker | Cantidad | Precio USD | Monto |
@@ -135,6 +136,12 @@ Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
 Cada fila es **un movimiento**, no una posición: dos compras de NVDA son dos filas
 y se agrupan al mostrarlas (cantidad sumada, valuadas al mismo precio). Así no se
 pierde a qué precio compraste cada vez.
+
+**Ganancia/pérdida**: se mide **solo sobre las acciones**. El banco y los bonos
+valen lo que pusiste, así que meterlos en el promedio solo diluiría el
+porcentaje. Se calcula por empresa y en total. Una acción cuyo precio no se pudo
+traer se valúa al costo (lo más seguro para el total) pero se marca `sinPrecio`:
+la app dice "sin precio" en vez de un +0% que haría creer que no se movió.
 
 **Precio de las acciones**: sale de Yahoo Finance
 (`query1.finance.yahoo.com/v8/finance/chart/<TICKER>`), sin API key, cacheado 15
