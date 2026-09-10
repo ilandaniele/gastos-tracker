@@ -116,11 +116,12 @@ primera vez que se abre la sección.
 
 ```
 Fila 1      💰 AHORROS
-Filas 2-9   Totales calculados: Total (USD) | Total (UYU) |
-            Invertido en acciones (USD) | Ganancia acciones (USD) |
-            En acciones (USD) | En banco (USD) | En bonos (USD) | Cotización usada
-Fila 11     Headers
-Fila 12+    Un movimiento por fila
+Filas 2-10  Totales calculados: Total (USD) | Total (UYU) |
+            Invertido en acciones (USD) | Comisiones pagadas (USD) |
+            Ganancia acciones (USD) | En acciones (USD) | En banco (USD) |
+            En bonos (USD) | Cotización usada
+Fila 12     Headers
+Fila 13+    Un movimiento por fila
 ```
 
 **Columnas**: `Fecha | Tipo | Entidad | Ticker | Cantidad | Precio USD | Comisión USD |

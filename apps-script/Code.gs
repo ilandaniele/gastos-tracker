@@ -2995,8 +2995,9 @@ const SAVINGS_TOTALS_ROW = 2;
 // La ganancia se mide SOLO sobre las acciones: el banco y los bonos valen lo
 // que pusiste, asi que meterlos en el promedio solo diluiria el porcentaje.
 const SAVINGS_TOTAL_LABELS = ['Total (USD)', 'Total (UYU)', 'Invertido en acciones (USD)',
-                              'Ganancia acciones (USD)', 'En acciones (USD)',
-                              'En banco (USD)', 'En bonos (USD)', 'Cotización usada'];
+                              'Comisiones pagadas (USD)', 'Ganancia acciones (USD)',
+                              'En acciones (USD)', 'En banco (USD)', 'En bonos (USD)',
+                              'Cotización usada'];
 const SAVINGS_HEADER_ROW = SAVINGS_TOTALS_ROW + SAVINGS_TOTAL_LABELS.length + 1;  // 9
 const SAVINGS_FIRST_ROW = SAVINGS_HEADER_ROW + 1;                                 // 10
 const SAVINGS_MAX_ROWS = 300;
@@ -3197,7 +3198,7 @@ function _savingsRepaint(sheet) {
     precios[f.ticker] = px ? px.precio : null;
   }
 
-  let enAcciones = 0, enBanco = 0, enBonos = 0, invertidoAcciones = 0;
+  let enAcciones = 0, enBanco = 0, enBonos = 0, invertidoAcciones = 0, comisiones = 0;
   const escribir = [];
   for (const f of filas) {
     let precioHoy = '', valor = 0;
@@ -3208,6 +3209,7 @@ function _savingsRepaint(sheet) {
       else { valor = f.invertidoUsd; }
       enAcciones += valor;
       invertidoAcciones += f.invertidoUsd;
+      comisiones += (f.comisionUsd || 0);
     } else {
       valor = f.invertidoUsd;
       if (f.tipo === 'Bono') enBonos += valor; else enBanco += valor;
@@ -3225,7 +3227,7 @@ function _savingsRepaint(sheet) {
   const gananciaUsd = enAcciones - invertidoAcciones;
   const cot = _savingsCotizacion();
   sheet.getRange(SAVINGS_TOTALS_ROW, 2, SAVINGS_TOTAL_LABELS.length, 1).setValues([
-    [totalUsd], [totalUsd * cot], [invertidoAcciones], [gananciaUsd],
+    [totalUsd], [totalUsd * cot], [invertidoAcciones], [comisiones], [gananciaUsd],
     [enAcciones], [enBanco], [enBonos], [cot]
   ]);
 
@@ -3234,7 +3236,8 @@ function _savingsRepaint(sheet) {
     totales: {
       totalUsd: totalUsd, totalUyu: totalUsd * cot, cotizacion: cot,
       enAcciones: enAcciones, enBanco: enBanco, enBonos: enBonos,
-      invertidoAcciones: invertidoAcciones, gananciaUsd: gananciaUsd,
+      invertidoAcciones: invertidoAcciones, comisionesUsd: comisiones,
+      gananciaUsd: gananciaUsd,
       gananciaPct: _savingsPct(gananciaUsd, invertidoAcciones)
     }
   };

@@ -528,6 +528,14 @@
         gan.className = 'ahogan ' + (t.gananciaUsd < 0 ? 'baja' : 'sube');
       }
     }
+    var com = ahoEl('ahoComisiones');
+    if (com) {
+      // Solo si hay algo que mostrar: un "US$ 0 de comisiones" es ruido.
+      com.hidden = !t.comisionesUsd;
+      if (t.comisionesUsd) {
+        com.textContent = 'Incluye ' + ahoUsd(t.comisionesUsd) + ' pagados en comisiones';
+      }
+    }
     if (ahoEl('ahoAcciones')) ahoEl('ahoAcciones').textContent = ahoUsd(t.enAcciones);
     if (ahoEl('ahoBanco'))    ahoEl('ahoBanco').textContent    = ahoUsd(t.enBanco);
     if (ahoEl('ahoBonos'))    ahoEl('ahoBonos').textContent    = ahoUsd(t.enBonos);
