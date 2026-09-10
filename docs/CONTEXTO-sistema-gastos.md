@@ -123,17 +123,26 @@ Fila 11     Headers
 Fila 12+    Un movimiento por fila
 ```
 
-**Columnas**: `Fecha | Tipo | Entidad | Ticker | Cantidad | Precio USD | Monto |
-Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
+**Columnas**: `Fecha | Tipo | Entidad | Ticker | Cantidad | Precio USD | Comisión USD |
+Monto | Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
 
 **Tipos**: `Acción`, `Banco`, `Bono`.
 
-- **Acción**: se carga ticker + cuántas, y después **el precio por acción o el
-  total gastado** — con la cantidad alcanza para sacar el que falte, en cualquiera
-  de las dos direcciones. Si vienen los dos se respetan tal cual: `cantidad x
-  precio` no tiene por qué dar lo gastado, porque las comisiones del broker viven
-  justo en esa diferencia y son plata que salió igual. `Invertido USD` es siempre
-  lo que gastaste de verdad. El valor de hoy usa el precio del día.
+- **Acción**: se carga ticker + cuántas, y después cualquier combinación de
+  **precio por acción**, **comisión** y **total gastado**. La identidad que
+  siempre cierra es:
+
+  ```
+  Invertido USD  =  Cantidad × Precio USD  +  Comisión USD
+     (gastado)          (las acciones)         (el broker)
+  ```
+
+  Del resto se deduce el que falte: con precio y total sale la comisión; con
+  total y comisión sale el precio (restando la comisión **primero**, para que no
+  quede repartida en el precio por acción y ensucie la ganancia de ahí en
+  adelante). Si mandan las tres y no cierran, se avisa en vez de elegir una en
+  silencio. La comisión cuenta como plata gastada, así que la ganancia queda
+  **neta** de comisiones. El valor de hoy usa el precio del día.
 - **Banco / Bono**: se carga entidad + monto + moneda. Valen lo que dice el monto;
   si es UYU se pasa a USD con la cotización del BCU.
 
@@ -177,7 +186,7 @@ Un ticker que no esté en el mapa igual se puede cargar: solo pierde el logo.
 | `?action=setKey&key=...` | Guarda la API key de Gemini en Script Properties |
 | `?action=hasKey` | Verifica si la key está seteada |
 | `?action=ahorros` | Movimientos + posiciones agrupadas + totales |
-| `?action=addAhorro&tipo=Acción&ticker=NVDA&cantidad=12&precioUsd=140` | Agrega una compra |
+| `?action=addAhorro&tipo=Acción&ticker=NVDA&cantidad=12&precioUsd=140&comisionUsd=5` | Agrega una compra |
 | `?action=addAhorro&tipo=Banco&entidad=Santander&monto=5000&moneda=USD` | Agrega un depósito |
 | `?action=updateAhorro&row=N&...` | Edita un movimiento |
 | `?action=deleteAhorro&row=N` | Borra un movimiento |
@@ -247,6 +256,13 @@ borrado.
 ---
 
 ## 9. Gotchas / problemas conocidos
+
+- **Los `?action=add…` son GET que escriben**: no son idempotentes. Un reintento
+  (recarga, timeout, un cliente que reintenta al seguir el redirect de Apps
+  Script) vuelve a ejecutar la escritura y duplica el registro. Verificando los
+  ahorros con un cliente que seguía redirects quedaron 5 compras idénticas de
+  AMD. Para probar a mano conviene **no seguir el redirect**, o releer y limpiar
+  después. Aplica igual a `addWater`, `addMeal` y a la carga de gastos.
 
 - **OAuth trabado**: si `UrlFetchApp` falla con error de permisos → revocar acceso en
   [myaccount.google.com/permissions](https://myaccount.google.com/permissions) ("Expense Webhook")

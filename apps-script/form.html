@@ -443,9 +443,13 @@
         <div><label class="hlabel">Precio por acción (USD)</label>
           <input type="text" id="ahoPrecio" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 140" autocomplete="off"></div>
       </div>
-      <label class="hlabel">Total gastado (USD)</label>
-      <input type="text" id="ahoGastado" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 1680" autocomplete="off">
-      <div class="hfield-hint">Completá dos y el tercero sale solo.</div>
+      <div class="hscan-row">
+        <div><label class="hlabel">Comisiones (USD)</label>
+          <input type="text" id="ahoComision" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 5" autocomplete="off"></div>
+        <div><label class="hlabel">Total gastado (USD)</label>
+          <input type="text" id="ahoGastado" inputmode="decimal" pattern="[0-9.,]*" placeholder="ej: 1685" autocomplete="off"></div>
+      </div>
+      <div class="hfield-hint">Acciones + comisiones = total gastado. Completá lo que sepas y el resto sale solo.</div>
       <div class="argcalc" id="ahoCalc"></div>
     </div>
 
@@ -495,8 +499,11 @@
         <div><label class="hlabel">Cantidad</label><input type="text" id="amCantidad" inputmode="decimal"></div>
         <div><label class="hlabel">Precio por acción</label><input type="text" id="amPrecio" inputmode="decimal"></div>
       </div>
-      <label class="hlabel">Total gastado (USD)</label>
-      <input type="text" id="amGastado" inputmode="decimal">
+      <div class="hscan-row">
+        <div><label class="hlabel">Comisiones</label><input type="text" id="amComision" inputmode="decimal"></div>
+        <div><label class="hlabel">Total gastado</label><input type="text" id="amGastado" inputmode="decimal"></div>
+      </div>
+      <div class="argcalc" id="amCalc"></div>
     </div>
     <div id="amCamposMonto">
       <label class="hlabel">Entidad</label>

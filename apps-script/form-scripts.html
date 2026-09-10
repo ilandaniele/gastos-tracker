@@ -548,7 +548,7 @@
       var p = AHO.posiciones[i];
       var sub = p.tipo === 'Acción'
         ? (p.cantidad + (p.cantidad === 1 ? ' acción' : ' acciones') +
-           (p.precioHoy ? ' · US$ ' + (Math.round(p.precioHoy * 100) / 100) : ''))
+           (p.precioHoy ? ' · ' + ahoUsd(p.precioHoy) : ''))
         : (p.tipo === 'Banco' ? 'Banco' : 'Bono');
       html += '<div class="ahorow">' +
         ahoLogo(p.dominio, p.ticker, p.tipo) +
@@ -577,7 +577,8 @@
     for (var i = AHO.movimientos.length - 1; i >= 0; i--) {
       var m = AHO.movimientos[i];
       var det = m.tipo === 'Acción'
-        ? (m.ticker + ' · ' + m.cantidad + ' x US$ ' + m.precioUsd)
+        ? (m.ticker + ' · ' + m.cantidad + ' x ' + ahoUsd(m.precioUsd) +
+           (m.comisionUsd ? ' + ' + ahoUsd(m.comisionUsd) + ' com.' : ''))
         : (m.entidad + (m.moneda === 'UYU' ? ' · $ ' + m.monto : ' · US$ ' + m.monto));
       html += '<div class="hmeal-row" data-row="' + m.row + '">' +
         '<span class="mt">' + esc((m.fecha || '').slice(5)) + '</span>' +
@@ -666,40 +667,50 @@
     el.value = String(Math.round(n * 100) / 100).replace('.', ',');
   }
 
-  // ids = { cantidad, precio, gastado, hint } — el mismo vinculo lo usan el
-  // formulario de alta y el modal, para que no haya dos reglas distintas segun
-  // donde cargues.
+  // ids = { cantidad, precio, comision, gastado, hint }. Los cuatro campos estan
+  // atados por la identidad que tiene que cerrar siempre:
+  //     cantidad x precio + comision = total gastado
+  // Se recuerda si el usuario venia cargando por precio o por total, para
+  // recalcular el otro y no pisarle lo que acaba de escribir.
+  // El mismo vinculo lo usan el alta y el modal: una sola regla.
   function ahoVincular(ids, estado) {
     function recalcular(cambio) {
       if (cambio === 'precio' || cambio === 'gastado') estado.ultimo = cambio;
       var c = ahoNum(ids.cantidad), p = ahoNum(ids.precio), g = ahoNum(ids.gastado);
+      var f = ahoNum(ids.comision) || 0;
 
-      if (c) {
-        if (cambio === 'precio' && p) { ahoSet(ids.gastado, c * p); g = c * p; }
-        else if (cambio === 'gastado' && g) { ahoSet(ids.precio, g / c); p = g / c; }
-        else if (cambio === 'cantidad') {
-          // Al cambiar la cantidad se recalcula el que el usuario NO escribio
-          if (estado.ultimo === 'gastado' && g) { ahoSet(ids.precio, g / c); p = g / c; }
-          else if (p) { ahoSet(ids.gastado, c * p); g = c * p; }
-        }
+      function desdePrecio() { if (c && p) { g = c * p + f; ahoSet(ids.gastado, g); } }
+      function desdeGastado() {
+        if (c && g && g - f > 0) { p = (g - f) / c; ahoSet(ids.precio, p); }
       }
+
+      if (cambio === 'precio') desdePrecio();
+      else if (cambio === 'gastado') desdeGastado();
+      else if (estado.ultimo === 'gastado') desdeGastado();
+      else desdePrecio();
 
       var box = ids.hint && ahoEl(ids.hint);
       if (box) {
-        box.textContent = (c && g) ? ('Vas a poner ' + ahoUsd(g) +
-          (p ? ' · ' + ahoUsd(p) + ' por acción' : '')) : '';
+        // Se muestra la cuenta abierta, no solo el resultado: asi se ve de una
+        // cuanto es de acciones y cuanto se lo lleva el broker.
+        box.textContent = (c && p)
+          ? (ahoUsd(c * p) + ' en acciones' + (f ? ' + ' + ahoUsd(f) + ' de comisión' : '') +
+             ' = ' + ahoUsd(c * p + f))
+          : '';
       }
     }
-    [['cantidad', 'cantidad'], ['precio', 'precio'], ['gastado', 'gastado']].forEach(function(par) {
-      var el = ahoEl(ids[par[0]]);
-      if (el) el.addEventListener('input', function() { recalcular(par[1]); });
+    ['cantidad', 'precio', 'comision', 'gastado'].forEach(function(campo) {
+      var el = ahoEl(ids[campo]);
+      if (el) el.addEventListener('input', function() { recalcular(campo); });
     });
     return recalcular;
   }
 
-  var ahoCalcular = ahoVincular(
-    { cantidad: 'ahoCantidad', precio: 'ahoPrecio', gastado: 'ahoGastado', hint: 'ahoCalc' }, AHO);
-  ahoVincular({ cantidad: 'amCantidad', precio: 'amPrecio', gastado: 'amGastado' }, AHO.modal);
+  var ahoCalcular = ahoVincular({ cantidad: 'ahoCantidad', precio: 'ahoPrecio',
+                                  comision: 'ahoComision', gastado: 'ahoGastado',
+                                  hint: 'ahoCalc' }, AHO);
+  ahoVincular({ cantidad: 'amCantidad', precio: 'amPrecio', comision: 'amComision',
+                gastado: 'amGastado', hint: 'amCalc' }, AHO.modal);
 
   // Acción muestra ticker+cantidad+precio; banco y bono, entidad+monto
   function ahoSetTipo(tipo) {
@@ -728,8 +739,8 @@
   })();
 
   function ahoLimpiarForm() {
-    ['ahoCantidad', 'ahoPrecio', 'ahoGastado', 'ahoEntidad', 'ahoMonto', 'ahoNotas',
-     'ahoTickerLibre'].forEach(function(id) {
+    ['ahoCantidad', 'ahoPrecio', 'ahoComision', 'ahoGastado', 'ahoEntidad', 'ahoMonto',
+     'ahoNotas', 'ahoTickerLibre'].forEach(function(id) {
       if (ahoEl(id)) ahoEl(id).value = '';
     });
     if (ahoEl('ahoTicker')) ahoEl('ahoTicker').value = '';
@@ -748,6 +759,7 @@
       if (!payload.ticker) { ahoStatus('Elegí la empresa', 'err'); return; }
       payload.cantidad = (ahoEl('ahoCantidad') && ahoEl('ahoCantidad').value.trim()) || '';
       payload.precioUsd = (ahoEl('ahoPrecio') && ahoEl('ahoPrecio').value.trim()) || '';
+      payload.comisionUsd = (ahoEl('ahoComision') && ahoEl('ahoComision').value.trim()) || '';
       payload.gastadoUsd = (ahoEl('ahoGastado') && ahoEl('ahoGastado').value.trim()) || '';
       if (!payload.cantidad) { ahoStatus('¿Cuántas acciones compraste?', 'err'); return; }
       if (!payload.precioUsd && !payload.gastadoUsd) {
@@ -792,8 +804,10 @@
     if (ahoEl('amTicker')) ahoEl('amTicker').value = m.ticker || '';
     if (ahoEl('amCantidad')) ahoEl('amCantidad').value = m.cantidad != null ? m.cantidad : '';
     if (ahoEl('amPrecio')) ahoEl('amPrecio').value = m.precioUsd != null ? m.precioUsd : '';
+    if (ahoEl('amComision')) ahoEl('amComision').value = m.comisionUsd ? m.comisionUsd : '';
     if (ahoEl('amGastado')) ahoEl('amGastado').value = m.invertidoUsd != null ? m.invertidoUsd : '';
     AHO.modal.ultimo = 'precio';
+    if (ahoEl('amCalc')) ahoEl('amCalc').textContent = '';
     if (ahoEl('amEntidad')) ahoEl('amEntidad').value = m.entidad || '';
     if (ahoEl('amMonto')) ahoEl('amMonto').value = m.monto != null ? m.monto : '';
     if (ahoEl('amMoneda')) ahoEl('amMoneda').value = m.moneda || 'USD';
@@ -821,6 +835,7 @@
       payload.ticker = (ahoEl('amTicker') && ahoEl('amTicker').value.trim().toUpperCase()) || '';
       payload.cantidad = (ahoEl('amCantidad') && ahoEl('amCantidad').value.trim()) || '';
       payload.precioUsd = (ahoEl('amPrecio') && ahoEl('amPrecio').value.trim()) || '';
+      payload.comisionUsd = (ahoEl('amComision') && ahoEl('amComision').value.trim()) || '';
       payload.gastadoUsd = (ahoEl('amGastado') && ahoEl('amGastado').value.trim()) || '';
     } else {
       payload.entidad = (ahoEl('amEntidad') && ahoEl('amEntidad').value.trim()) || '';

@@ -2981,8 +2981,13 @@ function deleteHabitSheetIfEmpty(tabName, confirm) {
 
 const SAVINGS_TAB = 'Ahorros';
 const SAVINGS_TITLE = '💰 AHORROS';
+// La comision tiene columna propia. Antes vivia implicita en la diferencia
+// entre cantidad x precio y lo invertido, asi que no se podia ver cuanto se le
+// estaba pagando al broker. La identidad que siempre cierra es:
+//     Invertido USD = Cantidad x Precio USD + Comisión USD
 const SAVINGS_HEADERS = ['Fecha', 'Tipo', 'Entidad', 'Ticker', 'Cantidad', 'Precio USD',
-                         'Monto', 'Moneda', 'Invertido USD', 'Precio hoy', 'Valor hoy USD', 'Notas'];
+                         'Comisión USD', 'Monto', 'Moneda', 'Invertido USD',
+                         'Precio hoy', 'Valor hoy USD', 'Notas'];
 const SAVINGS_TIPOS = ['Acción', 'Banco', 'Bono'];
 const SAVINGS_MONEDAS = ['USD', 'UYU'];
 const SAVINGS_TITLE_ROW = 1;
@@ -3132,12 +3137,13 @@ function _savingsRows(sheet) {
       ticker: String(r[3] || '').trim().toUpperCase(),
       cantidad: toNumber(r[4]),
       precioUsd: toNumber(r[5]),
-      monto: toNumber(r[6]),
-      moneda: String(r[7] || 'USD').trim().toUpperCase(),
-      invertidoUsd: toNumber(r[8]) || 0,
-      precioHoy: toNumber(r[9]),
-      valorHoyUsd: toNumber(r[10]) || 0,
-      notas: String(r[11] || '')
+      comisionUsd: toNumber(r[6]) || 0,
+      monto: toNumber(r[7]),
+      moneda: String(r[8] || 'USD').trim().toUpperCase(),
+      invertidoUsd: toNumber(r[9]) || 0,
+      precioHoy: toNumber(r[10]),
+      valorHoyUsd: toNumber(r[11]) || 0,
+      notas: String(r[12] || '')
     });
   }
   return out;
@@ -3212,7 +3218,7 @@ function _savingsRepaint(sheet) {
   }
 
   for (const e of escribir) {
-    sheet.getRange(e.row, 10, 1, 2).setValues([[e.precioHoy, e.valor]]);
+    sheet.getRange(e.row, 11, 1, 2).setValues([[e.precioHoy, e.valor]]);
   }
 
   const totalUsd = enAcciones + enBanco + enBonos;
@@ -3233,6 +3239,8 @@ function _savingsRepaint(sheet) {
     }
   };
 }
+
+function _r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
 // Porcentaje de ganancia. Sin nada invertido no hay porcentaje que calcular
 // (dividir por cero daria Infinity y la app mostraria "∞%").
@@ -3262,7 +3270,7 @@ function _savingsPosiciones(filas) {
         clave: clave, tipo: f.tipo, ticker: f.ticker,
         nombre: f.entidad || (info && info.nombre) || f.ticker,
         dominio: info ? info.dominio : '',
-        cantidad: 0, invertidoUsd: 0, valorHoyUsd: 0,
+        cantidad: 0, invertidoUsd: 0, valorHoyUsd: 0, comisionUsd: 0,
         precioHoy: f.precioHoy, movimientos: 0
       };
     }
@@ -3270,6 +3278,7 @@ function _savingsPosiciones(filas) {
     p.cantidad += (f.cantidad || 0);
     p.invertidoUsd += (f.invertidoUsd || 0);
     p.valorHoyUsd += (f.valorHoyUsd || 0);
+    p.comisionUsd += (f.comisionUsd || 0);
     p.movimientos += 1;
     if (f.precioHoy != null) p.precioHoy = f.precioHoy;
   }
@@ -3303,29 +3312,56 @@ function _normSaving(p) {
     const cantidad = toNumber(String(p.cantidad == null ? '' : p.cantidad).replace(',', '.'));
     if (cantidad == null || cantidad <= 0) throw new Error('Cantidad de acciones inválida');
 
-    // Se puede cargar de las dos formas: el precio por accion, o cuanto saliste
-    // gastando en total (que es lo que suele decir el broker). Con la cantidad
-    // alcanza para sacar el que falte.
+    // Tres numeros que siempre tienen que cerrar:
+    //     acciones (cantidad x precio) + comision = total gastado
+    // Se puede cargar cualquier combinacion; del resto se deduce el que falte.
     const num = v => toNumber(String(v == null ? '' : v).replace(',', '.'));
     let precio = num(p.precioUsd);
+    let comision = num(p.comisionUsd !== undefined ? p.comisionUsd : p.comision);
     let gastado = num(p.gastadoUsd !== undefined ? p.gastadoUsd : p.gastado);
+
     if (precio == null && gastado == null) {
       throw new Error('Poné el precio por acción o cuánto gastaste en total');
     }
     if (precio != null && precio < 0) throw new Error('Precio de compra inválido');
+    if (comision != null && comision < 0) throw new Error('La comisión no puede ser negativa');
     if (gastado != null && gastado < 0) throw new Error('Lo gastado no puede ser negativo');
-    if (precio == null) precio = gastado / cantidad;
-    // Si vinieron los dos se respetan tal cual: cantidad x precio no tiene por
-    // que dar lo gastado — las comisiones del broker viven justo en esa
-    // diferencia, y son plata que salio del bolsillo igual.
-    if (gastado == null) gastado = cantidad * precio;
+
+    if (precio != null && gastado != null) {
+      // Con precio y total, la comision es lo que sobra. Si mandaron las tres,
+      // se avisa cuando no cierran en vez de elegir una en silencio.
+      const costo = cantidad * precio;
+      if (comision == null) {
+        if (gastado - costo < -0.01) {
+          throw new Error('Lo gastado (US$ ' + _r2(gastado) + ') es menor que las acciones (US$ ' +
+                          _r2(costo) + '). Revisá el precio o el total.');
+        }
+        comision = Math.max(0, gastado - costo);
+      } else if (Math.abs(costo + comision - gastado) > 0.01) {
+        throw new Error('No cierra: US$ ' + _r2(costo) + ' de acciones + US$ ' + _r2(comision) +
+                        ' de comisión dan US$ ' + _r2(costo + comision) +
+                        ', no US$ ' + _r2(gastado));
+      }
+    } else if (precio != null) {
+      comision = comision || 0;
+      gastado = cantidad * precio + comision;
+    } else {
+      // Solo el total: se le resta la comision y recien ahi sale el precio por
+      // accion. Sin restarla, la comision quedaria repartida en el precio y
+      // ensuciaria la ganancia de ahi en adelante.
+      comision = comision || 0;
+      const costo = gastado - comision;
+      if (costo <= 0) throw new Error('La comisión no puede ser mayor o igual a lo gastado');
+      precio = costo / cantidad;
+    }
 
     const info = _tickerInfo(ticker);
     return {
       fecha: fecha, tipo: tipo,
       entidad: String(p.entidad || '').trim() || (info ? info.nombre : ticker),
-      ticker: ticker, cantidad: cantidad, precioUsd: precio,
-      monto: '', moneda: 'USD', invertidoUsd: gastado, notas: notas
+      ticker: ticker, cantidad: cantidad, precioUsd: precio, comisionUsd: comision,
+      monto: '', moneda: 'USD', costoUsd: cantidad * precio,
+      invertidoUsd: gastado, notas: notas
     };
   }
 
@@ -3338,14 +3374,14 @@ function _normSaving(p) {
   const invertidoUsd = moneda === 'UYU' ? monto / _savingsCotizacion() : monto;
   return {
     fecha: fecha, tipo: tipo, entidad: entidad, ticker: '', cantidad: '', precioUsd: '',
-    monto: monto, moneda: moneda, invertidoUsd: invertidoUsd, notas: notas
+    comisionUsd: '', monto: monto, moneda: moneda, invertidoUsd: invertidoUsd, notas: notas
   };
 }
 
 function _savingsEscribirFila(sheet, row, e) {
-  sheet.getRange(row, 1, 1, 9).setValues([[
+  sheet.getRange(row, 1, 1, 10).setValues([[
     parseLocalDate(e.fecha), e.tipo, e.entidad, e.ticker, e.cantidad,
-    e.precioUsd, e.monto, e.moneda, e.invertidoUsd
+    e.precioUsd, e.comisionUsd, e.monto, e.moneda, e.invertidoUsd
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, SAVINGS_HEADERS.length).setValue(e.notas);
