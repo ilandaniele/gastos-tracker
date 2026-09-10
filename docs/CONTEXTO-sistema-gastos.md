@@ -128,8 +128,12 @@ Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
 
 **Tipos**: `Acción`, `Banco`, `Bono`.
 
-- **Acción**: se carga ticker + cuántas + a qué precio. `Invertido USD` sale de
-  multiplicar. El valor de hoy usa el precio del día.
+- **Acción**: se carga ticker + cuántas, y después **el precio por acción o el
+  total gastado** — con la cantidad alcanza para sacar el que falte, en cualquiera
+  de las dos direcciones. Si vienen los dos se respetan tal cual: `cantidad x
+  precio` no tiene por qué dar lo gastado, porque las comisiones del broker viven
+  justo en esa diferencia y son plata que salió igual. `Invertido USD` es siempre
+  lo que gastaste de verdad. El valor de hoy usa el precio del día.
 - **Banco / Bono**: se carga entidad + monto + moneda. Valen lo que dice el monto;
   si es UYU se pasa a USD con la cotización del BCU.
 

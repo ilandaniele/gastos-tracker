@@ -3302,14 +3302,30 @@ function _normSaving(p) {
     if (!/^[A-Z0-9.\-]{1,10}$/.test(ticker)) throw new Error('Ticker inválido: ' + ticker);
     const cantidad = toNumber(String(p.cantidad == null ? '' : p.cantidad).replace(',', '.'));
     if (cantidad == null || cantidad <= 0) throw new Error('Cantidad de acciones inválida');
-    const precio = toNumber(String(p.precioUsd == null ? '' : p.precioUsd).replace(',', '.'));
-    if (precio == null || precio < 0) throw new Error('Precio de compra inválido');
+
+    // Se puede cargar de las dos formas: el precio por accion, o cuanto saliste
+    // gastando en total (que es lo que suele decir el broker). Con la cantidad
+    // alcanza para sacar el que falte.
+    const num = v => toNumber(String(v == null ? '' : v).replace(',', '.'));
+    let precio = num(p.precioUsd);
+    let gastado = num(p.gastadoUsd !== undefined ? p.gastadoUsd : p.gastado);
+    if (precio == null && gastado == null) {
+      throw new Error('Poné el precio por acción o cuánto gastaste en total');
+    }
+    if (precio != null && precio < 0) throw new Error('Precio de compra inválido');
+    if (gastado != null && gastado < 0) throw new Error('Lo gastado no puede ser negativo');
+    if (precio == null) precio = gastado / cantidad;
+    // Si vinieron los dos se respetan tal cual: cantidad x precio no tiene por
+    // que dar lo gastado — las comisiones del broker viven justo en esa
+    // diferencia, y son plata que salio del bolsillo igual.
+    if (gastado == null) gastado = cantidad * precio;
+
     const info = _tickerInfo(ticker);
     return {
       fecha: fecha, tipo: tipo,
       entidad: String(p.entidad || '').trim() || (info ? info.nombre : ticker),
       ticker: ticker, cantidad: cantidad, precioUsd: precio,
-      monto: '', moneda: 'USD', invertidoUsd: cantidad * precio, notas: notas
+      monto: '', moneda: 'USD', invertidoUsd: gastado, notas: notas
     };
   }
 

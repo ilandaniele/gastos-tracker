@@ -446,7 +446,8 @@
   // === AHORROS =============================================================
   // Los ahorros no son de un mes: se leen enteros de su propia hoja. Cada
   // movimiento es una compra o un deposito; las posiciones salen de agruparlos.
-  var AHO = { tipo: 'Acción', movimientos: [], posiciones: [], editando: null, cargado: false };
+  var AHO = { tipo: 'Acción', movimientos: [], posiciones: [], editando: null,
+              cargado: false, ultimo: 'precio', modal: { ultimo: 'precio' } };
 
   function ahoEl(id) { return document.getElementById(id); }
 
@@ -650,19 +651,55 @@
     ahoCalcular();
   });
 
-  // Muestra cuanto vas a poner antes de guardar, para no cargar un cero de mas
-  function ahoCalcular() {
-    var box = ahoEl('ahoCalc');
-    if (!box) return;
-    var c = parseFloat(String((ahoEl('ahoCantidad') || {}).value || '').replace(',', '.'));
-    var p = parseFloat(String((ahoEl('ahoPrecio') || {}).value || '').replace(',', '.'));
-    box.textContent = (isFinite(c) && isFinite(p) && c > 0 && p > 0)
-      ? ('Vas a poner ' + ahoUsd(c * p)) : '';
-  }
-  ['ahoCantidad', 'ahoPrecio'].forEach(function(id) {
+  // Cantidad, precio por accion y total gastado estan atados: con dos alcanza
+  // para sacar el tercero. Se guarda cual fue el ultimo campo que toco el
+  // usuario para recalcular el OTRO y no pisarle lo que acaba de escribir.
+  function ahoNum(id) {
     var el = ahoEl(id);
-    if (el) el.addEventListener('input', ahoCalcular);
-  });
+    var n = parseFloat(String((el && el.value) || '').replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : null;
+  }
+  function ahoSet(id, n) {
+    var el = ahoEl(id);
+    if (!el) return;
+    // Se redondea a centavos: 1680/12 tiene que quedar en 140, no en 139,999…
+    el.value = String(Math.round(n * 100) / 100).replace('.', ',');
+  }
+
+  // ids = { cantidad, precio, gastado, hint } — el mismo vinculo lo usan el
+  // formulario de alta y el modal, para que no haya dos reglas distintas segun
+  // donde cargues.
+  function ahoVincular(ids, estado) {
+    function recalcular(cambio) {
+      if (cambio === 'precio' || cambio === 'gastado') estado.ultimo = cambio;
+      var c = ahoNum(ids.cantidad), p = ahoNum(ids.precio), g = ahoNum(ids.gastado);
+
+      if (c) {
+        if (cambio === 'precio' && p) { ahoSet(ids.gastado, c * p); g = c * p; }
+        else if (cambio === 'gastado' && g) { ahoSet(ids.precio, g / c); p = g / c; }
+        else if (cambio === 'cantidad') {
+          // Al cambiar la cantidad se recalcula el que el usuario NO escribio
+          if (estado.ultimo === 'gastado' && g) { ahoSet(ids.precio, g / c); p = g / c; }
+          else if (p) { ahoSet(ids.gastado, c * p); g = c * p; }
+        }
+      }
+
+      var box = ids.hint && ahoEl(ids.hint);
+      if (box) {
+        box.textContent = (c && g) ? ('Vas a poner ' + ahoUsd(g) +
+          (p ? ' · ' + ahoUsd(p) + ' por acción' : '')) : '';
+      }
+    }
+    [['cantidad', 'cantidad'], ['precio', 'precio'], ['gastado', 'gastado']].forEach(function(par) {
+      var el = ahoEl(ids[par[0]]);
+      if (el) el.addEventListener('input', function() { recalcular(par[1]); });
+    });
+    return recalcular;
+  }
+
+  var ahoCalcular = ahoVincular(
+    { cantidad: 'ahoCantidad', precio: 'ahoPrecio', gastado: 'ahoGastado', hint: 'ahoCalc' }, AHO);
+  ahoVincular({ cantidad: 'amCantidad', precio: 'amPrecio', gastado: 'amGastado' }, AHO.modal);
 
   // Acción muestra ticker+cantidad+precio; banco y bono, entidad+monto
   function ahoSetTipo(tipo) {
@@ -691,7 +728,8 @@
   })();
 
   function ahoLimpiarForm() {
-    ['ahoCantidad', 'ahoPrecio', 'ahoEntidad', 'ahoMonto', 'ahoNotas', 'ahoTickerLibre'].forEach(function(id) {
+    ['ahoCantidad', 'ahoPrecio', 'ahoGastado', 'ahoEntidad', 'ahoMonto', 'ahoNotas',
+     'ahoTickerLibre'].forEach(function(id) {
       if (ahoEl(id)) ahoEl(id).value = '';
     });
     if (ahoEl('ahoTicker')) ahoEl('ahoTicker').value = '';
@@ -710,8 +748,12 @@
       if (!payload.ticker) { ahoStatus('Elegí la empresa', 'err'); return; }
       payload.cantidad = (ahoEl('ahoCantidad') && ahoEl('ahoCantidad').value.trim()) || '';
       payload.precioUsd = (ahoEl('ahoPrecio') && ahoEl('ahoPrecio').value.trim()) || '';
+      payload.gastadoUsd = (ahoEl('ahoGastado') && ahoEl('ahoGastado').value.trim()) || '';
       if (!payload.cantidad) { ahoStatus('¿Cuántas acciones compraste?', 'err'); return; }
-      if (!payload.precioUsd) { ahoStatus('¿A qué precio las compraste?', 'err'); return; }
+      if (!payload.precioUsd && !payload.gastadoUsd) {
+        ahoStatus('Poné el precio por acción o cuánto gastaste', 'err');
+        return;
+      }
     } else {
       payload.entidad = (ahoEl('ahoEntidad') && ahoEl('ahoEntidad').value.trim()) || '';
       if (!payload.entidad) { ahoStatus(AHO.tipo === 'Bono' ? '¿Qué bono?' : '¿Qué banco?', 'err'); return; }
@@ -750,6 +792,8 @@
     if (ahoEl('amTicker')) ahoEl('amTicker').value = m.ticker || '';
     if (ahoEl('amCantidad')) ahoEl('amCantidad').value = m.cantidad != null ? m.cantidad : '';
     if (ahoEl('amPrecio')) ahoEl('amPrecio').value = m.precioUsd != null ? m.precioUsd : '';
+    if (ahoEl('amGastado')) ahoEl('amGastado').value = m.invertidoUsd != null ? m.invertidoUsd : '';
+    AHO.modal.ultimo = 'precio';
     if (ahoEl('amEntidad')) ahoEl('amEntidad').value = m.entidad || '';
     if (ahoEl('amMonto')) ahoEl('amMonto').value = m.monto != null ? m.monto : '';
     if (ahoEl('amMoneda')) ahoEl('amMoneda').value = m.moneda || 'USD';
@@ -777,6 +821,7 @@
       payload.ticker = (ahoEl('amTicker') && ahoEl('amTicker').value.trim().toUpperCase()) || '';
       payload.cantidad = (ahoEl('amCantidad') && ahoEl('amCantidad').value.trim()) || '';
       payload.precioUsd = (ahoEl('amPrecio') && ahoEl('amPrecio').value.trim()) || '';
+      payload.gastadoUsd = (ahoEl('amGastado') && ahoEl('amGastado').value.trim()) || '';
     } else {
       payload.entidad = (ahoEl('amEntidad') && ahoEl('amEntidad').value.trim()) || '';
       payload.monto = (ahoEl('amMonto') && ahoEl('amMonto').value.trim()) || '';
