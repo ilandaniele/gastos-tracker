@@ -3331,19 +3331,29 @@ function _normSaving(p) {
     if (gastado != null && gastado < 0) throw new Error('Lo gastado no puede ser negativo');
 
     if (precio != null && gastado != null) {
-      // Con precio y total, la comision es lo que sobra. Si mandaron las tres,
-      // se avisa cuando no cierran en vez de elegir una en silencio.
+      // El precio por accion viene redondeado a centavos (lo redondea el form, y
+      // tambien el resumen del broker). Multiplicado por una cantidad
+      // fraccionada, ese redondeo se amplifica: 8,956358 acciones a 218,73
+      // "sobran" un centavo contra el total real. La tolerancia tiene que
+      // acompañar a la cantidad, no ser fija.
       const costo = cantidad * precio;
+      const tol = 0.01 + cantidad * 0.005;
       if (comision == null) {
-        if (gastado - costo < -0.01) {
+        if (gastado - costo < -tol) {
           throw new Error('Lo gastado (US$ ' + _r2(gastado) + ') es menor que las acciones (US$ ' +
                           _r2(costo) + '). Revisá el precio o el total.');
         }
         comision = Math.max(0, gastado - costo);
-      } else if (Math.abs(costo + comision - gastado) > 0.01) {
+      } else if (Math.abs(costo + comision - gastado) > tol) {
         throw new Error('No cierra: US$ ' + _r2(costo) + ' de acciones + US$ ' + _r2(comision) +
                         ' de comisión dan US$ ' + _r2(costo + comision) +
                         ', no US$ ' + _r2(gastado));
+      } else {
+        // Cierran dentro de lo que explica el redondeo. Lo gastado y la
+        // comision son plata exacta que el usuario conoce; el precio por accion
+        // es el derivado, asi que se recalcula con precision completa y no
+        // quedan centavos colgados en la hoja.
+        precio = (gastado - comision) / cantidad;
       }
     } else if (precio != null) {
       comision = comision || 0;

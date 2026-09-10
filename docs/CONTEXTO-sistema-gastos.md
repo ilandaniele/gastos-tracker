@@ -142,7 +142,15 @@ Monto | Moneda | Invertido USD | Precio hoy | Valor hoy USD | Notas`
   total y comisión sale el precio (restando la comisión **primero**, para que no
   quede repartida en el precio por acción y ensucie la ganancia de ahí en
   adelante). Si mandan las tres y no cierran, se avisa en vez de elegir una en
-  silencio. La comisión cuenta como plata gastada, así que la ganancia queda
+  silencio.
+
+  La tolerancia de ese chequeo **escala con la cantidad**: el precio por acción
+  viene redondeado a centavos (lo redondea el form, y también el resumen del
+  broker), y multiplicado por una cantidad fraccionada ese redondeo se amplifica
+  — 8,956358 acciones a 218,73 "sobran" un centavo contra el total real. Cuando
+  las tres cierran dentro de ese margen, lo gastado y la comisión se conservan
+  exactos (son plata que el usuario conoce) y el precio se **recalcula con
+  precisión completa**, que es el derivado. La comisión cuenta como plata gastada, así que la ganancia queda
   **neta** de comisiones. El valor de hoy usa el precio del día.
 - **Banco / Bono**: se carga entidad + monto + moneda. Valen lo que dice el monto;
   si es UYU se pasa a USD con la cotización del BCU.
