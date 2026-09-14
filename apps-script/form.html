@@ -99,6 +99,26 @@
   <button type="submit" id="submitBtn">Guardar gasto</button>
   <div id="status"></div>
 </form>
+
+<details id="ingresoSection" style="margin-top:12px">
+  <summary style="font-size:15px;font-weight:600;cursor:pointer;padding:8px 4px;list-style:none;display:flex;align-items:center;gap:6px">
+    <span>💵</span><span>Registrar ingreso</span>
+  </summary>
+  <div style="padding:10px 4px 4px">
+    <label>Concepto</label>
+    <input id="ingConcepto" placeholder="ej: Sueldo, freelance" autocomplete="off">
+    <div class="row">
+      <div><label>Monto</label><input id="ingMonto" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
+      <div><label>Moneda</label><select id="ingMoneda"><option value="UYU">UYU</option><option value="USD">USD</option></select></div>
+    </div>
+    <label>Fecha</label>
+    <input id="ingFecha" type="date">
+    <label>Notas (opcional)</label>
+    <input id="ingNotas" placeholder="" autocomplete="off">
+    <button type="button" id="ingAdd">Guardar ingreso</button>
+    <div id="ingStatus"></div>
+  </div>
+</details>
 </div><!-- /addPanel -->
 
 <div id="dashPanel" class="panel">
@@ -419,6 +439,21 @@
       <div><span>📜 Bonos</span><b id="ahoBonos">US$ 0</b></div>
     </div>
     <div class="ahocom" id="ahoComisiones" hidden></div>
+  </div>
+
+  <!-- SALDO DISPONIBLE -->
+  <div class="hcard" id="ahoSaldoCard" hidden>
+    <div class="hcard-title">💳 Disponible este mes <span id="ahoSaldoMes" class="hhint"></span></div>
+    <div id="ahoSaldoUyu" class="ahobreak" hidden>
+      <div><span>$ disponible</span><b id="ahoSaldoUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#888"><span>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#888"><span>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
+    </div>
+    <div id="ahoSaldoUsd" class="ahobreak" hidden>
+      <div><span>US$ disponible</span><b id="ahoSaldoUsdVal">US$ 0</b></div>
+      <div style="font-size:12px;color:#888"><span>Gastos USD</span><b id="ahoGastosUsdVal">US$ 0</b></div>
+      <div style="font-size:12px;color:#888"><span>Ingresos USD</span><b id="ahoIngresosUsdVal">US$ 0</b></div>
+    </div>
   </div>
 
   <!-- AGREGAR -->

@@ -607,8 +607,37 @@
     AHO.movimientos = (d && d.movimientos) || [];
     AHO.posiciones = (d && d.posiciones) || [];
     ahoPintarTotales(d && d.totales);
+    ahoPintarSaldo(d && d.saldo);
     ahoPintarPosiciones();
     ahoPintarMovimientos();
+  }
+
+  function ahoPintarSaldo(s) {
+    var card = ahoEl('ahoSaldoCard');
+    if (!card) return;
+    if (!s || (s.uyu === null && s.usd === null)) { card.hidden = true; return; }
+    card.hidden = false;
+    var mesEl = ahoEl('ahoSaldoMes');
+    if (mesEl) mesEl.textContent = s.mesActual || '';
+
+    var rowUyu = ahoEl('ahoSaldoUyu');
+    if (rowUyu) {
+      rowUyu.hidden = s.uyu === null;
+      if (s.uyu !== null) {
+        if (ahoEl('ahoSaldoUyuVal')) ahoEl('ahoSaldoUyuVal').textContent = ahoUyu(s.uyu);
+        if (ahoEl('ahoGastosUyuVal')) ahoEl('ahoGastosUyuVal').textContent = ahoUyu(s.gastosUyu || 0);
+        if (ahoEl('ahoIngresosUyuVal')) ahoEl('ahoIngresosUyuVal').textContent = ahoUyu(s.ingresosUyu || 0);
+      }
+    }
+    var rowUsd = ahoEl('ahoSaldoUsd');
+    if (rowUsd) {
+      rowUsd.hidden = s.usd === null;
+      if (s.usd !== null) {
+        if (ahoEl('ahoSaldoUsdVal')) ahoEl('ahoSaldoUsdVal').textContent = ahoUsd(s.usd);
+        if (ahoEl('ahoGastosUsdVal')) ahoEl('ahoGastosUsdVal').textContent = ahoUsd(s.gastosUsd || 0);
+        if (ahoEl('ahoIngresosUsdVal')) ahoEl('ahoIngresosUsdVal').textContent = ahoUsd(s.ingresosUsd || 0);
+      }
+    }
   }
 
   function loadAhorros(msgOk) {
@@ -814,6 +843,54 @@
   });
 
   if (ahoEl('ahoRefresh')) ahoEl('ahoRefresh').addEventListener('click', loadAhorros);
+
+  // ---------- Ingreso ----------
+  function ingEl(id) { return document.getElementById(id); }
+  function ingStatus(msg, cls) {
+    var el = ingEl('ingStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'status ' + (cls || '');
+  }
+  function ingLimpiar() {
+    ['ingConcepto', 'ingMonto', 'ingNotas'].forEach(function(id) {
+      var el = ingEl(id);
+      if (el) el.value = '';
+    });
+    var f = ingEl('ingFecha');
+    if (f) f.value = todayISO();
+    ingStatus('', '');
+  }
+  (function() {
+    var f = ingEl('ingFecha');
+    if (f && !f.value) f.value = todayISO();
+  })();
+  if (ingEl('ingAdd')) ingEl('ingAdd').addEventListener('click', function() {
+    var concepto = (ingEl('ingConcepto') && ingEl('ingConcepto').value.trim()) || '';
+    var montoRaw = (ingEl('ingMonto') && ingEl('ingMonto').value.trim()) || '';
+    var monto = parseFloat(montoRaw.replace(',', '.'));
+    if (!concepto) { ingStatus('Ingresá el concepto', 'err'); return; }
+    if (!montoRaw || isNaN(monto) || monto <= 0) { ingStatus('Monto inválido', 'err'); return; }
+    var payload = {
+      concepto: concepto,
+      monto: monto,
+      moneda: (ingEl('ingMoneda') && ingEl('ingMoneda').value) || 'UYU',
+      fecha: (ingEl('ingFecha') && ingEl('ingFecha').value) || todayISO(),
+      notas: (ingEl('ingNotas') && ingEl('ingNotas').value.trim()) || ''
+    };
+    ingStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { ingStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        ingLimpiar();
+        ingStatus('✓ Ingreso guardado', 'ok');
+        loadAhorros();
+      })
+      .withFailureHandler(function(err) {
+        ingStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addIngresoSafe(payload);
+  });
 
   // ---------- Modal de edicion ----------
   function ahoAbrirModal(row) {

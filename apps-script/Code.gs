@@ -154,6 +154,9 @@ const ROUTES = {
   addAhorro: p => addSavingsEntry(p),
   updateAhorro: p => updateSavingsEntry(p),
   deleteAhorro: p => deleteSavingsEntry(p),
+  addIngreso: p => addIngresoEntry(p),
+  getIngresos: () => getIngresosData(),
+  deleteIngreso: p => deleteIngresoEntry(p),
   precioAccion: p => {
     const px = fetchStockPrice(p.ticker);
     return px ? { ok: true, ticker: String(p.ticker).toUpperCase(), ...px }
@@ -2985,6 +2988,11 @@ function deleteHabitSheetIfEmpty(tabName, confirm) {
 // valen lo que dice el monto.
 
 const SAVINGS_TAB = 'Ahorros';
+const INGRESOS_TAB = 'Ingresos';
+const INGRESOS_HEADERS = ['Fecha', 'Concepto', 'Monto', 'Moneda', 'Notas'];
+const INGRESOS_HEADER_ROW = 1;
+const INGRESOS_FIRST_ROW = 2;
+const INGRESOS_MAX_ROWS = 500;
 const SAVINGS_TITLE = '💰 AHORROS';
 // La comision tiene columna propia. Antes vivia implicita en la diferencia
 // entre cantidad x precio y lo invertido, asi que no se podia ver cuanto se le
@@ -3463,10 +3471,24 @@ function getSavingsData() {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateSavingsTab(ss);
     const r = _savingsRepaint(sheet);
+
+    // Saldo disponible: banco deposits minus current month expenses plus income
+    const bancoRows = r.filas.filter(f => f.tipo === 'Banco');
+    const hasBancoUyu = bancoRows.some(f => f.moneda === 'UYU');
+    const hasBancoUsd = bancoRows.some(f => f.moneda === 'USD');
+    const bancoUyu = bancoRows.filter(f => f.moneda === 'UYU').reduce((s, f) => s + (f.monto || 0), 0);
+    const bancoUsd = bancoRows.filter(f => f.moneda === 'USD').reduce((s, f) => s + (f.monto || 0), 0);
+    const mesActual = currentMonthTab();
+    const expTotales = _monthExpenseTotals(mesActual);
+    const ingTotales = _ingresosThisMonth();
+    const saldoUyu = hasBancoUyu ? Math.round((bancoUyu - expTotales.uyu + ingTotales.uyu) * 100) / 100 : null;
+    const saldoUsd = hasBancoUsd ? Math.round((bancoUsd - expTotales.usd + ingTotales.usd) * 100) / 100 : null;
+
     return {
       ok: true, tab: SAVINGS_TAB,
       movimientos: r.filas, posiciones: _savingsPosiciones(r.filas),
-      totales: r.totales, tipos: SAVINGS_TIPOS, monedas: SAVINGS_MONEDAS
+      totales: r.totales, tipos: SAVINGS_TIPOS, monedas: SAVINGS_MONEDAS,
+      saldo: { uyu: saldoUyu, usd: saldoUsd, mesActual, gastosUyu: expTotales.uyu, gastosUsd: expTotales.usd, ingresosUyu: ingTotales.uyu, ingresosUsd: ingTotales.usd }
     };
   } catch (err) {
     Logger.log('getSavingsData: ' + err.message);
@@ -3984,6 +4006,163 @@ function deleteSavingsSafe(data) {
   catch (err) { Logger.log('deleteSavingsSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
+// === INGRESOS ===
+
+function getOrCreateIngresosTab(ss) {
+  var sheet = ss.getSheetByName(INGRESOS_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(INGRESOS_TAB);
+    sheet.getRange(INGRESOS_HEADER_ROW, 1, 1, INGRESOS_HEADERS.length).setValues([INGRESOS_HEADERS]);
+    sheet.getRange(INGRESOS_HEADER_ROW, 1, 1, INGRESOS_HEADERS.length).setFontWeight('bold');
+    reorderSheets(false);
+  }
+  return sheet;
+}
+
+function _ingresosRows(sheet) {
+  var last = sheet.getLastRow();
+  if (last < INGRESOS_FIRST_ROW) return [];
+  var data = sheet.getRange(INGRESOS_FIRST_ROW, 1, last - INGRESOS_FIRST_ROW + 1, INGRESOS_HEADERS.length).getValues();
+  var rows = [];
+  for (var i = 0; i < data.length; i++) {
+    var d = data[i];
+    if (!d[0]) continue;
+    rows.push({
+      row: INGRESOS_FIRST_ROW + i,
+      fecha: d[0] instanceof Date ? Utilities.formatDate(d[0], 'America/Montevideo', 'yyyy-MM-dd') : String(d[0]),
+      concepto: String(d[1] || '').trim(),
+      monto: toNumber(d[2]) || 0,
+      moneda: String(d[3] || 'UYU').toUpperCase(),
+      notas: String(d[4] || '').trim()
+    });
+  }
+  return rows;
+}
+
+function _ingresosNextRow(sheet) {
+  var last = sheet.getLastRow();
+  if (last < INGRESOS_HEADER_ROW) return INGRESOS_FIRST_ROW;
+  for (var r = INGRESOS_FIRST_ROW; r <= last + 1; r++) {
+    if (!sheet.getRange(r, 1).getValue()) return r;
+  }
+  return last + 1;
+}
+
+function getIngresosData() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = getOrCreateIngresosTab(ss);
+  return { ok: true, ingresos: _ingresosRows(sheet) };
+}
+
+function addIngresoEntry(p) {
+  var fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  var concepto = String(p.concepto || '').trim();
+  if (!concepto) throw new Error('Falta el concepto');
+  var monto = toNumber(String(p.monto == null ? '' : p.monto).replace(',', '.'));
+  if (!monto || monto <= 0) throw new Error('Monto inválido');
+  var moneda = ['UYU', 'USD'].indexOf(String(p.moneda || 'UYU').toUpperCase()) >= 0
+    ? String(p.moneda).toUpperCase() : 'UYU';
+  var notas = String(p.notas || '').trim();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = getOrCreateIngresosTab(ss);
+  var row = _ingresosNextRow(sheet);
+  sheet.getRange(row, 1, 1, INGRESOS_HEADERS.length).setValues([[
+    parseLocalDate(fecha) || new Date(), concepto, monto, moneda, notas
+  ]]);
+  sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
+  SpreadsheetApp.flush();
+  return { ok: true, row: row };
+}
+
+function deleteIngresoEntry(p) {
+  var row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < INGRESOS_FIRST_ROW) throw new Error('Fila inválida');
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = getOrCreateIngresosTab(ss);
+  sheet.deleteRow(row);
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
+function _ingresosThisMonth() {
+  var result = { uyu: 0, usd: 0 };
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(INGRESOS_TAB);
+  if (!sheet) return result;
+  var rows = _ingresosRows(sheet);
+  var tabName = currentMonthTab();
+  var parts = tabName.split(' ');
+  var mesNombre = parts[0];
+  var mesAnio = parseInt(parts[1], 10);
+  var mesIdx = MONTH_NAMES.indexOf(MONTH_NAMES.find(function(m) { return _stripAccents(m) === _stripAccents(mesNombre); }));
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var fecha = parseLocalDate(r.fecha);
+    if (!fecha || isNaN(fecha.getTime())) continue;
+    if (fecha.getMonth() === mesIdx && fecha.getFullYear() === mesAnio) {
+      if (r.moneda === 'USD') result.usd += r.monto;
+      else result.uyu += r.monto;
+    }
+  }
+  return result;
+}
+
+function _monthExpenseTotals(tabName) {
+  var result = { uyu: 0, usd: 0 };
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(tabName);
+  if (!sheet) return result;
+  var range = sheet.getDataRange().getValues();
+
+  // Fixed table totals (cols B=UYU, C=USD)
+  var fixed = _fixedTotals(range);
+  result.uyu += fixed.uyu;
+  result.usd += fixed.usd;
+
+  // Variable table
+  var headerRow = findHeaderRow(range);
+  if (headerRow < 0) return result;
+  var headers = range[headerRow].map(function(h) { return String(h || '').trim(); });
+
+  // Cards with "USD" in header → USD; others → UYU (skip non-amount columns)
+  var skipRe = /cotizaci|categor|fecha|notas/i;
+  var usdCols = [], uyuCols = [];
+  for (var c = 1; c < headers.length; c++) {
+    var h = headers[c];
+    if (!h || skipRe.test(h)) continue;
+    if (/usd/i.test(h)) usdCols.push(c);
+    else uyuCols.push(c);
+  }
+
+  for (var i = headerRow + 1; i < range.length; i++) {
+    var label = String(range[i][0] || '').trim().toLowerCase();
+    if (!label) continue;
+    if (isBoundaryRow(label)) break;
+    for (var j = 0; j < uyuCols.length; j++) {
+      var v = toNumber(range[i][uyuCols[j]]);
+      if (v !== null && v > 0) result.uyu += v;
+    }
+    for (var j = 0; j < usdCols.length; j++) {
+      var v = toNumber(range[i][usdCols[j]]);
+      if (v !== null && v > 0) result.usd += v;
+    }
+  }
+  return result;
+}
+
+function addIngresoSafe(data) {
+  try { return addIngresoEntry(data || {}); }
+  catch (err) { Logger.log('addIngresoSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function getIngresosSafe() {
+  try { return getIngresosData(); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function deleteIngresoSafe(data) {
+  try { return deleteIngresoEntry(data || {}); }
+  catch (err) { Logger.log('deleteIngresoSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
 function getArgentinaDataSafe(month) {
   try { return getArgentinaData(month); }
   catch (err) { return { ok: false, error: err.message }; }
@@ -4042,7 +4221,7 @@ function reorderSheets(dryRun) {
   for (const sh of sheets) {
     const info = _sheetKind(sh.getName());
     const item = { sheet: sh, name: sh.getName(), key: info.key };
-    if (sh.getName() === SAVINGS_TAB) ahorros.push(item);
+    if (sh.getName() === SAVINGS_TAB || sh.getName() === INGRESOS_TAB) ahorros.push(item);
     else if (info.kind === 'gasto') gastos.push(item);
     else if (info.kind === 'habito') habitos.push(item);
     else otros.push(item);
