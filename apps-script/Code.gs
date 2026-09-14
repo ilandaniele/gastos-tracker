@@ -33,7 +33,7 @@ const CATEGORIES = [
   'Acciones/Bonos/Ahorros','Otros'
 ];
 
-const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD'];
+const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD','Efectivo UYU','Efectivo USD'];
 
 // Categorías ordenadas alfabéticamente para mostrar, con "Otros" al final:
 // es el cajón de sastre y en el medio de la lista molesta más que ayuda.
@@ -1561,6 +1561,39 @@ function ensureDateColumn(sheet, headers, headerRow1Indexed) {
   return targetCol1 - 1;
 }
 
+// Asegura una columna para un medio de pago (ej. "Efectivo UYU") en meses
+// viejos que se crearon antes de que existiera esa tarjeta. A diferencia de
+// ensureDateColumn esto SI inserta una columna fisica — no hay hueco libre
+// reservado para tarjetas nuevas — pero Sheets corre solo las formulas y
+// tablas a la derecha, igual que insertar una columna a mano.
+function ensureCardColumn(sheet, headers, headerRow1Indexed, cardName) {
+  const target = _stripAccents(cardName);
+  for (let c = 0; c < headers.length; c++) {
+    if (_stripAccents(headers[c]) === target) return c;
+  }
+  // Insertar antes de la primera columna especial (cotizacion/categoria/fecha/
+  // notas); si todavia no existe ninguna, al final del bloque contiguo de headers.
+  const skipRe = /cotizaci|categor|fecha|notas/i;
+  let insertCol0 = -1;
+  for (let c = 1; c < headers.length; c++) {
+    const h = String(headers[c] || '').trim();
+    if (!h) break;
+    if (skipRe.test(h)) { insertCol0 = c; break; }
+  }
+  if (insertCol0 < 0) {
+    let end = 0;
+    for (let c = 0; c < headers.length; c++) {
+      if (!String(headers[c] || '').trim()) break;
+      end = c + 1;
+    }
+    insertCol0 = end;
+  }
+  sheet.insertColumnBefore(insertCol0 + 1);
+  sheet.getRange(headerRow1Indexed, insertCol0 + 1).setValue(cardName);
+  headers.splice(insertCol0, 0, cardName);
+  return insertCol0;
+}
+
 function currentMonthTab() { return monthTabFor(new Date()); }
 
 function findHeaderRow(range, label) {
@@ -1777,10 +1810,17 @@ function _doAddExpense(p) {
     sheet.insertRowBefore(insertAt);
   }
 
-  // Find card column (exact + accent-insensitive)
+  // Find card column (exact + accent-insensitive); auto-crea la columna si es
+  // una tarjeta conocida (ej. "Efectivo UYU") que este mes todavia no tiene
+  // — mismo criterio que la columna Fecha, en vez de fallar.
   const targetCard = _stripAccents(card);
   let cardCol = headers.findIndex(h => _stripAccents(h) === targetCard);
-  if (cardCol < 0) throw new Error('Medio de pago "' + card + '" no encontrado. Headers: ' + headers.filter(h => h).join(' | '));
+  if (cardCol < 0) {
+    if (!CARDS.some(c => _stripAccents(c) === targetCard)) {
+      throw new Error('Medio de pago "' + card + '" no encontrado. Headers: ' + headers.filter(h => h).join(' | '));
+    }
+    cardCol = ensureCardColumn(sheet, headers, headerRow + 1, card);
+  }
 
   const cotizCol = headers.findIndex(h => /cotizaci[oó]n/i.test(h));
   const catCol = headers.findIndex(h => /categor/i.test(h));
@@ -1821,13 +1861,17 @@ function _doAddExpense(p) {
   if (newTotalRow1Indexed > 0 && boundaryIsTotalSum) {
     const firstDataRow1Indexed = headerRow + 2;
     const lastDataRow1Indexed = newTotalRow1Indexed - 1;
-    // Rebuild SUM formulas for numeric columns. Skip col A (label), col G (cotización rate, not sum), col H (categoría text).
-    // Mayo cols: B,C,D,E,F numeric. Abril cols: B,C,D,E,F numeric. Same structure.
-    const numericCols = [2, 3, 4, 5, 6]; // B-F
-    for (const col of numericCols) {
-      const letter = String.fromCharCode(64 + col);
+    // Columnas numéricas = las de medios de pago (todo menos label, cotización,
+    // categoría, fecha, notas). Dinámico: agregar una tarjeta nueva (ej.
+    // Efectivo) no rompe el total ni requiere tocar índices a mano.
+    const skipRe = /cotizaci|categor|fecha|notas/i;
+    for (let c = 1; c < headers.length; c++) {
+      const h = headers[c];
+      if (!h || skipRe.test(h)) continue;
+      const col1 = c + 1;
+      const letter = String.fromCharCode(64 + col1);
       const formula = '=SUM(' + letter + firstDataRow1Indexed + ':' + letter + lastDataRow1Indexed + ')';
-      sheet.getRange(newTotalRow1Indexed, col).setFormula(formula);
+      sheet.getRange(newTotalRow1Indexed, col1).setFormula(formula);
     }
   }
 
@@ -4107,6 +4151,9 @@ function _ingresosThisMonth() {
   return result;
 }
 
+// Solo lo que SALE DEL BANCO — usado únicamente para el saldo disponible
+// (getSavingsData). Efectivo se excluye a propósito: pagar en cash no mueve
+// un peso de ninguna cuenta bancaria, así que no puede descontar el saldo.
 function _monthExpenseTotals(tabName) {
   var result = { uyu: 0, usd: 0 };
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -4124,8 +4171,9 @@ function _monthExpenseTotals(tabName) {
   if (headerRow < 0) return result;
   var headers = range[headerRow].map(function(h) { return String(h || '').trim(); });
 
-  // Cards with "USD" in header → USD; others → UYU (skip non-amount columns)
-  var skipRe = /cotizaci|categor|fecha|notas/i;
+  // Cards with "USD" in header → USD; others → UYU (skip non-amount columns,
+  // y Efectivo porque no descuenta banco — ver comentario de la función)
+  var skipRe = /cotizaci|categor|fecha|notas|efectivo/i;
   var usdCols = [], uyuCols = [];
   for (var c = 1; c < headers.length; c++) {
     var h = headers[c];

@@ -96,7 +96,11 @@ Después      "Gastos totales" | fila "Cantidad" (totales calculados)
 Después      Secciones del viaje a Argentina (el parser las IGNORA)
 ```
 
-**Tarjetas válidas**: Débito UYU (default), Crédito OCA, Crédito Itaú UYU, Crédito Itaú USD, Débito USD
+**Tarjetas válidas**: Débito UYU (default), Crédito OCA, Crédito Itaú UYU, Crédito Itaú USD, Débito USD,
+Efectivo UYU, Efectivo USD. Las columnas de Efectivo se crean solas (como la columna Fecha) la
+primera vez que se usan en un mes — no hace falta editar la Sheet a mano. Efectivo NO descuenta
+del saldo bancario disponible (`_monthExpenseTotals` lo excluye a propósito): pagar en cash no
+mueve un peso de ninguna cuenta.
 
 **Categorías**: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento,
 Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros
