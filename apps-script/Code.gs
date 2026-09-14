@@ -3023,6 +3023,11 @@ const TICKER_INFO = {
   NFLX:  { nombre: 'Netflix',         dominio: 'netflix.com' },
   INTC:  { nombre: 'Intel',           dominio: 'intel.com' },
   MELI:  { nombre: 'MercadoLibre',    dominio: 'mercadolibre.com' },
+  CVX:   { nombre: 'Chevron',         dominio: 'chevron.com' },
+  XOM:   { nombre: 'Exxon Mobil',     dominio: 'exxonmobil.com' },
+  ORCL:  { nombre: 'Oracle',          dominio: 'oracle.com' },
+  TTWO:  { nombre: 'Take-Two',        dominio: 'take2games.com' },
+  NDAQ:  { nombre: 'Nasdaq Inc.',     dominio: 'nasdaq.com' },
   KO:    { nombre: 'Coca-Cola',       dominio: 'coca-cola.com' },
   DIS:   { nombre: 'Disney',          dominio: 'disney.com' },
   JPM:   { nombre: 'JPMorgan',        dominio: 'jpmorganchase.com' },
@@ -3066,6 +3071,7 @@ function getOrCreateSavingsTab(ss) {
   sheet.setColumnWidth(3, 170);
   sheet.setColumnWidth(SAVINGS_HEADERS.length, 200);
   sheet.setFrozenRows(SAVINGS_HEADER_ROW);
+  try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
   return sheet;
 }
 
@@ -4032,18 +4038,21 @@ function reorderSheets(dryRun) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheets = ss.getSheets();
 
-  const gastos = [], habitos = [], otros = [];
+  const gastos = [], habitos = [], ahorros = [], otros = [];
   for (const sh of sheets) {
     const info = _sheetKind(sh.getName());
     const item = { sheet: sh, name: sh.getName(), key: info.key };
-    if (info.kind === 'gasto') gastos.push(item);
+    if (sh.getName() === SAVINGS_TAB) ahorros.push(item);
+    else if (info.kind === 'gasto') gastos.push(item);
     else if (info.kind === 'habito') habitos.push(item);
     else otros.push(item);
   }
   gastos.sort((a, b) => b.key - a.key);    // más reciente primero
   habitos.sort((a, b) => b.key - a.key);
 
-  const orden = habitos.concat(gastos).concat(otros);
+  // Ahorros va primero: es la hoja de seguimiento permanente y tiene que ser
+  // la pestaña visible al abrir el spreadsheet.
+  const orden = ahorros.concat(habitos).concat(gastos).concat(otros);
   const antes = sheets.map(s => s.getName());
   const despues = orden.map(o => o.name);
 

@@ -652,12 +652,24 @@
 
   if (ahoEl('ahoTicker')) ahoEl('ahoTicker').addEventListener('change', function() {
     var libre = ahoEl('ahoTickerLibre');
+    var nombre = ahoEl('ahoNombreLibre');
     var otro = this.value === '__otro';
     if (libre) {
       libre.hidden = !otro;
       if (otro) libre.focus(); else libre.value = '';
     }
+    if (nombre) {
+      nombre.hidden = !otro;
+      if (!otro) nombre.value = '';
+    }
     ahoCalcular();
+  });
+
+  // Auto-uppercase ticker while typing
+  if (ahoEl('ahoTickerLibre')) ahoEl('ahoTickerLibre').addEventListener('input', function() {
+    var pos = this.selectionStart;
+    this.value = this.value.toUpperCase();
+    this.setSelectionRange(pos, pos);
   });
 
   // Cantidad, precio por accion y total gastado estan atados: con dos alcanza
@@ -748,11 +760,12 @@
 
   function ahoLimpiarForm() {
     ['ahoCantidad', 'ahoPrecio', 'ahoComision', 'ahoGastado', 'ahoEntidad', 'ahoMonto',
-     'ahoNotas', 'ahoTickerLibre'].forEach(function(id) {
+     'ahoNotas', 'ahoTickerLibre', 'ahoNombreLibre'].forEach(function(id) {
       if (ahoEl(id)) ahoEl(id).value = '';
     });
     if (ahoEl('ahoTicker')) ahoEl('ahoTicker').value = '';
     if (ahoEl('ahoTickerLibre')) ahoEl('ahoTickerLibre').hidden = true;
+    if (ahoEl('ahoNombreLibre')) ahoEl('ahoNombreLibre').hidden = true;
     ahoCalcular();
   }
 
@@ -763,8 +776,14 @@
       notas: (ahoEl('ahoNotas') && ahoEl('ahoNotas').value.trim()) || ''
     };
     if (AHO.tipo === 'Acción') {
+      var sel = ahoEl('ahoTicker');
       payload.ticker = ahoTickerElegido();
-      if (!payload.ticker) { ahoStatus('Elegí la empresa', 'err'); return; }
+      if (!payload.ticker) { ahoStatus(sel && sel.value === '__otro' ? 'Escribí el ticker (ej: TTWO)' : 'Elegí la empresa', 'err'); return; }
+      // Cuando es ticker libre, mandar el nombre de empresa si el usuario lo completó
+      if (sel && sel.value === '__otro') {
+        var nombreLibre = (ahoEl('ahoNombreLibre') && ahoEl('ahoNombreLibre').value.trim()) || '';
+        if (nombreLibre) payload.entidad = nombreLibre;
+      }
       payload.cantidad = (ahoEl('ahoCantidad') && ahoEl('ahoCantidad').value.trim()) || '';
       payload.precioUsd = (ahoEl('ahoPrecio') && ahoEl('ahoPrecio').value.trim()) || '';
       payload.comisionUsd = (ahoEl('ahoComision') && ahoEl('ahoComision').value.trim()) || '';

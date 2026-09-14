@@ -436,7 +436,9 @@
     <div id="ahoCamposAccion">
       <label class="hlabel">Empresa</label>
       <select id="ahoTicker" aria-label="Empresa"></select>
-      <input type="text" id="ahoTickerLibre" class="ahootro" placeholder="Ticker (ej: BABA)"
+      <input type="text" id="ahoTickerLibre" class="ahootro" placeholder="Ticker corto (ej: TTWO, CVX)"
+             autocomplete="off" autocapitalize="characters" hidden>
+      <input type="text" id="ahoNombreLibre" class="ahootro" placeholder="Nombre empresa (opcional, ej: Take-Two)"
              autocomplete="off" hidden>
       <div class="hscan-row">
         <div><label class="hlabel">Cuántas acciones</label>
