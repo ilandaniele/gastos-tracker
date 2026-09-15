@@ -448,8 +448,33 @@
     (function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-panel')); }); })(tabBtns[t]);
   }
 
+  // === Pantalla de inicio ===
+  // La app arranca en homePanel (ver form.html) con la barra de tabs oculta;
+  // tocar una tarjeta entra a esa sección y muestra la barra + la flecha de
+  // volver. goHome() hace el camino inverso.
+  function goHome() {
+    document.getElementById('tabsWrap').hidden = true;
+    var tabs2 = document.querySelectorAll('.tab');
+    for (var i2 = 0; i2 < tabs2.length; i2++) tabs2[i2].classList.remove('active');
+    var panels2 = document.querySelectorAll('.panel');
+    for (var j2 = 0; j2 < panels2.length; j2++) panels2[j2].classList.toggle('active', panels2[j2].id === 'homePanel');
+    window.scrollTo(0, 0);
+  }
+  document.getElementById('backHomeBtn').addEventListener('click', goHome);
+  var homeCards = document.querySelectorAll('.home-card');
+  for (var h = 0; h < homeCards.length; h++) {
+    (function(b){ b.addEventListener('click', function(){
+      document.getElementById('tabsWrap').hidden = false;
+      switchTab(b.getAttribute('data-panel'));
+      // La barra estaba con hidden (ancho 0) cuando se midió al cargar la
+      // página, así que hay que recalcular la flechita recién ahora que se ve.
+      actualizarTabsFade();
+    }); })(homeCards[h]);
+  }
+
   // Flechita de "hay más tabs" — se apaga sola cuando ya no queda nada para
   // scrollear a la derecha (con un margen de 4px por redondeos de subpíxel).
+  var actualizarTabsFade = function() {};
   (function() {
     var bar = document.getElementById('tabsBar'), fade = document.getElementById('tabsFade');
     if (!bar || !fade) return;
@@ -457,6 +482,7 @@
       var alFinal = bar.scrollWidth - bar.scrollLeft - bar.clientWidth < 4;
       fade.classList.toggle('hide', alFinal);
     }
+    actualizarTabsFade = actualizar;
     bar.addEventListener('scroll', actualizar);
     window.addEventListener('resize', actualizar);
     actualizar();

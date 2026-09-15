@@ -32,8 +32,15 @@
      vez de eso: cada tab mantiene su ancho natural y se llega a las de más
      a la derecha deslizando, igual que el scroll de accesos rápidos del
      panel de Gasto. switchTab() además centra la tab activa al tocarla. */
-  .tabs-wrap { position: sticky; top: 0; z-index: 10; background: #fafafa; margin: 0 0 16px; }
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e5e5; padding-top: 4px; overflow-x: auto;
+  .tabs-wrap { position: sticky; top: 0; z-index: 10; background: #fafafa; margin: 0 0 16px;
+               display: flex; align-items: flex-start; gap: 6px; }
+  .tabs-wrap[hidden] { display: none; }
+  /* Flecha para volver a la pantalla de inicio — solo visible dentro de una
+     sección (tabs-wrap arranca oculto, ver switchTab()/goHome() en el JS). */
+  .back-btn { flex: 0 0 auto; width: auto; margin: 4px 0 0; padding: 9px 12px; font-size: 16px;
+              font-weight: 700; background: #f5f5f5; color: #0f766e; border-radius: 8px; border: none; }
+  .back-btn:active { background: #e5e5e5; }
+  .tabs { flex: 1 1 auto; min-width: 0; display: flex; gap: 4px; border-bottom: 1px solid #e5e5e5; padding-top: 4px; overflow-x: auto;
           -webkit-overflow-scrolling: touch; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; padding: 10px 13px; text-align: center; cursor: pointer; border: none; background: transparent;
@@ -373,4 +380,35 @@
   .task-counter-btn { width: auto; margin: 0; padding: 4px 11px; font-size: 12px; font-weight: 700;
                       background: #0f766e; color: white; border-radius: 999px; }
   .task-counter-btn:active { background: #0d5f58; }
+
+  /* === PANTALLA DE INICIO === */
+  .home-hero { text-align: center; padding: 22px 6px 26px; }
+  .home-hero-emoji { font-size: 46px; line-height: 1; margin-bottom: 10px; }
+  .home-hero h1 { font-size: 23px; margin: 0 0 4px; }
+  .home-sub { color: #888; font-size: 13px; margin: 0; }
+  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .home-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+               gap: 3px; text-align: left; margin: 0; width: auto; min-height: 112px;
+               padding: 16px 14px; border: none; border-radius: 16px; color: white;
+               box-shadow: 0 3px 10px rgba(0,0,0,0.12); transition: transform 0.1s; }
+  .home-card:active { transform: scale(0.96); }
+  .home-card-icon { font-size: 26px; }
+  .home-card-title { font-size: 15px; font-weight: 700; }
+  .home-card-sub { font-size: 11px; opacity: 0.85; font-weight: 500; }
+  .home-add    { background: linear-gradient(135deg, #0f766e, #2dd4bf); }
+  .home-tareas { background: linear-gradient(135deg, #4338ca, #818cf8); }
+  .home-dash   { background: linear-gradient(135deg, #0369a1, #38bdf8); }
+  .home-habit  { background: linear-gradient(135deg, #7c3aed, #c4b5fd); }
+  .home-aho    { background: linear-gradient(135deg, #064e3b, #10b981); }
+  .home-arg    { background: linear-gradient(135deg, #1d4ed8, #60a5fa); }
+  /* :active necesita repetir el gradiente con dos clases (mismo criterio que
+     .scan-btn.save:active etc.): la regla genérica button:active del tope del
+     archivo tiene más especificidad que una sola clase .home-card y taparía
+     el gradiente con el teal plano si no se repite acá. */
+  .home-add:active    { background: linear-gradient(135deg, #0d5c52, #14b8a6); }
+  .home-tareas:active { background: linear-gradient(135deg, #3730a3, #6366f1); }
+  .home-dash:active   { background: linear-gradient(135deg, #075985, #0ea5e9); }
+  .home-habit:active  { background: linear-gradient(135deg, #6d28d9, #a78bfa); }
+  .home-aho:active    { background: linear-gradient(135deg, #053f2e, #059669); }
+  .home-arg:active    { background: linear-gradient(135deg, #1e40af, #3b82f6); }
 </style>

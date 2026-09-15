@@ -1,8 +1,9 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><title>Agregar Gasto</title>
 <?!= include('form-styles') ?></head><body>
-<div class="tabs-wrap">
+<div class="tabs-wrap" id="tabsWrap" hidden>
+  <button type="button" id="backHomeBtn" class="back-btn" aria-label="Volver al inicio">←</button>
   <div class="tabs" id="tabsBar">
-    <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
+    <button type="button" class="tab" data-panel="addPanel">+ Gasto</button>
     <button type="button" class="tab" data-panel="tareasPanel">✅ Tareas</button>
     <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
     <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
@@ -12,7 +13,47 @@
   <div class="tabs-fade" id="tabsFade">›</div>
 </div>
 
-<div id="addPanel" class="panel active">
+<div id="homePanel" class="panel active">
+  <div class="home-hero">
+    <div class="home-hero-emoji">💸</div>
+    <h1>¿Qué querés hacer?</h1>
+    <p class="home-sub">Elegí una sección para entrar</p>
+  </div>
+  <div class="home-grid">
+    <button type="button" class="home-card home-add" data-panel="addPanel">
+      <span class="home-card-icon">➕</span>
+      <span class="home-card-title">Agregar gasto</span>
+      <span class="home-card-sub">Gasto, ingreso o ticket</span>
+    </button>
+    <button type="button" class="home-card home-tareas" data-panel="tareasPanel">
+      <span class="home-card-icon">✅</span>
+      <span class="home-card-title">Tareas</span>
+      <span class="home-card-sub">To-dos y citas</span>
+    </button>
+    <button type="button" class="home-card home-dash" data-panel="dashPanel">
+      <span class="home-card-icon">📊</span>
+      <span class="home-card-title">Dashboard</span>
+      <span class="home-card-sub">Resumen de gastos</span>
+    </button>
+    <button type="button" class="home-card home-habit" data-panel="habitPanel">
+      <span class="home-card-icon">🧘</span>
+      <span class="home-card-title">Hábitos</span>
+      <span class="home-card-sub">Sueño, comida, ánimo</span>
+    </button>
+    <button type="button" class="home-card home-aho" data-panel="ahoPanel">
+      <span class="home-card-icon">💰</span>
+      <span class="home-card-title">Ahorros</span>
+      <span class="home-card-sub">Acciones, banco, bonos</span>
+    </button>
+    <button type="button" class="home-card home-arg" data-panel="argPanel">
+      <span class="home-card-icon">🇦🇷</span>
+      <span class="home-card-title">Argentina</span>
+      <span class="home-card-sub">Cuentas con mamá</span>
+    </button>
+  </div>
+</div>
+
+<div id="addPanel" class="panel">
 <h1>Agregar Gasto</h1>
 <div class="quick-section">
   <div class="quick-label">Variables — scroll →</div>
