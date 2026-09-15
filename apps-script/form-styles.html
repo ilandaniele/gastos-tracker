@@ -32,14 +32,22 @@
      vez de eso: cada tab mantiene su ancho natural y se llega a las de más
      a la derecha deslizando, igual que el scroll de accesos rápidos del
      panel de Gasto. switchTab() además centra la tab activa al tocarla. */
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e5e5; margin: 0 0 16px; position: sticky; top: 0;
-          background: #fafafa; z-index: 10; padding-top: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch;
-          scrollbar-width: none; }
+  .tabs-wrap { position: sticky; top: 0; z-index: 10; background: #fafafa; margin: 0 0 16px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e5e5; padding-top: 4px; overflow-x: auto;
+          -webkit-overflow-scrolling: touch; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; padding: 10px 13px; text-align: center; cursor: pointer; border: none; background: transparent;
          color: #666; font-size: 14px; font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent;
          margin: 0; width: auto; border-radius: 0; }
   .tab.active { color: #0f766e; border-bottom-color: #0f766e; }
+  /* Pista de que hay más tabs a la derecha: un degradé + flechita que se
+     desvanece sola cuando ya scrolleaste hasta el final (ver JS de tabsFade). */
+  .tabs-fade { position: absolute; right: 0; top: 4px; bottom: 1px; width: 30px; display: flex;
+               align-items: center; justify-content: flex-end; padding-right: 1px;
+               background: linear-gradient(to right, rgba(250,250,250,0), #fafafa 60%);
+               color: #0f766e; font-size: 17px; font-weight: 700; pointer-events: none;
+               transition: opacity 0.2s; opacity: 1; }
+  .tabs-fade.hide { opacity: 0; }
   .panel { display: none; }
   .panel.active { display: block; }
   /* Dashboard */
@@ -346,4 +354,23 @@
   .task-card.cat-hogar    { border-left-color: #ea580c; }
   .task-card.cat-finanzas { border-left-color: #16a34a; }
   .task-card.cat-otros    { border-left-color: #64748b; }
+
+  /* Botón "Hacerla recurrente" — toggle simple, un solo botón (no un grupo
+     como .argtipos), mismo criterio visual: gris apagado / teal cuando está
+     prendido. */
+  .htoggle { display: block; width: 100%; margin: 14px 0 0; padding: 11px 12px; background: #f1f5f9;
+             color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px;
+             font-weight: 600; text-align: left; }
+  .htoggle.activo { background: #f0fdfa; color: #0f766e; border-color: #0f766e; }
+
+  /* Contador de una tarea recurrente: "3 / 10 · semanal" + botón +1. Cuando
+     se llega al objetivo se pone verde — sigue siendo la misma tarjeta, no
+     desaparece, porque una recurrente no se "completa", se reinicia sola. */
+  .task-counter { margin-top: 7px; display: flex; align-items: center; gap: 8px; }
+  .task-counter-txt { font-size: 12px; font-weight: 700; color: #475569; background: #f1f5f9;
+                      padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .task-counter.cumplido .task-counter-txt { background: #dcfce7; color: #15803d; }
+  .task-counter-btn { width: auto; margin: 0; padding: 4px 11px; font-size: 12px; font-weight: 700;
+                      background: #0f766e; color: white; border-radius: 999px; }
+  .task-counter-btn:active { background: #0d5f58; }
 </style>

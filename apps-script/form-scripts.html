@@ -447,14 +447,28 @@
   for (var t = 0; t < tabBtns.length; t++) {
     (function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-panel')); }); })(tabBtns[t]);
   }
+
+  // Flechita de "hay más tabs" — se apaga sola cuando ya no queda nada para
+  // scrollear a la derecha (con un margen de 4px por redondeos de subpíxel).
+  (function() {
+    var bar = document.getElementById('tabsBar'), fade = document.getElementById('tabsFade');
+    if (!bar || !fade) return;
+    function actualizar() {
+      var alFinal = bar.scrollWidth - bar.scrollLeft - bar.clientWidth < 4;
+      fade.classList.toggle('hide', alFinal);
+    }
+    bar.addEventListener('scroll', actualizar);
+    window.addEventListener('resize', actualizar);
+    actualizar();
+  })();
   document.getElementById('refreshDash').addEventListener('click', function(){ loadDashboard(); });
 
   // === TAREAS ===============================================================
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
-  var TAR = { tareas: [], categorias: [], hoy: '', editando: null, tipoNuevo: 'Tarea', tipoModal: 'Tarea',
-              catNuevo: 'Otros', catModal: 'Otros' };
+  var TAR = { tareas: [], categorias: [], periodos: [], hoy: '', editando: null, tipoNuevo: 'Tarea', tipoModal: 'Tarea',
+              catNuevo: 'Otros', catModal: 'Otros', recurNuevo: false, recurModal: false };
   var TAR_CAT_EMOJI = { 'Salud': '🩺', 'Trabajo': '💼', 'Personal': '🙋', 'Hogar': '🏠', 'Finanzas': '💵', 'Otros': '📌' };
   function tarEl(id) { return document.getElementById(id); }
   function tarStatus(txt, cls) {
@@ -480,6 +494,11 @@
     if (tarEl('tarCategoria')) tarEl('tarCategoria').innerHTML = html;
     if (tarEl('tmCategoria')) tarEl('tmCategoria').innerHTML = html;
   }
+  function tarPoblarPeriodos() {
+    var html = TAR.periodos.map(function(p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
+    if (tarEl('tarPeriodo')) tarEl('tarPeriodo').innerHTML = html;
+    if (tarEl('tmPeriodo')) tarEl('tmPeriodo').innerHTML = html;
+  }
 
   var tarTipoBtns = document.querySelectorAll('.tartipo');
   for (var ti = 0; ti < tarTipoBtns.length; ti++) {
@@ -491,6 +510,8 @@
         var esCita = TAR.tipoNuevo === 'Cita';
         if (tarEl('tarCampoFechaCita')) tarEl('tarCampoFechaCita').hidden = !esCita;
         if (tarEl('tarCampoFechaTarea')) tarEl('tarCampoFechaTarea').hidden = esCita;
+        // Una cita es un momento puntual — no tiene sentido "repetirla y contar".
+        if (tarEl('tarCampoRecurrente')) tarEl('tarCampoRecurrente').hidden = esCita;
       });
     })(tarTipoBtns[ti]);
   }
@@ -505,9 +526,21 @@
         var esCita = TAR.tipoModal === 'Cita';
         if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
         if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
+        if (tarEl('tmCampoRecurrente')) tarEl('tmCampoRecurrente').hidden = esCita;
       });
     })(tmTipoBtns[tmi]);
   }
+
+  if (tarEl('tarRecurBtn')) tarEl('tarRecurBtn').addEventListener('click', function() {
+    TAR.recurNuevo = !TAR.recurNuevo;
+    this.classList.toggle('activo', TAR.recurNuevo);
+    if (tarEl('tarCampoObjetivo')) tarEl('tarCampoObjetivo').hidden = !TAR.recurNuevo;
+  });
+  if (tarEl('tmRecurBtn')) tarEl('tmRecurBtn').addEventListener('click', function() {
+    TAR.recurModal = !TAR.recurModal;
+    this.classList.toggle('activo', TAR.recurModal);
+    if (tarEl('tmCampoObjetivo')) tarEl('tmCampoObjetivo').hidden = !TAR.recurModal;
+  });
 
   function loadTareas() {
     tarStatus('Cargando...', 'loading');
@@ -516,8 +549,10 @@
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.tareas = r.tareas || [];
         TAR.categorias = r.categorias || [];
+        TAR.periodos = r.periodos || [];
         TAR.hoy = r.hoy || '';
         tarPoblarCategorias();
+        tarPoblarPeriodos();
         tarStatus('', '');
         tarPintar();
       })
@@ -560,12 +595,26 @@
     '</div>';
   }
 
+  // Una recurrente muestra "3 / 10 · semanal" + un botón +1 en vez de (además
+  // de) depender solo del checkbox: no se "completa" una vez, se cuenta y se
+  // reinicia sola (ver _tasksRows en el server).
+  function tarCounterHtml(t) {
+    if (!t.recurrente) return '';
+    var cumplido = t.objetivo > 0 && t.contador >= t.objetivo;
+    return '<div class="task-counter' + (cumplido ? ' cumplido' : '') + '">' +
+      '<span class="task-counter-txt">' + (cumplido ? '🎉 ' : '🔁 ') + t.contador + ' / ' + t.objetivo +
+        ' · ' + esc((t.periodo || '').toLowerCase()) + '</span>' +
+      '<button type="button" class="task-counter-btn" data-bump="' + t.row + '">+1</button>' +
+    '</div>';
+  }
+
   function tarCardHtml(t) {
     return '<div class="task-card' + (t.completada ? ' done' : '') + ' ' + tarCatSlug(t.categoria) + '">' +
       '<div class="task-check' + (t.completada ? ' on' : '') + '" data-check="' + t.row + '">' + (t.completada ? '✓' : '') + '</div>' +
       '<div class="task-body" data-open="' + t.row + '">' +
         '<div class="task-text">' + esc(t.texto) + '</div>' +
         '<div class="task-meta">' + tarBadges(t) + '</div>' +
+        tarCounterHtml(t) +
       '</div>' +
     '</div>';
   }
@@ -581,12 +630,40 @@
         });
       })(checks[i]);
     }
+    var bumps = cont.querySelectorAll('[data-bump]');
+    for (var m = 0; m < bumps.length; m++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          tarBump(parseInt(el.getAttribute('data-bump'), 10));
+        });
+      })(bumps[m]);
+    }
     var opens = cont.querySelectorAll('[data-open]');
     for (var j = 0; j < opens.length; j++) {
       (function(el) {
         el.addEventListener('click', function() { tarAbrirModal(parseInt(el.getAttribute('data-open'), 10)); });
       })(opens[j]);
     }
+  }
+
+  function tarBump(row) {
+    var t = TAR.tareas.find(function(x) { return x.row === row; });
+    if (!t) return;
+    var prev = t.contador || 0;
+    t.contador = prev + 1; // optimista: se ve al toque
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.contador = prev; tarPintar(); return; }
+        t.contador = r.contador;
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        t.contador = prev; tarPintar();
+      })
+      .bumpTaskSafe({ row: row, delta: 1 });
   }
 
   function tarPintar() {
@@ -675,6 +752,12 @@
       if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
     } else {
       payload.fecha = (tarEl('tarFechaTarea') && tarEl('tarFechaTarea').value) || '';
+      if (TAR.recurNuevo) {
+        payload.recurrente = true;
+        payload.objetivo = (tarEl('tarObjetivo') && tarEl('tarObjetivo').value.trim()) || '';
+        payload.periodo = (tarEl('tarPeriodo') && tarEl('tarPeriodo').value) || '';
+        if (!payload.objetivo) { tarStatus('Poné cuántas veces (ej: 10)', 'err'); return; }
+      }
     }
     tarStatus('Guardando...', 'loading');
     google.script.run
@@ -685,6 +768,10 @@
         if (tarEl('tarFechaCita')) tarEl('tarFechaCita').value = '';
         if (tarEl('tarHoraCita')) tarEl('tarHoraCita').value = '';
         if (tarEl('tarFechaTarea')) tarEl('tarFechaTarea').value = '';
+        TAR.recurNuevo = false;
+        if (tarEl('tarRecurBtn')) tarEl('tarRecurBtn').classList.remove('activo');
+        if (tarEl('tarCampoObjetivo')) tarEl('tarCampoObjetivo').hidden = true;
+        if (tarEl('tarObjetivo')) tarEl('tarObjetivo').value = '';
         tarStatus('✓ Agregado', 'ok');
         loadTareas();
       })
@@ -708,12 +795,19 @@
     var esCita = t.tipo === 'Cita';
     if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
     if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
+    if (tarEl('tmCampoRecurrente')) tarEl('tmCampoRecurrente').hidden = esCita;
     TAR.catModal = t.categoria || 'Otros';
     if (tarEl('tmCategoria')) tarEl('tmCategoria').value = TAR.catModal;
     if (tarEl('tmTexto')) tarEl('tmTexto').value = t.texto || '';
     if (tarEl('tmFechaCita')) tarEl('tmFechaCita').value = esCita ? (t.fecha || '') : '';
     if (tarEl('tmHoraCita')) tarEl('tmHoraCita').value = esCita ? (t.hora || '') : '';
     if (tarEl('tmFechaTarea')) tarEl('tmFechaTarea').value = !esCita ? (t.fecha || '') : '';
+    TAR.recurModal = !!t.recurrente;
+    if (tarEl('tmRecurBtn')) tarEl('tmRecurBtn').classList.toggle('activo', TAR.recurModal);
+    if (tarEl('tmCampoObjetivo')) tarEl('tmCampoObjetivo').hidden = !TAR.recurModal;
+    if (tarEl('tmObjetivo')) tarEl('tmObjetivo').value = t.objetivo || '';
+    if (tarEl('tmPeriodo')) tarEl('tmPeriodo').value = t.periodo || 'Semanal';
+    if (tarEl('tmContador')) tarEl('tmContador').value = t.contador != null ? t.contador : 0;
     if (tarEl('tmNotas')) tarEl('tmNotas').value = t.notas || '';
     if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
   }
@@ -739,6 +833,13 @@
       if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
     } else {
       payload.fecha = (tarEl('tmFechaTarea') && tarEl('tmFechaTarea').value) || '';
+      if (TAR.recurModal) {
+        payload.recurrente = true;
+        payload.objetivo = (tarEl('tmObjetivo') && tarEl('tmObjetivo').value.trim()) || '';
+        payload.periodo = (tarEl('tmPeriodo') && tarEl('tmPeriodo').value) || '';
+        payload.contador = (tarEl('tmContador') && tarEl('tmContador').value.trim()) || '';
+        if (!payload.objetivo) { tarStatus('Poné cuántas veces (ej: 10)', 'err'); return; }
+      }
     }
     tarStatus('Guardando...', 'loading');
     google.script.run

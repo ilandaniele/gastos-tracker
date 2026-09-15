@@ -1,12 +1,15 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><title>Agregar Gasto</title>
 <?!= include('form-styles') ?></head><body>
-<div class="tabs">
-  <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
-  <button type="button" class="tab" data-panel="tareasPanel">✅ Tareas</button>
-  <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
-  <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
-  <button type="button" class="tab" data-panel="ahoPanel">💰 Ahorros</button>
-  <button type="button" class="tab" data-panel="argPanel">🇦🇷 Arg</button>
+<div class="tabs-wrap">
+  <div class="tabs" id="tabsBar">
+    <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
+    <button type="button" class="tab" data-panel="tareasPanel">✅ Tareas</button>
+    <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
+    <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
+    <button type="button" class="tab" data-panel="ahoPanel">💰 Ahorros</button>
+    <button type="button" class="tab" data-panel="argPanel">🇦🇷 Arg</button>
+  </div>
+  <div class="tabs-fade" id="tabsFade">›</div>
 </div>
 
 <div id="addPanel" class="panel active">
@@ -159,6 +162,17 @@
     <input type="date" id="tarFechaTarea">
   </div>
 
+  <div id="tarCampoRecurrente">
+    <button type="button" id="tarRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
+    <div id="tarCampoObjetivo" hidden>
+      <div class="hscan-row">
+        <div><label class="hlabel">Cuántas veces</label>
+          <input type="text" id="tarObjetivo" inputmode="numeric" pattern="[0-9]*" placeholder="ej: 10"></div>
+        <div><label class="hlabel">Cada</label><select id="tarPeriodo"></select></div>
+      </div>
+    </div>
+  </div>
+
   <label class="hlabel">Notas</label>
   <input type="text" id="tarNotas" placeholder="opcional" autocomplete="off">
 
@@ -204,6 +218,20 @@
     <div id="tmCampoFechaTarea">
       <label class="hlabel">Fecha límite <span class="hhint">opcional</span></label>
       <input type="date" id="tmFechaTarea">
+    </div>
+    <div id="tmCampoRecurrente">
+      <button type="button" id="tmRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
+      <div id="tmCampoObjetivo" hidden>
+        <div class="hscan-row">
+          <div><label class="hlabel">Cuántas veces</label>
+            <input type="text" id="tmObjetivo" inputmode="numeric" pattern="[0-9]*"></div>
+          <div><label class="hlabel">Cada</label><select id="tmPeriodo"></select></div>
+        </div>
+        <div class="hscan-row">
+          <div><label class="hlabel">Van hechas <span class="hhint">editable</span></label>
+            <input type="text" id="tmContador" inputmode="numeric" pattern="[0-9]*"></div>
+        </div>
+      </div>
     </div>
     <label class="hlabel">Notas</label>
     <input type="text" id="tmNotas" autocomplete="off">
