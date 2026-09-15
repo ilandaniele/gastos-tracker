@@ -4572,6 +4572,36 @@ function deleteTaskCategorySafe(data) {
   catch (err) { return { ok: false, error: err.message }; }
 }
 
+// Sube o baja una categoría un lugar en la lista — el orden de la lista es
+// el mismo orden en que aparecen las columnas de la pizarra (ver
+// tarPintar() en el cliente, que recorre TAR.categorias tal cual).
+function moveTaskCategory(p) {
+  const nombre = _tasksCategoriaValida(p && p.nombre);
+  if (!nombre) throw new Error('Esa categoría no existe');
+  const dir = String((p && p.direccion) || '').trim();
+  if (dir !== 'up' && dir !== 'down') throw new Error('Dirección inválida');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const lista = _tasksCategoriasGet();
+    const idx = lista.findIndex(c => _stripAccents(c) === _stripAccents(nombre));
+    if (idx === -1) throw new Error('Esa categoría no existe');
+    const destino = dir === 'up' ? idx - 1 : idx + 1;
+    if (destino < 0 || destino >= lista.length) return { ok: true, categorias: lista }; // ya está en la punta
+    const tmp = lista[destino];
+    lista[destino] = lista[idx];
+    lista[idx] = tmp;
+    _tasksCategoriasSet(lista);
+    return { ok: true, categorias: lista };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function moveTaskCategorySafe(data) {
+  try { return moveTaskCategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
 function getTaskSubcategories() {
   return _tasksSubcatsGet();
 }

@@ -496,7 +496,8 @@
   var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
-              subtareasNuevas: [], subtareasModal: [], completadaModal: false };
+              subtareasNuevas: [], subtareasModal: [], completadaModal: false,
+              filtroTipo: 'Todas', filtroHoy: false };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
   // el usuario al crear/renombrar, ver catModal), esto es solo el arranque.
@@ -876,10 +877,18 @@
     // Pizarra: una sección por categoría, pero solo las que tienen algo
     // pendiente — una categoría vacía no aporta nada y solo agrega scroll.
     // Adentro de cada una, vencidas primero para que no se pierdan de vista.
+    // El orden de las columnas es el de TAR.categorias — reordenable desde
+    // el modal de gestión (⚙️, ver catMover/moveTaskCategorySafe).
     var board = tarEl('tarBoard');
     if (board) {
+      var hayFiltro = TAR.filtroTipo !== 'Todas' || TAR.filtroHoy;
+      var filtradas = pendientes.filter(function(t) {
+        if (TAR.filtroTipo !== 'Todas' && t.tipo !== TAR.filtroTipo) return false;
+        if (TAR.filtroHoy && t.fecha !== hoy) return false;
+        return true;
+      });
       var catsHtml = TAR.categorias.map(function(cat) {
-        var items = pendientes.filter(function(t) { return t.categoria === cat; })
+        var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
             var av = !!(a.fecha && a.fecha < hoy), bv = !!(b.fecha && b.fecha < hoy);
             if (av !== bv) return av ? -1 : 1;
@@ -894,7 +903,8 @@
           tarColBodyHtml(items) +
         '</div>';
       }).join('');
-      board.innerHTML = catsHtml || '<div class="task-empty">No tenés tareas pendientes</div>';
+      board.innerHTML = catsHtml || '<div class="task-empty">' +
+        (hayFiltro ? 'Nada que coincida con el filtro' : 'No tenés tareas pendientes') + '</div>';
     }
 
     completadas.sort(function(a, b) { return (b.fechaCompletada || '').localeCompare(a.fechaCompletada || ''); });
@@ -994,6 +1004,26 @@
   });
 
   if (tarEl('tarRefresh')) tarEl('tarRefresh').addEventListener('click', loadTareas);
+
+  // Filtro de la pizarra: tipo (Todas/Tareas/Citas) + "Solo hoy" — combinados
+  // dan "citas de hoy" sin agregar un tercer selector aparte (ver tarPintar()).
+  (function() {
+    var tipoBtns = document.querySelectorAll('[data-filtro-tipo]');
+    for (var i = 0; i < tipoBtns.length; i++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          TAR.filtroTipo = b.getAttribute('data-filtro-tipo');
+          for (var k = 0; k < tipoBtns.length; k++) tipoBtns[k].classList.toggle('activo', tipoBtns[k] === b);
+          tarPintar();
+        });
+      })(tipoBtns[i]);
+    }
+  })();
+  if (tarEl('tarFiltroHoy')) tarEl('tarFiltroHoy').addEventListener('click', function() {
+    TAR.filtroHoy = !TAR.filtroHoy;
+    this.classList.toggle('activo', TAR.filtroHoy);
+    tarPintar();
+  });
 
   function tarAbrirModal(row) {
     var t = TAR.tareas.find(function(x) { return x.row === row; });
@@ -1255,13 +1285,25 @@
     if (!cont) return;
     var lista = TAR.categorias || [];
     if (!lista.length) { cont.innerHTML = '<div class="hsubcat-empty">No hay categorías</div>'; return; }
-    cont.innerHTML = lista.map(function(c) {
+    cont.innerHTML = lista.map(function(c, i) {
       var puedeBorrar = _stripAccentsJs(c) !== 'otros';
       return '<div class="hsubcat-item"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
+        '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="up"' +
+          (i === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="down"' +
+          (i === lista.length - 1 ? ' disabled' : '') + '>▼</button>' +
         '<button type="button" class="hsub-rn" data-catrn="' + esc(c) + '">✎</button>' +
         (puedeBorrar ? '<button type="button" class="hsub-del" data-catdel="' + esc(c) + '">🗑</button>' : '') +
         '</div>';
     }).join('');
+    var mvs = cont.querySelectorAll('[data-catmv-n]');
+    for (var m = 0; m < mvs.length; m++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          catMover(el.getAttribute('data-catmv-n'), el.getAttribute('data-catmv-d'));
+        });
+      })(mvs[m]);
+    }
     var rns = cont.querySelectorAll('[data-catrn]');
     for (var i = 0; i < rns.length; i++) {
       (function(el) { el.addEventListener('click', function() { catIniciarEdicion(el.getAttribute('data-catrn')); }); })(rns[i]);
@@ -1356,6 +1398,24 @@
         catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
       .deleteTaskCategorySafe({ nombre: nombre });
+  }
+  // Sube/baja una categoría un lugar — ese es el mismo orden en que quedan
+  // las columnas de la pizarra, así que se repinta al toque.
+  function catMover(nombre, direccion) {
+    catStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.categorias = r.categorias || [];
+        tarPoblarCategorias();
+        catStatus('', '');
+        catPintarLista();
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .moveTaskCategorySafe({ nombre: nombre, direccion: direccion });
   }
 
   // === COMPRAS ==============================================================

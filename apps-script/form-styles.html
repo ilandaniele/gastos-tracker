@@ -331,6 +331,16 @@
   #tarDoneSummary { cursor: pointer; list-style: none; }
   #tarDoneSummary::-webkit-details-marker { display: none; }
 
+  /* Filtro de la pizarra: tipo (Todas/Tareas/Citas) + toggle "Solo hoy" —
+     combinados dan "citas de hoy" sin agregar un tercer selector aparte. */
+  .task-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .task-filters .argtipos { flex: 1 1 auto; min-width: 0; margin: 0; }
+  .task-filter-hoy { width: auto; margin: 0; padding: 10px 12px; font-size: 13px; font-weight: 600;
+                     background: #f1f5f9; color: #64748b; border-radius: 8px; white-space: nowrap; }
+  .task-filter-hoy:active { background: #e5e5e5; }
+  .task-filter-hoy.activo { background: #0f766e; color: white; }
+  .task-filter-hoy.activo:active { background: #0d5c52; }
+
   /* PIZARRA — una sección grande y a todo el ancho por categoría, apiladas
      verticalmente (no un carrusel horizontal angosto). Solo aparecen las
      categorías que tienen algo pendiente — ver tarPintar(): una vacía no
@@ -400,6 +410,10 @@
   .hsubcat-item button { margin: 0; width: auto; padding: 5px 9px; font-size: 12px; font-weight: 700; background: transparent; }
   .hsubcat-item .hsub-rn { color: #0f766e; }
   .hsubcat-item .hsub-del { color: #b91c1c; }
+  /* Flechas para reordenar categorías — ese orden es el mismo en que
+     aparecen las columnas de la pizarra (ver moveTaskCategory). */
+  .hsubcat-item .hsub-mv { color: #64748b; font-size: 11px; padding: 5px 7px; }
+  .hsubcat-item .hsub-mv:disabled { opacity: 0.3; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
 
   /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a

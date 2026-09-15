@@ -242,6 +242,14 @@
   <div class="hcard-title">🗂️ Pizarra <span class="hhint">tocá una para editarla</span>
     <button type="button" id="tarRefresh" class="hmini">↻</button>
   </div>
+  <div class="task-filters">
+    <div class="argtipos" id="tarFiltroTipo">
+      <button type="button" class="tarfiltro activo" data-filtro-tipo="Todas">Todas</button>
+      <button type="button" class="tarfiltro" data-filtro-tipo="Tarea">📝 Tareas</button>
+      <button type="button" class="tarfiltro" data-filtro-tipo="Cita">📅 Citas</button>
+    </div>
+    <button type="button" id="tarFiltroHoy" class="task-filter-hoy">📆 Solo hoy</button>
+  </div>
   <div id="tarBoard" class="task-board"></div>
 </div>
 
