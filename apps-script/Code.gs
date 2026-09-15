@@ -3966,7 +3966,9 @@ function getArgentinaData(monthOpt) {
 // Agrega una entrada. p: { month, fecha, tipo, detalle, usd, cotiz, ars, quien, categoria }
 // - Gasto: se piden ARS y cotización; los USD salen de dividir, y "de quién"
 //          dice si esa plata era propia o de mamá.
-// - Pago:  se pide USD (lo que le devolviste a mamá).
+// - Pago:  lo que le devolviste a mamá — en USD directo, o en ARS + cotización
+//          (los USD salen de dividir, igual que un Gasto). La deuda se lleva
+//          siempre en USD, así que acá también hace falta convertir.
 // - Carga: legacy, ya no se ofrece en la app.
 function addArgentinaEntry(p) {
   const tipoRaw = String(p.tipo || '').trim();
@@ -3985,7 +3987,13 @@ function addArgentinaEntry(p) {
     if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
     if (usd == null) usd = Math.round((ars / cotiz) * 100) / 100;
   } else {
-    if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto en USD');
+    // Pago: si mandaron pesos, esos mandan (recalcula los USD); si no, el
+    // USD que hayan puesto directo.
+    if (ars != null && ars > 0) {
+      if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
+      usd = Math.round((ars / cotiz) * 100) / 100;
+    }
+    if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto, en pesos (+ cotización) o en USD');
   }
 
   const fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
@@ -4053,9 +4061,29 @@ function updateArgentinaEntry(p) {
     ? (ARG_TIPOS.find(t => _stripAccents(t).toLowerCase() === _stripAccents(tipoRaw).toLowerCase()) || String(cur[1]))
     : String(cur[1]);
 
-  let usd   = p.usd   !== undefined && p.usd   !== '' ? num(p.usd)   : toNumber(cur[3]);
-  let cotiz = p.cotiz !== undefined && p.cotiz !== '' ? num(p.cotiz) : toNumber(cur[4]);
-  let ars   = p.ars   !== undefined && p.ars   !== '' ? num(p.ars)   : toNumber(cur[5]);
+  let usd, cotiz, ars;
+  // Un pago manda la moneda elegida de forma explícita (p.monedaPago, ver
+  // cliente): se resuelve entero desde lo que mandaron, sin heredar nada de
+  // la fila vieja — así cambiar de pesos a dólares (o al revés) no deja
+  // pesos/cotización viejos pisando el monto nuevo.
+  if (tipo === 'Pago' && (p.monedaPago === 'ARS' || p.monedaPago === 'USD')) {
+    if (p.monedaPago === 'ARS') {
+      ars = num(p.ars);
+      cotiz = num(p.cotiz);
+      if (ars == null || ars <= 0) throw new Error('Un pago necesita el monto en pesos');
+      if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
+      usd = Math.round((ars / cotiz) * 100) / 100;
+    } else {
+      usd = num(p.usd);
+      if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto en USD');
+      ars = null;
+      cotiz = null;
+    }
+  } else {
+    usd   = p.usd   !== undefined && p.usd   !== '' ? num(p.usd)   : toNumber(cur[3]);
+    cotiz = p.cotiz !== undefined && p.cotiz !== '' ? num(p.cotiz) : toNumber(cur[4]);
+    ars   = p.ars   !== undefined && p.ars   !== '' ? num(p.ars)   : toNumber(cur[5]);
+  }
   // Un gasto se carga en pesos: si cambian los pesos o la cotización, los
   // dólares se recalculan solos. En las cargas viejas es al revés.
   if (tipo === 'Gasto' && ars != null && cotiz != null && cotiz > 0) {

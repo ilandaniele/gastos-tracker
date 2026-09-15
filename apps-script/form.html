@@ -324,6 +324,7 @@
       <input type="text" id="tmSubtareaInput" placeholder="Agregar subtarea" autocomplete="off">
       <button type="button" id="tmSubtareaAddBtn">+</button>
     </div>
+    <button type="button" id="tmCompletadaBtn" class="htoggle">✓ Marcar como completada</button>
     <div class="hmodal-actions">
       <button type="button" id="tmDelete" class="hdanger">Borrar</button>
       <button type="button" id="tmCancel" class="hsecondary">Cancelar</button>
@@ -828,9 +829,14 @@
     <div class="hcard-title">➕ ¿Qué hiciste?</div>
     <div class="argtipos vert">
       <button type="button" class="argtipo activo" data-tipo="Gasto">🛒 Gasté</button>
-      <button type="button" class="argtipo" data-tipo="Pago">↩️ Le di dólares a mi madre</button>
+      <button type="button" class="argtipo" data-tipo="Pago">↩️ Le di a mi madre</button>
     </div>
     <div class="arghint" id="argHint"></div>
+
+    <div id="argCampoMonedaPago" class="argtipos" style="display:none">
+      <button type="button" class="argmoneda activo" data-moneda="ARS">🇦🇷 Pesos</button>
+      <button type="button" class="argmoneda" data-moneda="USD">💵 Dólares</button>
+    </div>
 
     <label class="hlabel">Fecha</label>
     <input type="date" id="argFecha">
@@ -885,21 +891,27 @@
     <h3>Editar movimiento</h3>
     <label class="hlabel">Detalle</label>
     <input type="text" id="agDetalle" autocomplete="off">
-    <div id="agCampoGasto">
+    <div id="agCampoMonedaPago" class="argtipos" style="display:none">
+      <button type="button" class="agmoneda activo" data-moneda="ARS">🇦🇷 Pesos</button>
+      <button type="button" class="agmoneda" data-moneda="USD">💵 Dólares</button>
+    </div>
+    <div id="agCampoArs">
       <div class="hscan-row">
         <div><label class="hlabel">Pesos argentinos</label><input type="text" id="agArs" inputmode="decimal"></div>
         <div><label class="hlabel">Cotización</label><input type="text" id="agCotiz" inputmode="decimal"></div>
       </div>
       <div class="argcalc" id="agCalc"></div>
+    </div>
+    <div id="agCampoUsd">
+      <label class="hlabel">Dólares que le diste</label>
+      <input type="text" id="agUsd" inputmode="decimal">
+    </div>
+    <div id="agCampoQuien">
       <label class="hlabel">¿De quién era esa plata?</label>
       <div class="argtipos">
         <button type="button" class="agquien activo" data-quien="Mía">Mía</button>
         <button type="button" class="agquien" data-quien="Mamá">Mamá</button>
       </div>
-    </div>
-    <div id="agCampoPago">
-      <label class="hlabel">Dólares que le diste</label>
-      <input type="text" id="agUsd" inputmode="decimal">
     </div>
     <label class="hlabel">Fecha</label>
     <input type="date" id="agFecha">

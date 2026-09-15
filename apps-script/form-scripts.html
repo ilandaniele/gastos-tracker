@@ -496,7 +496,7 @@
   var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
-              subtareasNuevas: [], subtareasModal: [] };
+              subtareasNuevas: [], subtareasModal: [], completadaModal: false };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
   // el usuario al crear/renombrar, ver catModal), esto es solo el arranque.
@@ -1029,8 +1029,23 @@
     TAR.subtareasModal = (t.subtareas || []).map(function(s) { return { t: s.t, d: s.d }; });
     if (tarEl('tmSubtareaInput')) tarEl('tmSubtareaInput').value = '';
     tarPintarSubtareasModal();
+    TAR.completadaModal = !!t.completada;
+    tarPintarCompletadaBtn();
     if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
   }
+  // El botón dice la ACCIÓN a tomar (lo que va a pasar si lo tocás), no el
+  // estado actual — así "completada" no se puede confundir con "está
+  // marcada como completada" cuando en realidad haría lo contrario.
+  function tarPintarCompletadaBtn() {
+    var b = tarEl('tmCompletadaBtn');
+    if (!b) return;
+    b.textContent = TAR.completadaModal ? '↩️ Marcar como pendiente' : '✓ Marcar como completada';
+    b.classList.toggle('activo', TAR.completadaModal);
+  }
+  if (tarEl('tmCompletadaBtn')) tarEl('tmCompletadaBtn').addEventListener('click', function() {
+    TAR.completadaModal = !TAR.completadaModal;
+    tarPintarCompletadaBtn();
+  });
   function tarCerrarModal() {
     TAR.editando = null;
     if (tarEl('tarModal')) tarEl('tarModal').classList.remove('show');
@@ -1066,12 +1081,32 @@
       }
     }
     tarStatus('Guardando...', 'loading');
+    // Si tocaron "Marcar como completada/pendiente" en el modal, eso viaja
+    // aparte con toggleTaskSafe (mismo endpoint que usa el check de la
+    // pizarra) — updateTaskEntry no toca esa columna.
+    var completadaCambio = TAR.completadaModal !== !!t.completada;
+    var completadaNueva = TAR.completadaModal;
     google.script.run
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        tarCerrarModal();
-        tarStatus('✓ Actualizado', 'ok');
-        loadTareas();
+        if (!completadaCambio) {
+          tarCerrarModal();
+          tarStatus('✓ Actualizado', 'ok');
+          loadTareas();
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(function() {
+            tarCerrarModal();
+            tarStatus('✓ Actualizado', 'ok');
+            loadTareas();
+          })
+          .withFailureHandler(function(err) {
+            tarCerrarModal();
+            tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+            loadTareas();
+          })
+          .toggleTaskSafe({ row: t.row, completada: completadaNueva });
       })
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
@@ -3354,7 +3389,8 @@
   // === ARGENTINA ============================================
   // ==========================================================
   var argLoadedOnce = false;
-  var ARG = { tipo: 'Gasto', quien: 'Mía', entradas: [], editRow: null, cats: [] };
+  var ARG = { tipo: 'Gasto', quien: 'Mía', monedaPago: 'ARS', editMoneda: 'ARS',
+              entradas: [], editRow: null, editTipo: null, cats: [] };
 
   function argStatus(t, cls) {
     var el = hEl('argStatus');
@@ -3380,9 +3416,14 @@
     for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('activo', bs[i].getAttribute('data-tipo') === t);
 
     var esGasto = (t === 'Gasto');
+    var esPago = (t === 'Pago');
     var show = function(id, on) { var e = hEl(id); if (e) e.style.display = on ? '' : 'none'; };
-    show('argCampoArs', esGasto);     // pesos + cotización
-    show('argCampoUsd', !esGasto);    // dólares que le devolviste
+    // Un pago también se puede anotar en pesos (ver ARG.monedaPago) — el
+    // gasto siempre es en pesos, así que a él ni le pregunta.
+    var enArs = esGasto || (esPago && ARG.monedaPago !== 'USD');
+    show('argCampoMonedaPago', esPago);
+    show('argCampoArs', enArs);              // pesos + cotización
+    show('argCampoUsd', esPago && ARG.monedaPago === 'USD');  // dólares directo
     show('argCampoCat', esGasto);
     show('argCampoQuien', esGasto);   // un pago siempre es a mamá
     show('argCampoDetalle', true);
@@ -3395,7 +3436,7 @@
     if (hint) {
       hint.textContent = esGasto
         ? 'Pagaste algo en pesos. Con la cotización se anota cuántos dólares fueron.'
-        : 'Le diste dólares a tu madre. Baja lo que le debés.';
+        : 'Le diste plata a tu madre. Baja lo que le debés.';
     }
     argCalc();
   }
@@ -3413,13 +3454,25 @@
         });
       })(qs[j]);
     }
+    var ms = document.querySelectorAll('.argmoneda');
+    for (var m = 0; m < ms.length; m++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          ARG.monedaPago = b.getAttribute('data-moneda');
+          for (var k = 0; k < ms.length; k++) ms[k].classList.toggle('activo', ms[k] === b);
+          setTipo(ARG.tipo); // vuelve a mostrar los campos que correspondan
+        });
+      })(ms[m]);
+    }
   })();
 
-  // Muestra cuántos dólares son esos pesos a la cotización puesta
+  // Muestra cuántos dólares son esos pesos a la cotización puesta — aplica
+  // tanto a un Gasto como a un Pago anotado en pesos.
   function argCalc() {
     var el = hEl('argCalc');
     if (!el) return;
-    if (ARG.tipo !== 'Gasto') { el.textContent = ''; return; }
+    var enArs = ARG.tipo === 'Gasto' || (ARG.tipo === 'Pago' && ARG.monedaPago !== 'USD');
+    if (!enArs) { el.textContent = ''; return; }
     var a = nArg(hEl('argArs') && hEl('argArs').value);
     var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
     el.textContent = (a > 0 && c > 0) ? ('= ' + fmtUsd(Math.round((a / c) * 100) / 100)) : '';
@@ -3527,10 +3580,18 @@
       payload.cotiz = c;
       payload.quien = ARG.quien;
       payload.categoria = (hEl('argCat') && hEl('argCat').value) || '';
-    } else {
+    } else if (ARG.monedaPago === 'USD') {
       var u = nArg(hEl('argUsd') && hEl('argUsd').value);
       if (!u) { argStatus('¿Cuántos dólares le diste?', 'err'); return; }
       payload.usd = u;
+      payload.quien = 'Mamá';
+    } else {
+      var a2 = nArg(hEl('argArs') && hEl('argArs').value);
+      if (!a2) { argStatus('¿Cuántos pesos le diste?', 'err'); return; }
+      var c2 = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+      if (!c2) { argStatus('Falta la cotización del dólar', 'err'); return; }
+      payload.ars = a2;
+      payload.cotiz = c2;
       payload.quien = 'Mamá';
     }
     argStatus('Guardando...', 'loading');
@@ -3543,7 +3604,7 @@
             var e = hEl(id); if (e) e.value = '';
           });
           argCalc();
-          var dicho = ARG.tipo === 'Pago' ? 'Anotado: le diste dólares a tu madre' : 'Gasto guardado';
+          var dicho = ARG.tipo === 'Pago' ? 'Anotado: le diste plata a tu madre' : 'Gasto guardado';
           argStatus('✓ ' + dicho, 'ok');
           loadArg();
         } else { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
@@ -3561,9 +3622,17 @@
     ARG.editTipo = e.tipo || 'Gasto';
     ARG.editQuien = (String(e.quien || '').toLowerCase().indexOf('mam') >= 0) ? 'Mamá' : 'Mía';
     var esPago = String(e.tipo || '').toLowerCase() === 'pago';
+    // Un pago viejo puede estar en pesos (tiene ars) o en dólares directo
+    // (no tiene ars) — se adivina la moneda con la que se cargó para abrir
+    // en el campo correcto.
+    ARG.editMoneda = (e.ars != null && e.ars > 0) ? 'ARS' : 'USD';
     var showM = function(id, on) { var el = hEl(id); if (el) el.style.display = on ? '' : 'none'; };
-    showM('agCampoGasto', !esPago);
-    showM('agCampoPago', esPago);
+    showM('agCampoMonedaPago', esPago);
+    showM('agCampoQuien', !esPago);
+    showM('agCampoArs', !esPago || ARG.editMoneda === 'ARS');
+    showM('agCampoUsd', esPago && ARG.editMoneda === 'USD');
+    var ms = document.querySelectorAll('.agmoneda');
+    for (var m = 0; m < ms.length; m++) ms[m].classList.toggle('activo', ms[m].getAttribute('data-moneda') === ARG.editMoneda);
     var qs = document.querySelectorAll('.agquien');
     for (var j = 0; j < qs.length; j++) qs[j].classList.toggle('activo', qs[j].getAttribute('data-quien') === ARG.editQuien);
     if (hEl('agDetalle')) hEl('agDetalle').value = e.detalle || '';
@@ -3601,6 +3670,18 @@
         });
       })(qs[j]);
     }
+    var ms = document.querySelectorAll('.agmoneda');
+    for (var m = 0; m < ms.length; m++) {
+      (function(b) {
+        b.addEventListener('click', function() {
+          ARG.editMoneda = b.getAttribute('data-moneda');
+          for (var k = 0; k < ms.length; k++) ms[k].classList.toggle('activo', ms[k] === b);
+          var elArs = hEl('agCampoArs'), elUsd = hEl('agCampoUsd');
+          if (elArs) elArs.style.display = ARG.editMoneda === 'ARS' ? '' : 'none';
+          if (elUsd) elUsd.style.display = ARG.editMoneda === 'USD' ? '' : 'none';
+        });
+      })(ms[m]);
+    }
   })();
 
   if (hEl('agCancel')) hEl('agCancel').addEventListener('click', cerrarArgModal);
@@ -3625,7 +3706,11 @@
         cotiz: (hEl('agCotiz') && hEl('agCotiz').value.trim()) || '',
         ars:   (hEl('agArs')   && hEl('agArs').value.trim())   || '',
         quien: ARG.editQuien || '',
-        fecha: (hEl('agFecha') && hEl('agFecha').value) || ''
+        fecha: (hEl('agFecha') && hEl('agFecha').value) || '',
+        // Le dice al server con qué moneda quedarse — si no, un pago que
+        // tenía pesos+cotización viejos podría pisar un dólar nuevo (o
+        // viceversa). Ver updateArgentinaEntry.
+        monedaPago: ARG.editTipo === 'Pago' ? ARG.editMoneda : undefined
       });
   });
 
