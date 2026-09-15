@@ -418,7 +418,12 @@
   function switchTab(panelId) {
     var tabs = document.querySelectorAll('.tab');
     for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-panel') === panelId);
+      var esActiva = tabs[i].getAttribute('data-panel') === panelId;
+      tabs[i].classList.toggle('active', esActiva);
+      // La barra de tabs scrollea horizontal (ver .tabs en el CSS): al activar
+      // una que estaba fuera de vista (ej. "Arg" tocada desde un atajo, o el
+      // usuario ya había scrolleado), la trae a la vista sola.
+      if (esActiva) tabs[i].scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
     }
     var panels = document.querySelectorAll('.panel');
     for (var j = 0; j < panels.length; j++) {
@@ -605,8 +610,9 @@
     }
     if (tarEl('tarHoyFecha')) tarEl('tarHoyFecha').textContent = hoy ? tarDiaCorto(hoy) : '';
 
-    // Pizarra: una columna por categoría (mismo orden que manda el server).
-    // Adentro de cada columna, vencidas primero para que no se pierdan de vista.
+    // Pizarra: una sección por categoría, pero solo las que tienen algo
+    // pendiente — una categoría vacía no aporta nada y solo agrega scroll.
+    // Adentro de cada una, vencidas primero para que no se pierdan de vista.
     var board = tarEl('tarBoard');
     if (board) {
       var catsHtml = TAR.categorias.map(function(cat) {
@@ -618,12 +624,11 @@
             var bk = b.fecha ? b.fecha + (b.hora || '') : '9999';
             return ak.localeCompare(bk);
           });
+        if (!items.length) return '';
         return '<div class="task-col ' + tarCatSlug(cat) + '">' +
           '<div class="task-col-head"><span>' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
             '<span class="n">' + items.length + '</span></div>' +
-          '<div class="task-col-body">' +
-            (items.length ? items.map(tarCardHtml).join('') : '<div class="task-col-empty">Nada acá</div>') +
-          '</div>' +
+          '<div class="task-col-body">' + items.map(tarCardHtml).join('') + '</div>' +
         '</div>';
       }).join('');
       board.innerHTML = catsHtml || '<div class="task-empty">No tenés tareas pendientes</div>';
