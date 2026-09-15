@@ -531,4 +531,19 @@
   .home-habit:active  { background: linear-gradient(135deg, #6d28d9, #a78bfa); }
   .home-aho:active    { background: linear-gradient(135deg, #053f2e, #059669); }
   .home-arg:active    { background: linear-gradient(135deg, #1e40af, #3b82f6); }
+
+  /* === ESCRITORIO ===
+     Todo lo de arriba está pensado para una sola columna de celular
+     (max-width:420px en el body). En una pantalla ancha eso queda como una
+     tira angosta en el medio con todo el resto vacío. A partir de acá se
+     estira: el body ocupa mucho más, y la pizarra de Tareas pasa a ser un
+     tablero de verdad con las columnas lado a lado (como Trello) en vez de
+     apiladas una debajo de la otra. */
+  @media (min-width: 860px) {
+    body { max-width: 1100px; padding: 28px 40px; }
+    .task-board { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+    .task-col { flex: 1 1 300px; max-width: 340px; }
+    .home-grid { grid-template-columns: repeat(3, 1fr); }
+    .dash-kpis { grid-template-columns: repeat(4, 1fr); }
+  }
 </style>
