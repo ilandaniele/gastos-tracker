@@ -197,8 +197,8 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show { display: flex; }
+  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal, #subcatModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show, #subcatModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
@@ -325,6 +325,7 @@
   .task-badge.hoy { background: #f0fdfa; color: #0f766e; }
   .task-badge.notas { background: #f5f5f5; color: #666; font-weight: 500; }
   .task-badge.cat { background: #f1f5f9; color: #475569; }
+  .task-badge.subcat { background: #ede9fe; color: #5b21b6; }
   .task-empty { font-size: 13px; color: #999; padding: 8px 2px; }
   #tarHoyCard.vacio { opacity: 0.7; }
   #tarDoneSummary { cursor: pointer; list-style: none; }
@@ -361,6 +362,39 @@
   .task-card.cat-hogar    { border-left-color: #ea580c; }
   .task-card.cat-finanzas { border-left-color: #16a34a; }
   .task-card.cat-otros    { border-left-color: #64748b; }
+
+  /* SUB-PIZARRA — dentro de una columna de categoría, si alguna de sus
+     tareas pendientes tiene subcategoría, se agrupan por subcategoría en vez
+     de listarse todas juntas (ver tarPintar()). Las que no tienen quedan en
+     un grupo "Sin subcategoría" al final, solo cuando conviven con otras que
+     sí la tienen — si NINGUNA tiene subcategoría no se arma ningún grupo. */
+  .task-subgroup { margin-bottom: 12px; }
+  .task-subgroup:last-child { margin-bottom: 0; }
+  .task-subgroup-head { display: flex; align-items: center; gap: 6px; margin: 0 0 7px 2px;
+                        font-size: 11px; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.4px; }
+  .task-subgroup-head .n { font-size: 10px; font-weight: 700; background: #ede9fe; color: #6d28d9;
+                           padding: 1px 7px; border-radius: 999px; }
+  .task-subgroup.sin .task-subgroup-head { color: #94a3b8; }
+  .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #94a3b8; }
+  .task-subgroup .task-col-body { gap: 9px; }
+
+  /* Subcategoría — texto libre con gear al lado para gestionar la lista */
+  .hsubcat-row { display: grid; grid-template-columns: 1fr 44px; gap: 8px; }
+  .hsubcat-row input { margin: 0; }
+  .hsubcat-gear { margin: 0; padding: 0; width: 44px; height: 44px; font-size: 18px;
+                 background: #f1f5f9; color: #475569; border-radius: 8px; flex: 0 0 auto; }
+  .hsubcat-gear:active { background: #e2e8f0; }
+  .hsubcat-add { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+  .hsubcat-add input { margin: 0; padding: 12px 14px; }
+  .hsubcat-add button { margin: 0; padding: 0 8px; font-size: 13px; }
+  .hsubcat-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; }
+  .hsubcat-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+                 background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; }
+  .hsubcat-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hsubcat-item button { margin: 0; width: auto; padding: 5px 9px; font-size: 12px; font-weight: 700; background: transparent; }
+  .hsubcat-item .hsub-rn { color: #0f766e; }
+  .hsubcat-item .hsub-del { color: #b91c1c; }
+  .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
 
   /* Botón "Hacerla recurrente" — toggle simple, un solo botón (no un grupo
      como .argtipos), mismo criterio visual: gris apagado / teal cuando está

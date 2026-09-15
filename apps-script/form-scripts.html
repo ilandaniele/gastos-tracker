@@ -493,8 +493,9 @@
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
-  var TAR = { tareas: [], categorias: [], periodos: [], hoy: '', editando: null, tipoNuevo: 'Tarea', tipoModal: 'Tarea',
-              catNuevo: 'Otros', catModal: 'Otros', recurNuevo: false, recurModal: false };
+  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, hoy: '', editando: null,
+              tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
+              recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '' };
   var TAR_CAT_EMOJI = { 'Salud': '🩺', 'Trabajo': '💼', 'Personal': '🙋', 'Hogar': '🏠', 'Finanzas': '💵', 'Otros': '📌' };
   function tarEl(id) { return document.getElementById(id); }
   function tarStatus(txt, cls) {
@@ -524,6 +525,15 @@
     var html = TAR.periodos.map(function(p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
     if (tarEl('tarPeriodo')) tarEl('tarPeriodo').innerHTML = html;
     if (tarEl('tmPeriodo')) tarEl('tmPeriodo').innerHTML = html;
+  }
+  // Sugerencias del <datalist> de subcategoría para la categoría elegida —
+  // siempre se puede escribir cualquier cosa igual, esto solo autocompleta
+  // con lo que ya se usó (o se dio de alta a mano, ver subcatModal).
+  function tarPoblarSubcatList(categoria, datalistId) {
+    var dl = tarEl(datalistId);
+    if (!dl) return;
+    var lista = TAR.subcategorias[categoria] || [];
+    dl.innerHTML = lista.map(function(s) { return '<option value="' + esc(s) + '"></option>'; }).join('');
   }
 
   var tarTipoBtns = document.querySelectorAll('.tartipo');
@@ -576,9 +586,12 @@
         TAR.tareas = r.tareas || [];
         TAR.categorias = r.categorias || [];
         TAR.periodos = r.periodos || [];
+        TAR.subcategorias = r.subcategorias || {};
         TAR.hoy = r.hoy || '';
         tarPoblarCategorias();
         tarPoblarPeriodos();
+        tarPoblarSubcatList(TAR.catNuevo, 'tarSubcatList');
+        tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
         tarStatus('', '');
         tarPintar();
       })
@@ -590,12 +603,14 @@
 
   if (tarEl('tarCategoria')) tarEl('tarCategoria').addEventListener('change', function() {
     TAR.catNuevo = this.value;
+    tarPoblarSubcatList(TAR.catNuevo, 'tarSubcatList');
   });
   if (tarEl('tmCategoria')) tarEl('tmCategoria').addEventListener('change', function() {
     TAR.catModal = this.value;
+    tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
   });
 
-  function tarBadges(t) {
+  function tarBadges(t, hideSubcat) {
     var out = '';
     if (t.tipo === 'Cita') {
       out += '<span class="task-badge cita">📅 ' + esc(tarDiaCorto(t.fecha)) + (t.hora ? ' ' + esc(t.hora) : '') + '</span>';
@@ -604,6 +619,7 @@
       out += '<span class="task-badge ' + (venc ? 'vencida' : (esHoy ? 'hoy' : 'cita')) + '">' +
              (venc ? '⚠️ vencía ' : '📌 ') + esc(tarDiaCorto(t.fecha)) + '</span>';
     }
+    if (t.subcategoria && !hideSubcat) out += '<span class="task-badge subcat">' + esc(t.subcategoria) + '</span>';
     if (t.notas) out += '<span class="task-badge notas">' + esc(t.notas) + '</span>';
     return out;
   }
@@ -634,15 +650,41 @@
     '</div>';
   }
 
-  function tarCardHtml(t) {
+  function tarCardHtml(t, hideSubcat) {
     return '<div class="task-card' + (t.completada ? ' done' : '') + ' ' + tarCatSlug(t.categoria) + '">' +
       '<div class="task-check' + (t.completada ? ' on' : '') + '" data-check="' + t.row + '">' + (t.completada ? '✓' : '') + '</div>' +
       '<div class="task-body" data-open="' + t.row + '">' +
         '<div class="task-text">' + esc(t.texto) + '</div>' +
-        '<div class="task-meta">' + tarBadges(t) + '</div>' +
+        '<div class="task-meta">' + tarBadges(t, hideSubcat) + '</div>' +
         tarCounterHtml(t) +
       '</div>' +
     '</div>';
+  }
+
+  // Sub-pizarra: si alguna pendiente de la categoría tiene subcategoría, la
+  // columna se parte en grupos por subcategoría (orden: como van apareciendo,
+  // "Sin subcategoría" siempre al final). Si ninguna tiene, se listan todas
+  // juntas como siempre — no se agrega un grupo por nada.
+  function tarColBodyHtml(items) {
+    var conSub = items.some(function(t) { return t.subcategoria; });
+    if (!conSub) return '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t); }).join('') + '</div>';
+    var orden = [], grupos = {};
+    items.forEach(function(t) {
+      var key = t.subcategoria || '';
+      if (!grupos[key]) { grupos[key] = []; orden.push(key); }
+      grupos[key].push(t);
+    });
+    // "Sin subcategoría" (clave vacía) siempre al final; entre las demás se
+    // respeta el orden en que fueron apareciendo (sort de JS es estable).
+    orden.sort(function(a, b) { return (a ? 0 : 1) - (b ? 0 : 1); });
+    return orden.map(function(key) {
+      var esSinSub = !key;
+      return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + '">' +
+        '<div class="task-subgroup-head"><span>' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
+          '<span class="n">' + grupos[key].length + '</span></div>' +
+        '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true); }).join('') + '</div>' +
+      '</div>';
+    }).join('');
   }
 
   function tarWireRows(cont) {
@@ -731,7 +773,7 @@
         return '<div class="task-col ' + tarCatSlug(cat) + '">' +
           '<div class="task-col-head"><span>' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
             '<span class="n">' + items.length + '</span></div>' +
-          '<div class="task-col-body">' + items.map(tarCardHtml).join('') + '</div>' +
+          tarColBodyHtml(items) +
         '</div>';
       }).join('');
       board.innerHTML = catsHtml || '<div class="task-empty">No tenés tareas pendientes</div>';
@@ -771,6 +813,7 @@
     var texto = (tarEl('tarTexto') && tarEl('tarTexto').value.trim()) || '';
     if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
     var payload = { tipo: TAR.tipoNuevo, categoria: TAR.catNuevo, texto: texto,
+                    subcategoria: (tarEl('tarSubcategoria') && tarEl('tarSubcategoria').value.trim()) || '',
                     notas: (tarEl('tarNotas') && tarEl('tarNotas').value.trim()) || '' };
     if (TAR.tipoNuevo === 'Cita') {
       payload.fecha = (tarEl('tarFechaCita') && tarEl('tarFechaCita').value) || '';
@@ -790,6 +833,7 @@
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         tarEl('tarTexto').value = '';
+        if (tarEl('tarSubcategoria')) tarEl('tarSubcategoria').value = '';
         if (tarEl('tarNotas')) tarEl('tarNotas').value = '';
         if (tarEl('tarFechaCita')) tarEl('tarFechaCita').value = '';
         if (tarEl('tarHoraCita')) tarEl('tarHoraCita').value = '';
@@ -824,6 +868,8 @@
     if (tarEl('tmCampoRecurrente')) tarEl('tmCampoRecurrente').hidden = esCita;
     TAR.catModal = t.categoria || 'Otros';
     if (tarEl('tmCategoria')) tarEl('tmCategoria').value = TAR.catModal;
+    tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
+    if (tarEl('tmSubcategoria')) tarEl('tmSubcategoria').value = t.subcategoria || '';
     if (tarEl('tmTexto')) tarEl('tmTexto').value = t.texto || '';
     if (tarEl('tmFechaCita')) tarEl('tmFechaCita').value = esCita ? (t.fecha || '') : '';
     if (tarEl('tmHoraCita')) tarEl('tmHoraCita').value = esCita ? (t.hora || '') : '';
@@ -852,6 +898,7 @@
     var texto = (tarEl('tmTexto') && tarEl('tmTexto').value.trim()) || '';
     if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
     var payload = { row: t.row, tipo: TAR.tipoModal, categoria: TAR.catModal, texto: texto,
+                    subcategoria: (tarEl('tmSubcategoria') && tarEl('tmSubcategoria').value.trim()) || '',
                     notas: (tarEl('tmNotas') && tarEl('tmNotas').value.trim()) || '' };
     if (TAR.tipoModal === 'Cita') {
       payload.fecha = (tarEl('tmFechaCita') && tarEl('tmFechaCita').value) || '';
@@ -898,6 +945,114 @@
       })
       .deleteTaskSafe({ row: t.row });
   });
+
+  // === SUBCATEGORÍAS (gestión) =============================================
+  // Modal aparte, disparado desde el ⚙️ al lado del campo Subcategoría tanto
+  // en "Agregar" como en el modal de editar — mismo modal para las dos,
+  // decide sobre qué categoría según cuál lo abrió.
+  function subcatStatus(txt, cls) {
+    var el = tarEl('subcatStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = txt || '';
+  }
+  function subcatPintarLista() {
+    var cont = tarEl('subcatLista');
+    if (!cont) return;
+    var lista = TAR.subcategorias[TAR.subcatCategoriaAbierta] || [];
+    if (!lista.length) {
+      cont.innerHTML = '<div class="hsubcat-empty">Todavía no hay subcategorías acá</div>';
+      return;
+    }
+    cont.innerHTML = lista.map(function(s) {
+      return '<div class="hsubcat-item"><span>' + esc(s) + '</span>' +
+        '<button type="button" class="hsub-rn" data-rn="' + esc(s) + '">✎</button>' +
+        '<button type="button" class="hsub-del" data-del="' + esc(s) + '">🗑</button></div>';
+    }).join('');
+    var rns = cont.querySelectorAll('[data-rn]');
+    for (var i = 0; i < rns.length; i++) {
+      (function(el) { el.addEventListener('click', function() { subcatRenombrar(el.getAttribute('data-rn')); }); })(rns[i]);
+    }
+    var dels = cont.querySelectorAll('[data-del]');
+    for (var j = 0; j < dels.length; j++) {
+      (function(el) { el.addEventListener('click', function() { subcatBorrar(el.getAttribute('data-del')); }); })(dels[j]);
+    }
+  }
+  function tarAbrirSubcatModal(categoria) {
+    TAR.subcatCategoriaAbierta = categoria;
+    if (tarEl('subcatModalCat')) tarEl('subcatModalCat').textContent = '· ' + categoria;
+    if (tarEl('subcatNuevoInput')) tarEl('subcatNuevoInput').value = '';
+    subcatStatus('', '');
+    subcatPintarLista();
+    if (tarEl('subcatModal')) tarEl('subcatModal').classList.add('show');
+  }
+  function subcatCerrarModal() {
+    if (tarEl('subcatModal')) tarEl('subcatModal').classList.remove('show');
+    // Al cerrar, refrescar los <datalist> por si se agregó/borró/renombró algo.
+    tarPoblarSubcatList(TAR.catNuevo, 'tarSubcatList');
+    tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
+  }
+  if (tarEl('tarSubcatGestionar')) tarEl('tarSubcatGestionar').addEventListener('click', function() {
+    tarAbrirSubcatModal(TAR.catNuevo);
+  });
+  if (tarEl('tmSubcatGestionar')) tarEl('tmSubcatGestionar').addEventListener('click', function() {
+    tarAbrirSubcatModal(TAR.catModal);
+  });
+  if (tarEl('subcatCerrarBtn')) tarEl('subcatCerrarBtn').addEventListener('click', subcatCerrarModal);
+  if (tarEl('subcatModal')) tarEl('subcatModal').addEventListener('click', function(ev) {
+    if (ev.target === tarEl('subcatModal')) subcatCerrarModal();
+  });
+  if (tarEl('subcatAgregarBtn')) tarEl('subcatAgregarBtn').addEventListener('click', function() {
+    var nombre = (tarEl('subcatNuevoInput') && tarEl('subcatNuevoInput').value.trim()) || '';
+    if (!nombre) { subcatStatus('Escribí un nombre', 'err'); return; }
+    subcatStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { subcatStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.subcategorias = r.subcategorias || {};
+        tarEl('subcatNuevoInput').value = '';
+        subcatStatus('', '');
+        subcatPintarLista();
+      })
+      .withFailureHandler(function(err) {
+        subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, nombre: nombre });
+  });
+  function subcatRenombrar(nombreActual) {
+    var nuevo = prompt('Nuevo nombre para "' + nombreActual + '"', nombreActual);
+    if (nuevo == null) return; // cancelado
+    nuevo = nuevo.trim();
+    if (!nuevo || nuevo === nombreActual) return;
+    subcatStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { subcatStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.subcategorias = r.subcategorias || {};
+        subcatStatus('✓ Renombrada', 'ok');
+        subcatPintarLista();
+        loadTareas(); // las tareas que ya la tenían cambiaron de nombre en el server
+      })
+      .withFailureHandler(function(err) {
+        subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .renameTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, antes: nombreActual, despues: nuevo });
+  }
+  function subcatBorrar(nombre) {
+    if (!confirm('¿Borrar la subcategoría "' + nombre + '"? Las tareas que ya la tienen no se tocan.')) return;
+    subcatStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { subcatStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.subcategorias = r.subcategorias || {};
+        subcatStatus('✓ Borrada', 'ok');
+        subcatPintarLista();
+      })
+      .withFailureHandler(function(err) {
+        subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .deleteTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, nombre: nombre });
+  }
 
   // === AHORROS =============================================================
   // Los ahorros no son de un mes: se leen enteros de su propia hoja. Cada

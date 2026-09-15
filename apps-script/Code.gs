@@ -3250,6 +3250,43 @@ function _yahooQuote(symbol) {
   }
 }
 
+// Igual que _yahooQuote pero para varios simbolos a la vez, en un solo
+// round-trip (UrlFetchApp.fetchAll manda todas las requests en paralelo).
+// _savingsRepaint pedia cada ticker uno detras del otro con _yahooQuote — con
+// 8-10 acciones cargadas eso eran 8-10 round trips seguidos, la causa de que
+// entrar a Ahorros tardara tanto.
+function _yahooQuoteBatch(symbols) {
+  const out = {};
+  if (!symbols || !symbols.length) return out;
+  const requests = symbols.map(s => ({
+    url: 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(s) + '?interval=1d&range=1d',
+    muteHttpExceptions: true,
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  }));
+  let responses;
+  try {
+    responses = UrlFetchApp.fetchAll(requests);
+  } catch (err) {
+    Logger.log('_yahooQuoteBatch: ' + err.message);
+    return out;
+  }
+  for (let i = 0; i < symbols.length; i++) {
+    try {
+      const resp = responses[i];
+      if (!resp || resp.getResponseCode() !== 200) continue;
+      const data = JSON.parse(resp.getContentText());
+      const meta = data && data.chart && data.chart.result && data.chart.result[0] &&
+                   data.chart.result[0].meta;
+      const precio = meta && toNumber(meta.regularMarketPrice);
+      if (precio == null || precio <= 0) continue;
+      out[symbols[i]] = { precio: precio, moneda: String(meta.currency || 'USD').toUpperCase() };
+    } catch (err) {
+      Logger.log('_yahooQuoteBatch ' + symbols[i] + ': ' + err.message);
+    }
+  }
+  return out;
+}
+
 // Cuanto vale 1 unidad de esa moneda en dolares. Yahoo sirve los tipos de
 // cambio por el mismo endpoint (EURUSD=X), asi que no hace falta otra fuente.
 function _fxAUsd(moneda) {
@@ -3305,18 +3342,83 @@ function fetchStockPrice(ticker) {
   return out;
 }
 
+// Precio (en dolares) de varios tickers a la vez. Mira el cache primero (15
+// min) y solo sale a la red por los que faltan — y esos todos juntos con
+// _yahooQuoteBatch, en vez de un fetchStockPrice() por ticker uno detras del
+// otro. Igual con el tipo de cambio de las que no cotizan en USD.
+function _fetchStockPricesBatch(tickers) {
+  const out = {};
+  const cache = CacheService.getScriptCache();
+  const faltan = [];
+  for (const t of tickers) {
+    if (!t || out[t] !== undefined) continue;
+    try {
+      const hit = cache.get('px_' + t);
+      if (hit) { out[t] = JSON.parse(hit).p; continue; }
+    } catch (e) {}
+    faltan.push(t);
+  }
+  if (!faltan.length) return out;
+
+  const quotes = _yahooQuoteBatch(faltan);
+
+  const monedas = {};
+  for (const t of faltan) {
+    const q = quotes[t];
+    if (q && q.moneda !== 'USD') monedas[q.moneda] = true;
+  }
+  const fx = {};
+  const monedasFaltan = [];
+  for (const m of Object.keys(monedas)) {
+    try {
+      const hit = cache.get('fx_' + m);
+      if (hit) { fx[m] = parseFloat(hit); continue; }
+    } catch (e) {}
+    monedasFaltan.push(m);
+  }
+  if (monedasFaltan.length) {
+    const fxQuotes = _yahooQuoteBatch(monedasFaltan.map(m => m + 'USD=X'));
+    for (const m of monedasFaltan) {
+      const q = fxQuotes[m + 'USD=X'];
+      if (q && q.precio) {
+        fx[m] = q.precio;
+        try { cache.put('fx_' + m, String(q.precio), SAVINGS_PRICE_TTL_SEC); } catch (e) {}
+      }
+    }
+  }
+
+  for (const t of faltan) {
+    const q = quotes[t];
+    if (!q) continue;
+    let precio = q.precio;
+    if (q.moneda !== 'USD') {
+      const rate = fx[q.moneda];
+      if (!rate) { Logger.log('_fetchStockPricesBatch ' + t + ': sin cambio para ' + q.moneda); continue; }
+      precio = q.precio * rate;
+    }
+    out[t] = precio;
+    try {
+      cache.put('px_' + t, JSON.stringify({ p: precio, m: 'USD', o: q.moneda, po: q.precio }), SAVINGS_PRICE_TTL_SEC);
+    } catch (e) {}
+  }
+  return out;
+}
+
 // Recalcula precio y valor de cada fila, y pinta los totales de arriba.
 // Devuelve las filas ya valuadas para no tener que releer la hoja.
 function _savingsRepaint(sheet) {
   const filas = _savingsRows(sheet);
 
-  // Un solo fetch por ticker, aunque haya varias compras de la misma empresa
-  const precios = {};
+  // Todos los tickers unicos de una, y sus precios pedidos en paralelo (ver
+  // _fetchStockPricesBatch) en vez de un round-trip por ticker uno detras del
+  // otro — eso era lo que hacia que entrar a Ahorros tardara tanto.
+  const tickersUnicos = [];
   for (const f of filas) {
-    if (f.tipo !== 'Acción' || !f.ticker || precios[f.ticker] !== undefined) continue;
-    const px = fetchStockPrice(f.ticker);
-    precios[f.ticker] = px ? px.precio : null;
+    if (f.tipo === 'Acción' && f.ticker && tickersUnicos.indexOf(f.ticker) === -1) tickersUnicos.push(f.ticker);
   }
+  const preciosBatch = _fetchStockPricesBatch(tickersUnicos);
+  const precios = {};
+  for (const t of tickersUnicos) precios[t] = preciosBatch[t] != null ? preciosBatch[t] : null;
 
   let enAcciones = 0, enBanco = 0, enBonos = 0, invertidoAcciones = 0, comisiones = 0;
   const escribir = [];
@@ -4248,8 +4350,10 @@ function deleteArgentinaSafe(data) {
 // de fila como id y correr las filas de abajo lo rompería.
 
 const TASKS_TAB = 'Tareas';
+// Subcategoría va al final (columna 15) en vez de al lado de Categoría para
+// no correr los índices de todas las columnas que ya existían.
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
-                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset'];
+                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
 // Fijas (como CATEGORIES de gastos) en vez de texto libre: así la pizarra
 // tiene columnas estables en vez de una nueva por cada typo.
@@ -4259,9 +4363,152 @@ const TASKS_PERIODOS = ['Diario', 'Semanal', 'Mensual'];
 const TASKS_FIRST_ROW = 2;
 const TASKS_MAX_ROWS = 500;
 
+// Subcategorías: a diferencia de Categoría (fija), acá el usuario define las
+// suyas — ej. dentro de "Trabajo": "Proyecto A", "Reuniones". Se guardan
+// aparte (Script Properties, un JSON { categoria: [nombres...] }) en vez de
+// derivarlas de las tareas ya cargadas, para poder crear una subcategoría
+// vacía (o renombrarla) antes/después de tener tareas en ella.
+const TASKS_SUBCATS_PROP = 'TASKS_SUBCATS_V1';
+
+function _tasksSubcatsGet() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_SUBCATS_PROP);
+    const obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  } catch (e) { return {}; }
+}
+function _tasksSubcatsSet(obj) {
+  PropertiesService.getScriptProperties().setProperty(TASKS_SUBCATS_PROP, JSON.stringify(obj));
+}
+function _tasksCategoriaValida(raw) {
+  return TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(String(raw || ''))) || null;
+}
+
+function getTaskSubcategories() {
+  return _tasksSubcatsGet();
+}
+
+// La llama tanto "agregar subcategoría" a mano como el guardado normal de una
+// tarea (ver _normTask/addTaskEntry): escribir una tarea con una subcategoría
+// nueva la da de alta sola, sin tener que pasar antes por la gestión.
+function _tasksSubcatRegistrar(categoria, subcategoria) {
+  const cat = _tasksCategoriaValida(categoria);
+  const nombre = String(subcategoria || '').trim();
+  if (!cat || !nombre) return;
+  const obj = _tasksSubcatsGet();
+  const lista = obj[cat] || [];
+  if (!lista.some(x => _stripAccents(x) === _stripAccents(nombre))) {
+    lista.push(nombre);
+    obj[cat] = lista;
+    _tasksSubcatsSet(obj);
+  }
+}
+
+function addTaskSubcategory(p) {
+  const cat = _tasksCategoriaValida(p.categoria);
+  if (!cat) throw new Error('Categoría inválida');
+  const nombre = String(p.nombre || '').trim();
+  if (!nombre) throw new Error('Falta el nombre de la subcategoría');
+  if (nombre.length > 40) throw new Error('Nombre demasiado largo (máx 40 caracteres)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const obj = _tasksSubcatsGet();
+    const lista = obj[cat] || [];
+    if (lista.some(x => _stripAccents(x) === _stripAccents(nombre))) {
+      throw new Error('Ya existe esa subcategoría');
+    }
+    lista.push(nombre);
+    obj[cat] = lista;
+    _tasksSubcatsSet(obj);
+    return { ok: true, subcategorias: obj };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Renombra una subcategoría y actualiza también las tareas que ya la tenían
+// cargada — si no, la pizarra les quedaría una columna vieja huérfana.
+function renameTaskSubcategory(p) {
+  const cat = _tasksCategoriaValida(p.categoria);
+  if (!cat) throw new Error('Categoría inválida');
+  const antes = String(p.antes || '').trim();
+  const despues = String(p.despues || '').trim();
+  if (!antes || !despues) throw new Error('Faltan nombres');
+  if (despues.length > 40) throw new Error('Nombre demasiado largo (máx 40 caracteres)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const obj = _tasksSubcatsGet();
+    const lista = obj[cat] || [];
+    const idx = lista.findIndex(x => _stripAccents(x) === _stripAccents(antes));
+    if (idx === -1) throw new Error('No existe esa subcategoría');
+    if (lista.some((x, i) => i !== idx && _stripAccents(x) === _stripAccents(despues))) {
+      throw new Error('Ya existe una subcategoría con ese nombre');
+    }
+    lista[idx] = despues;
+    obj[cat] = lista;
+    _tasksSubcatsSet(obj);
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cupo = _tasksCupo(sheet);
+    if (cupo) {
+      const rng = sheet.getRange(TASKS_FIRST_ROW, 1, cupo, TASKS_HEADERS.length);
+      const vals = rng.getValues();
+      let tocado = false;
+      for (let i = 0; i < vals.length; i++) {
+        if (!String(vals[i][3] || '').trim()) continue;
+        if (_stripAccents(String(vals[i][2] || '')) === _stripAccents(cat) &&
+            _stripAccents(String(vals[i][14] || '')) === _stripAccents(antes)) {
+          vals[i][14] = despues;
+          tocado = true;
+        }
+      }
+      if (tocado) rng.setValues(vals);
+    }
+    return { ok: true, subcategorias: obj };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Borra una subcategoría de la lista. Las tareas que ya la tenían NO se
+// tocan — les queda el texto suelto, se pierde de la lista de sugerencias
+// pero no desaparece de la tarea.
+function deleteTaskSubcategory(p) {
+  const cat = _tasksCategoriaValida(p.categoria);
+  if (!cat) throw new Error('Categoría inválida');
+  const nombre = String(p.nombre || '').trim();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const obj = _tasksSubcatsGet();
+    const lista = obj[cat] || [];
+    obj[cat] = lista.filter(x => _stripAccents(x) !== _stripAccents(nombre));
+    _tasksSubcatsSet(obj);
+    return { ok: true, subcategorias: obj };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function addTaskSubcategorySafe(data) {
+  try { return addTaskSubcategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function renameTaskSubcategorySafe(data) {
+  try { return renameTaskSubcategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function deleteTaskSubcategorySafe(data) {
+  try { return deleteTaskSubcategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
 function getOrCreateTasksTab(ss) {
   let sheet = ss.getSheetByName(TASKS_TAB);
-  if (sheet) return sheet;
+  if (sheet) { _tasksMigrarHeaders(sheet); return sheet; }
   sheet = ss.insertSheet(TASKS_TAB);
   sheet.getRange(1, 1, 1, TASKS_HEADERS.length).setValues([TASKS_HEADERS])
        .setFontWeight('bold').setBackground('#dbeafe');
@@ -4270,6 +4517,18 @@ function getOrCreateTasksTab(ss) {
   sheet.setFrozenRows(1);
   try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
   return sheet;
+}
+
+// Repara el encabezado si le falta una columna nueva (ej. "Subcategoría" se
+// agregó despues de que muchos ya tenían la hoja creada con 14 columnas).
+// Solo AGREGA lo que falta al final — nunca toca ni corre las que ya había.
+function _tasksMigrarHeaders(sheet) {
+  const anchoActual = Math.max(sheet.getLastColumn(), TASKS_HEADERS.length);
+  const hdr = sheet.getRange(1, 1, 1, anchoActual).getValues()[0];
+  if (_stripAccents(String(hdr[TASKS_HEADERS.length - 1] || '')) ===
+      _stripAccents(TASKS_HEADERS[TASKS_HEADERS.length - 1])) return;
+  sheet.getRange(1, 1, 1, TASKS_HEADERS.length).setValues([TASKS_HEADERS])
+       .setFontWeight('bold').setBackground('#dbeafe');
 }
 
 function _tasksCupo(sheet) {
@@ -4355,7 +4614,8 @@ function _tasksRows(sheet) {
       completada: r[7] === true,
       fechaCompletada: dCompletada ? Utilities.formatDate(dCompletada, 'America/Montevideo', 'yyyy-MM-dd') : '',
       recurrente: recurrente, objetivo: objetivo, contador: contador, periodo: periodo,
-      ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : ''
+      ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      subcategoria: String(r[14] || '').trim()
     });
   }
   resets.forEach(function(rs) {
@@ -4374,6 +4634,10 @@ function _normTask(p) {
   const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw)) || 'Tarea';
   const catRaw = String(p.categoria || '').trim();
   const categoria = TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(catRaw)) || 'Otros';
+  // Texto libre, definida por el usuario — no hay una lista fija como con
+  // Categoría (ver TASKS_SUBCATS_PROP). Guardarla acá la registra sola en la
+  // lista de sugerencias (ver addTaskEntry/updateTaskEntry).
+  const subcategoria = String(p.subcategoria || '').trim().slice(0, 40);
   const texto = String(p.texto || '').trim();
   if (!texto) throw new Error('Falta el texto de la tarea');
 
@@ -4397,7 +4661,7 @@ function _normTask(p) {
   }
 
   return {
-    tipo: tipo, categoria: categoria, texto: texto, fecha: fechaRaw || '', hora: hora,
+    tipo: tipo, categoria: categoria, subcategoria: subcategoria, texto: texto, fecha: fechaRaw || '', hora: hora,
     notas: String(p.notas || '').trim(), recurrente: recurrente, objetivo: objetivo,
     periodo: periodo, contador: contador
   };
@@ -4421,7 +4685,7 @@ function _tasksEscribirFila(sheet, row, e, opts) {
     e.fecha ? parseLocalDate(e.fecha) : '', e.hora, e.notas,
     opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : '',
     e.recurrente, e.recurrente ? e.objetivo : '', e.recurrente ? contador : '',
-    e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : ''
+    e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || ''
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, 14).setNumberFormat('dd/MM/yyyy');
@@ -4436,7 +4700,7 @@ function getTasksData() {
     const filas = _tasksRows(sheet);
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: TASKS_CATEGORIAS,
-             periodos: TASKS_PERIODOS, hoy: hoy };
+             periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
     return { ok: false, error: err.message };
@@ -4454,6 +4718,7 @@ function addTaskEntry(p) {
     const sheet = getOrCreateTasksTab(ss);
     row = _tasksNextRow(sheet);
     _tasksEscribirFila(sheet, row, e);
+    if (e.subcategoria) _tasksSubcatRegistrar(e.categoria, e.subcategoria);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -4484,6 +4749,7 @@ function updateTaskEntry(p) {
       contador: e.contador != null ? e.contador : contadorPrevio,
       ultimoReset: yaEraRecurrente ? cur[13] : ''
     });
+    if (e.subcategoria) _tasksSubcatRegistrar(e.categoria, e.subcategoria);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();

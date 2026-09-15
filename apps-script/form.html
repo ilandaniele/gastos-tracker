@@ -191,6 +191,13 @@
   <label class="hlabel">Categoría</label>
   <select id="tarCategoria"></select>
 
+  <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
+  <div class="hsubcat-row">
+    <input type="text" id="tarSubcategoria" list="tarSubcatList" placeholder="ej: Proyecto A" autocomplete="off">
+    <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
+  </div>
+  <datalist id="tarSubcatList"></datalist>
+
   <div id="tarCampoFechaCita" hidden>
     <div class="hscan-row">
       <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
@@ -250,6 +257,12 @@
     <input type="text" id="tmTexto" autocomplete="off">
     <label class="hlabel">Categoría</label>
     <select id="tmCategoria"></select>
+    <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
+    <div class="hsubcat-row">
+      <input type="text" id="tmSubcategoria" list="tmSubcatList" placeholder="ej: Proyecto A" autocomplete="off">
+      <button type="button" id="tmSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
+    </div>
+    <datalist id="tmSubcatList"></datalist>
     <div id="tmCampoFechaCita" hidden>
       <div class="hscan-row">
         <div><label class="hlabel">Fecha</label><input type="date" id="tmFechaCita"></div>
@@ -280,6 +293,22 @@
       <button type="button" id="tmDelete" class="hdanger">Borrar</button>
       <button type="button" id="tmCancel" class="hsecondary">Cancelar</button>
       <button type="button" id="tmSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL GESTIONAR SUBCATEGORIAS -->
+<div id="subcatModal">
+  <div class="hmodal-box">
+    <h3>Subcategorías <span id="subcatModalCat" class="hhint"></span></h3>
+    <div class="hsubcat-add">
+      <input type="text" id="subcatNuevoInput" placeholder="Nueva subcategoría" autocomplete="off">
+      <button type="button" id="subcatAgregarBtn">Agregar</button>
+    </div>
+    <div id="subcatLista" class="hsubcat-list"></div>
+    <div id="subcatStatus"></div>
+    <div class="hmodal-actions" style="grid-template-columns:1fr">
+      <button type="button" id="subcatCerrarBtn" class="hsecondary">Cerrar</button>
     </div>
   </div>
 </div>
