@@ -4247,8 +4247,11 @@ function deleteArgentinaSafe(data) {
 // de fila como id y correr las filas de abajo lo rompería.
 
 const TASKS_TAB = 'Tareas';
-const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada'];
+const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
+// Fijas (como CATEGORIES de gastos) en vez de texto libre: así la pizarra
+// tiene columnas estables en vez de una nueva por cada typo.
+const TASKS_CATEGORIAS = ['Salud', 'Trabajo', 'Personal', 'Hogar', 'Finanzas', 'Otros'];
 const TASKS_FIRST_ROW = 2;
 const TASKS_MAX_ROWS = 500;
 
@@ -4258,8 +4261,8 @@ function getOrCreateTasksTab(ss) {
   sheet = ss.insertSheet(TASKS_TAB);
   sheet.getRange(1, 1, 1, TASKS_HEADERS.length).setValues([TASKS_HEADERS])
        .setFontWeight('bold').setBackground('#dbeafe');
-  sheet.setColumnWidth(3, 260);
-  sheet.setColumnWidth(6, 220);
+  sheet.setColumnWidth(4, 260);
+  sheet.setColumnWidth(7, 220);
   sheet.setFrozenRows(1);
   try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
   return sheet;
@@ -4274,7 +4277,7 @@ function _tasksCupo(sheet) {
 function _tasksNextRow(sheet) {
   const cupo = _tasksCupo(sheet);
   if (!cupo) throw new Error('La hoja de tareas no tiene filas libres');
-  const vals = sheet.getRange(TASKS_FIRST_ROW, 3, cupo, 1).getValues();
+  const vals = sheet.getRange(TASKS_FIRST_ROW, 4, cupo, 1).getValues();
   for (let i = 0; i < vals.length; i++) {
     if (!String(vals[i][0] || '').trim()) return TASKS_FIRST_ROW + i;
   }
@@ -4288,25 +4291,26 @@ function _tasksRows(sheet) {
   const out = [];
   for (let i = 0; i < vals.length; i++) {
     const r = vals[i];
-    if (!String(r[2] || '').trim()) continue;
+    if (!String(r[3] || '').trim()) continue;
     const dCreada = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
-    const dFecha = r[3] ? (Object.prototype.toString.call(r[3]) === '[object Date]' ? r[3] : parseLocalDate(r[3])) : null;
-    const dCompletada = r[7] ? (Object.prototype.toString.call(r[7]) === '[object Date]' ? r[7] : parseLocalDate(r[7])) : null;
+    const dFecha = r[4] ? (Object.prototype.toString.call(r[4]) === '[object Date]' ? r[4] : parseLocalDate(r[4])) : null;
+    const dCompletada = r[8] ? (Object.prototype.toString.call(r[8]) === '[object Date]' ? r[8] : parseLocalDate(r[8])) : null;
     out.push({
       row: TASKS_FIRST_ROW + i,
       creada: dCreada ? Utilities.formatDate(dCreada, 'America/Montevideo', 'yyyy-MM-dd') : '',
       tipo: TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea',
-      texto: String(r[2] || '').trim(),
+      categoria: TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(String(r[2] || ''))) || 'Otros',
+      texto: String(r[3] || '').trim(),
       fecha: dFecha ? Utilities.formatDate(dFecha, 'America/Montevideo', 'yyyy-MM-dd') : '',
       // "15:30" como texto puede quedar mal interpretado como hora-del-dia si
       // la celda no está forzada a texto (formato viejo, o edición a mano en
       // la hoja) — Sheets lo guarda como fecha-serial y Apps Script lo lee
       // como un Date de 1899. Se recupera igual formateándolo en vez de
       // mostrar el Date crudo.
-      hora: Object.prototype.toString.call(r[4]) === '[object Date]'
-        ? Utilities.formatDate(r[4], 'America/Montevideo', 'HH:mm') : String(r[4] || '').trim(),
-      notas: String(r[5] || '').trim(),
-      completada: r[6] === true,
+      hora: Object.prototype.toString.call(r[5]) === '[object Date]'
+        ? Utilities.formatDate(r[5], 'America/Montevideo', 'HH:mm') : String(r[5] || '').trim(),
+      notas: String(r[6] || '').trim(),
+      completada: r[7] === true,
       fechaCompletada: dCompletada ? Utilities.formatDate(dCompletada, 'America/Montevideo', 'yyyy-MM-dd') : ''
     });
   }
@@ -4318,6 +4322,8 @@ function _tasksRows(sheet) {
 function _normTask(p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw)) || 'Tarea';
+  const catRaw = String(p.categoria || '').trim();
+  const categoria = TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(catRaw)) || 'Otros';
   const texto = String(p.texto || '').trim();
   if (!texto) throw new Error('Falta el texto de la tarea');
 
@@ -4329,7 +4335,7 @@ function _normTask(p) {
   if (hora && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) throw new Error('Hora inválida (HH:mm)');
 
   return {
-    tipo: tipo, texto: texto, fecha: fechaRaw || '', hora: hora,
+    tipo: tipo, categoria: categoria, texto: texto, fecha: fechaRaw || '', hora: hora,
     notas: String(p.notas || '').trim()
   };
 }
@@ -4340,15 +4346,15 @@ function _tasksEscribirFila(sheet, row, e, opts) {
   // Forzar texto en Hora ANTES de escribir: sin esto Sheets interpreta "15:30"
   // como hora-del-día y lo guarda como fecha-serial (se lee de vuelta como un
   // Date de 1899, no como el string que se mandó).
-  sheet.getRange(row, 5).setNumberFormat('@');
-  sheet.getRange(row, 1, 1, 8).setValues([[
-    parseLocalDate(creada), e.tipo, e.texto,
+  sheet.getRange(row, 6).setNumberFormat('@');
+  sheet.getRange(row, 1, 1, 9).setValues([[
+    parseLocalDate(creada), e.tipo, e.categoria, e.texto,
     e.fecha ? parseLocalDate(e.fecha) : '', e.hora, e.notas,
     opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : ''
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
-  sheet.getRange(row, 4).setNumberFormat('dd/MM/yyyy');
-  sheet.getRange(row, 8).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(row, 5).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(row, 9).setNumberFormat('dd/MM/yyyy');
 }
 
 function getTasksData() {
@@ -4357,14 +4363,14 @@ function getTasksData() {
     const sheet = getOrCreateTasksTab(ss);
     const filas = _tasksRows(sheet);
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
-    return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, hoy: hoy };
+    return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: TASKS_CATEGORIAS, hoy: hoy };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
     return { ok: false, error: err.message };
   }
 }
 
-// Agrega una tarea/cita. p: { tipo, texto, fecha, hora, notas }
+// Agrega una tarea/cita. p: { tipo, categoria, texto, fecha, hora, notas }
 function addTaskEntry(p) {
   const e = _normTask(p || {});
   const lock = LockService.getScriptLock();
@@ -4394,8 +4400,8 @@ function updateTaskEntry(p) {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
-    if (!String(cur[2] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
-    _tasksEscribirFila(sheet, row, e, { creada: cur[0], completada: cur[6] === true, fechaCompletada: cur[7] || '' });
+    if (!String(cur[3] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    _tasksEscribirFila(sheet, row, e, { creada: cur[0], completada: cur[7] === true, fechaCompletada: cur[8] || '' });
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -4414,10 +4420,10 @@ function toggleTaskEntry(p) {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
-    if (!String(cur[2] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
-    sheet.getRange(row, 7).setValue(completada);
-    sheet.getRange(row, 8).setValue(completada ? new Date() : '');
-    if (completada) sheet.getRange(row, 8).setNumberFormat('dd/MM/yyyy');
+    if (!String(cur[3] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    sheet.getRange(row, 8).setValue(completada);
+    sheet.getRange(row, 9).setValue(completada ? new Date() : '');
+    if (completada) sheet.getRange(row, 9).setNumberFormat('dd/MM/yyyy');
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -4435,8 +4441,8 @@ function deleteTaskEntry(p) {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
-    if (!String(cur[2] || '').trim()) throw new Error('Esa fila ya está vacía');
-    borrado = String(cur[2] || '');
+    if (!String(cur[3] || '').trim()) throw new Error('Esa fila ya está vacía');
+    borrado = String(cur[3] || '');
     sheet.getRange(row, 1, 1, TASKS_HEADERS.length).clearContent();
     SpreadsheetApp.flush();
   } finally {

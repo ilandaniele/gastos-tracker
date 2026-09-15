@@ -144,6 +144,9 @@
   <label class="hlabel">Qué es</label>
   <input type="text" id="tarTexto" placeholder="ej: Turno con el dentista" autocomplete="off">
 
+  <label class="hlabel">Categoría</label>
+  <select id="tarCategoria"></select>
+
   <div id="tarCampoFechaCita" hidden>
     <div class="hscan-row">
       <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
@@ -163,12 +166,12 @@
   <div id="tarStatus"></div>
 </div>
 
-<!-- LISTA -->
+<!-- PIZARRA -->
 <div class="hcard">
-  <div class="hcard-title">📋 Pendientes <span class="hhint">tocá una para editarla</span>
+  <div class="hcard-title">🗂️ Pizarra <span class="hhint">tocá una para editarla</span>
     <button type="button" id="tarRefresh" class="hmini">↻</button>
   </div>
-  <div id="tarList"></div>
+  <div id="tarBoard" class="task-board"></div>
 </div>
 
 <!-- COMPLETADAS -->
@@ -190,6 +193,8 @@
     </div>
     <label class="hlabel">Qué es</label>
     <input type="text" id="tmTexto" autocomplete="off">
+    <label class="hlabel">Categoría</label>
+    <select id="tmCategoria"></select>
     <div id="tmCampoFechaCita" hidden>
       <div class="hscan-row">
         <div><label class="hlabel">Fecha</label><input type="date" id="tmFechaCita"></div>
