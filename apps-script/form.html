@@ -194,12 +194,11 @@
     <button type="button" id="tarCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
   </div>
 
-  <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
+  <label class="hlabel">Subcategoría <span class="hhint">opcional</span></label>
   <div class="hsubcat-row">
-    <input type="text" id="tarSubcategoria" placeholder="ej: Proyecto A (o elegí abajo)" autocomplete="off">
+    <select id="tarSubcategoria"><option value="">Sin subcategoría</option></select>
     <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
   </div>
-  <div id="tarSubcatChips" class="quick-scroll subcat-chips"></div>
 
   <div id="tarCampoFechaCita" hidden>
     <div class="hscan-row">
@@ -288,12 +287,11 @@
       <select id="tmCategoria"></select>
       <button type="button" id="tmCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
     </div>
-    <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
+    <label class="hlabel">Subcategoría <span class="hhint">opcional</span></label>
     <div class="hsubcat-row">
-      <input type="text" id="tmSubcategoria" placeholder="ej: Proyecto A (o elegí abajo)" autocomplete="off">
+      <select id="tmSubcategoria"><option value="">Sin subcategoría</option></select>
       <button type="button" id="tmSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
     </div>
-    <div id="tmSubcatChips" class="quick-scroll subcat-chips"></div>
     <div id="tmCampoFechaCita" hidden>
       <div class="hscan-row">
         <div><label class="hlabel">Fecha</label><input type="date" id="tmFechaCita"></div>
@@ -359,6 +357,7 @@
       <input type="text" id="catNuevoInput" placeholder="Nueva categoría" autocomplete="off">
       <button type="button" id="catAgregarBtn">Agregar</button>
     </div>
+    <button type="button" id="catCancelarEdicionBtn" class="hsecondary" hidden style="margin-top:8px">Cancelar edición</button>
     <div id="catLista" class="hsubcat-list"></div>
     <div id="catStatus"></div>
     <div class="hmodal-actions" style="grid-template-columns:1fr">

@@ -495,7 +495,7 @@
   // server) — lo que ves al abrir la app es lo que te llega por mail.
   var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
-              recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '',
+              recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [] };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
@@ -532,30 +532,19 @@
     if (tarEl('tarPeriodo')) tarEl('tarPeriodo').innerHTML = html;
     if (tarEl('tmPeriodo')) tarEl('tmPeriodo').innerHTML = html;
   }
-  // Chips con las subcategorías ya usadas (o dadas de alta a mano, ver
-  // subcatModal) para la categoría elegida — tocás una y llena el input,
-  // sin depender de <datalist> (poco confiable para "elegir" en Mobile
-  // Safari/iOS). Siempre se puede escribir cualquier otra cosa igual.
-  function tarPoblarSubcatChips(categoria, contId, inputId) {
-    var cont = tarEl(contId);
-    if (!cont) return;
+  // Subcategoría se elige igual que categoría: un <select> con lo que ya
+  // está dado de alta para esa categoría (ver subcatModal, disparado por el
+  // mismo ⚙️ al lado). "valorDeseado" fuerza qué queda seleccionado (ej. la
+  // que ya tenía la tarea al editarla); sin ese argumento, se intenta
+  // conservar lo que ya estaba elegido en el propio <select>.
+  function tarPoblarSubcatSelect(categoria, selectId, valorDeseado) {
+    var sel = tarEl(selectId);
+    if (!sel) return;
     var lista = TAR.subcategorias[categoria] || [];
-    var actual = tarEl(inputId) ? tarEl(inputId).value : '';
-    cont.innerHTML = lista.map(function(s) {
-      return '<button type="button" class="' + (s === actual ? 'activo' : '') + '" data-subchip="' + esc(s) + '">' + esc(s) + '</button>';
-    }).join('');
-    var chips = cont.querySelectorAll('[data-subchip]');
-    for (var i = 0; i < chips.length; i++) {
-      (function(el) {
-        el.addEventListener('click', function() {
-          var input = tarEl(inputId);
-          if (input) input.value = el.getAttribute('data-subchip');
-          var sibs = cont.querySelectorAll('[data-subchip]');
-          for (var k = 0; k < sibs.length; k++) sibs[k].classList.remove('activo');
-          el.classList.add('activo');
-        });
-      })(chips[i]);
-    }
+    var deseado = valorDeseado !== undefined ? valorDeseado : sel.value;
+    sel.innerHTML = '<option value="">Sin subcategoría</option>' +
+      lista.map(function(s) { return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+    sel.value = lista.indexOf(deseado) !== -1 ? deseado : '';
   }
 
   // Subtareas: un checklist propio adentro de "Agregar" (TAR.subtareasNuevas)
@@ -687,8 +676,8 @@
         TAR.hoy = r.hoy || '';
         tarPoblarCategorias();
         tarPoblarPeriodos();
-        tarPoblarSubcatChips(TAR.catNuevo, 'tarSubcatChips', 'tarSubcategoria');
-        tarPoblarSubcatChips(TAR.catModal, 'tmSubcatChips', 'tmSubcategoria');
+        tarPoblarSubcatSelect(TAR.catNuevo, 'tarSubcategoria');
+        tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria');
         tarStatus('', '');
         tarPintar();
       })
@@ -701,14 +690,12 @@
   if (tarEl('tarCategoria')) tarEl('tarCategoria').addEventListener('change', function() {
     TAR.catNuevo = this.value;
     // Las subcategorías son por categoría — al cambiarla, la que estaba
-    // tipeada ya no aplica.
-    if (tarEl('tarSubcategoria')) tarEl('tarSubcategoria').value = '';
-    tarPoblarSubcatChips(TAR.catNuevo, 'tarSubcatChips', 'tarSubcategoria');
+    // elegida ya no aplica.
+    tarPoblarSubcatSelect(TAR.catNuevo, 'tarSubcategoria', '');
   });
   if (tarEl('tmCategoria')) tarEl('tmCategoria').addEventListener('change', function() {
     TAR.catModal = this.value;
-    if (tarEl('tmSubcategoria')) tarEl('tmSubcategoria').value = '';
-    tarPoblarSubcatChips(TAR.catModal, 'tmSubcatChips', 'tmSubcategoria');
+    tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria', '');
   });
 
   function tarBadges(t, hideSubcat, hideSubtasks) {
@@ -1027,10 +1014,7 @@
     if (tarEl('tmRecurBtn')) tarEl('tmRecurBtn').textContent = esCita ? '🔁 Es una cita fija (ej: todos los martes)' : '🔁 Hacerla recurrente';
     TAR.catModal = t.categoria || 'Otros';
     if (tarEl('tmCategoria')) tarEl('tmCategoria').value = TAR.catModal;
-    // El valor va ANTES de pintar los chips, para que el que ya tenía la
-    // tarea quede resaltado como elegido.
-    if (tarEl('tmSubcategoria')) tarEl('tmSubcategoria').value = t.subcategoria || '';
-    tarPoblarSubcatChips(TAR.catModal, 'tmSubcatChips', 'tmSubcategoria');
+    tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria', t.subcategoria || '');
     if (tarEl('tmTexto')) tarEl('tmTexto').value = t.texto || '';
     if (tarEl('tmFechaCita')) tarEl('tmFechaCita').value = esCita ? (t.fecha || '') : '';
     if (tarEl('tmHoraCita')) tarEl('tmHoraCita').value = esCita ? (t.hora || '') : '';
@@ -1155,9 +1139,9 @@
   }
   function subcatCerrarModal() {
     if (tarEl('subcatModal')) tarEl('subcatModal').classList.remove('show');
-    // Al cerrar, refrescar los chips por si se agregó/borró/renombró algo.
-    tarPoblarSubcatChips(TAR.catNuevo, 'tarSubcatChips', 'tarSubcategoria');
-    tarPoblarSubcatChips(TAR.catModal, 'tmSubcatChips', 'tmSubcategoria');
+    // Al cerrar, refrescar los <select> por si se agregó/borró/renombró algo.
+    tarPoblarSubcatSelect(TAR.catNuevo, 'tarSubcategoria');
+    tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria');
   }
   if (tarEl('tarSubcatGestionar')) tarEl('tarSubcatGestionar').addEventListener('click', function() {
     tarAbrirSubcatModal(TAR.catNuevo);
@@ -1245,7 +1229,7 @@
     }).join('');
     var rns = cont.querySelectorAll('[data-catrn]');
     for (var i = 0; i < rns.length; i++) {
-      (function(el) { el.addEventListener('click', function() { catRenombrar(el.getAttribute('data-catrn')); }); })(rns[i]);
+      (function(el) { el.addEventListener('click', function() { catIniciarEdicion(el.getAttribute('data-catrn')); }); })(rns[i]);
     }
     var dels = cont.querySelectorAll('[data-catdel]');
     for (var j = 0; j < dels.length; j++) {
@@ -1258,10 +1242,27 @@
   function _stripAccentsJs(s) {
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   }
+  // El mismo campo de "Nueva categoría" (emoji + nombre) sirve para editar:
+  // tocar ✎ lo precarga con lo que ya tenía y cambia el botón a "Guardar
+  // cambios", todo en el mismo popup — nada de un prompt() atrás de otro.
+  function catIniciarEdicion(nombre) {
+    TAR.catEditando = nombre;
+    if (tarEl('catNuevoEmoji')) tarEl('catNuevoEmoji').value = tarCatEmoji(nombre);
+    if (tarEl('catNuevoInput')) { tarEl('catNuevoInput').value = nombre; tarEl('catNuevoInput').focus(); }
+    if (tarEl('catAgregarBtn')) tarEl('catAgregarBtn').textContent = 'Guardar cambios';
+    if (tarEl('catCancelarEdicionBtn')) tarEl('catCancelarEdicionBtn').hidden = false;
+    catStatus('', '');
+  }
+  function catCancelarEdicion() {
+    TAR.catEditando = null;
+    if (tarEl('catNuevoEmoji')) tarEl('catNuevoEmoji').value = '';
+    if (tarEl('catNuevoInput')) tarEl('catNuevoInput').value = '';
+    if (tarEl('catAgregarBtn')) tarEl('catAgregarBtn').textContent = 'Agregar';
+    if (tarEl('catCancelarEdicionBtn')) tarEl('catCancelarEdicionBtn').hidden = true;
+  }
   function tarAbrirCatModal() {
     catStatus('', '');
-    if (tarEl('catNuevoInput')) tarEl('catNuevoInput').value = '';
-    if (tarEl('catNuevoEmoji')) tarEl('catNuevoEmoji').value = '';
+    catCancelarEdicion(); // el modal siempre arranca en modo "agregar"
     catPintarLista();
     if (tarEl('catModal')) tarEl('catModal').classList.add('show');
   }
@@ -1271,60 +1272,39 @@
   if (tarEl('tarCatGestionar')) tarEl('tarCatGestionar').addEventListener('click', tarAbrirCatModal);
   if (tarEl('tmCatGestionar')) tarEl('tmCatGestionar').addEventListener('click', tarAbrirCatModal);
   if (tarEl('catCerrarBtn')) tarEl('catCerrarBtn').addEventListener('click', catCerrarModal);
+  if (tarEl('catCancelarEdicionBtn')) tarEl('catCancelarEdicionBtn').addEventListener('click', catCancelarEdicion);
   if (tarEl('catModal')) tarEl('catModal').addEventListener('click', function(ev) {
     if (ev.target === tarEl('catModal')) catCerrarModal();
   });
+  // Un solo botón para las dos cosas: si TAR.catEditando tiene algo, guarda
+  // el renombre (nombre + emoji juntos); si no, agrega una categoría nueva.
   if (tarEl('catAgregarBtn')) tarEl('catAgregarBtn').addEventListener('click', function() {
     var nombre = (tarEl('catNuevoInput') && tarEl('catNuevoInput').value.trim()) || '';
     var emoji = (tarEl('catNuevoEmoji') && tarEl('catNuevoEmoji').value.trim()) || '';
     if (!nombre) { catStatus('Escribí un nombre', 'err'); return; }
+    var editando = TAR.catEditando;
     catStatus('Guardando...', 'loading');
-    google.script.run
+    var runner = google.script.run
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.categorias = r.categorias || [];
         TAR.categoriaEmojis = r.categoriaEmojis || TAR.categoriaEmojis;
+        if (editando) {
+          if (TAR.catNuevo === editando) TAR.catNuevo = nombre;
+          if (TAR.catModal === editando) TAR.catModal = nombre;
+        }
         tarPoblarCategorias();
-        tarEl('catNuevoInput').value = '';
-        if (tarEl('catNuevoEmoji')) tarEl('catNuevoEmoji').value = '';
-        catStatus('', '');
+        catCancelarEdicion(); // vuelve a modo "agregar" y limpia el form
+        catStatus(editando ? '✓ Guardada' : '✓ Agregada', 'ok');
         catPintarLista();
+        if (editando) loadTareas(); // las tareas que ya la tenían cambiaron de nombre en el server
       })
       .withFailureHandler(function(err) {
         catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-      })
-      .addTaskCategorySafe({ nombre: nombre, emoji: emoji });
+      });
+    if (editando) runner.renameTaskCategorySafe({ antes: editando, despues: nombre, emoji: emoji });
+    else runner.addTaskCategorySafe({ nombre: nombre, emoji: emoji });
   });
-  function catRenombrar(nombreActual) {
-    var nuevo = prompt('Nuevo nombre para "' + nombreActual + '"', nombreActual);
-    if (nuevo == null) return; // cancelado
-    nuevo = nuevo.trim();
-    if (!nuevo) return;
-    // Segundo prompt, aparte: elegir/cambiar el ícono sin tener que borrar y
-    // recrear la categoría — vacío deja el que ya tenía.
-    var emojiActual = tarCatEmoji(nombreActual);
-    var emojiNuevo = prompt('Ícono para "' + nuevo + '" (dejar así para no cambiarlo)', emojiActual);
-    if (emojiNuevo == null) emojiNuevo = '';
-    emojiNuevo = emojiNuevo.trim();
-    if (nuevo === nombreActual && (!emojiNuevo || emojiNuevo === emojiActual)) return; // nada que guardar
-    catStatus('Guardando...', 'loading');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        TAR.categorias = r.categorias || [];
-        TAR.categoriaEmojis = r.categoriaEmojis || TAR.categoriaEmojis;
-        if (TAR.catNuevo === nombreActual) TAR.catNuevo = nuevo;
-        if (TAR.catModal === nombreActual) TAR.catModal = nuevo;
-        tarPoblarCategorias();
-        catStatus('✓ Guardada', 'ok');
-        catPintarLista();
-        loadTareas(); // las tareas que ya la tenían cambiaron de nombre en el server
-      })
-      .withFailureHandler(function(err) {
-        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-      })
-      .renameTaskCategorySafe({ antes: nombreActual, despues: nuevo, emoji: emojiNuevo });
-  }
   function catBorrar(nombre) {
     if (!confirm('¿Borrar la categoría "' + nombre + '"? Las tareas que ya la tienen pasan a "Otros".')) return;
     catStatus('Borrando...', 'loading');
