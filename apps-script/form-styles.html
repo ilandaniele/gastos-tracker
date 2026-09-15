@@ -323,7 +323,13 @@
   .task-badge.cita { background: #eef2ff; color: #4338ca; }
   .task-badge.vencida { background: #fef2f2; color: #b91c1c; }
   .task-badge.hoy { background: #f0fdfa; color: #0f766e; }
-  .task-badge.notas { background: #f5f5f5; color: #666; font-weight: 500; }
+  /* A diferencia de los demás badges (fecha, categoría...) que son cortos a
+     propósito, una nota es texto libre y puede ser larga — hereda
+     white-space:nowrap de .task-badge y se salía de la tarjeta en vez de
+     bajar de línea. Ocupa su propia fila (flex-basis:100%) y ahí sí ajusta. */
+  .task-badge.notas { background: #f5f5f5; color: #666; font-weight: 500;
+                       white-space: normal; word-break: break-word; border-radius: 8px;
+                       flex-basis: 100%; }
   .task-badge.cat { background: #f1f5f9; color: #475569; }
   .task-badge.subcat { background: #ede9fe; color: #5b21b6; }
   .task-empty { font-size: 13px; color: #999; padding: 8px 2px; }
