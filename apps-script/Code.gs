@@ -5052,6 +5052,183 @@ function dailyTasksCron() {
   catch (e) { Logger.log('dailyTasksCron: ' + e.message); }
 }
 
+// ============================================================================
+// === COMPRAS: lista de compras simple ========================================
+// ============================================================================
+//
+// A propósito mucho más chica que Tareas: un ítem es solo texto + comprado.
+// Sin fecha, categoría ni nada más — es una lista de supermercado, no una
+// tarea. Borrado limpia contenido en vez de deleteRow, mismo criterio que
+// Tareas/Ahorros (el cliente guarda el número de fila como id).
+
+const COMPRAS_TAB = 'Compras';
+const COMPRAS_HEADERS = ['Fecha creada', 'Texto', 'Comprado', 'Fecha comprado'];
+const COMPRAS_FIRST_ROW = 2;
+const COMPRAS_MAX_ROWS = 300;
+
+function getOrCreateComprasTab(ss) {
+  let sheet = ss.getSheetByName(COMPRAS_TAB);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(COMPRAS_TAB);
+  sheet.getRange(1, 1, 1, COMPRAS_HEADERS.length).setValues([COMPRAS_HEADERS])
+       .setFontWeight('bold').setBackground('#dbeafe');
+  sheet.setColumnWidth(2, 260);
+  sheet.setFrozenRows(1);
+  try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
+  return sheet;
+}
+
+function _comprasCupo(sheet) {
+  return Math.max(0, Math.min(COMPRAS_MAX_ROWS, sheet.getMaxRows() - COMPRAS_FIRST_ROW + 1));
+}
+
+function _comprasNextRow(sheet) {
+  const cupo = _comprasCupo(sheet);
+  if (!cupo) throw new Error('La lista de compras no tiene filas libres');
+  const vals = sheet.getRange(COMPRAS_FIRST_ROW, 2, cupo, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (!String(vals[i][0] || '').trim()) return COMPRAS_FIRST_ROW + i;
+  }
+  throw new Error('La lista de compras llegó al máximo de ' + COMPRAS_MAX_ROWS + ' filas');
+}
+
+function _comprasRows(sheet) {
+  const cupo = _comprasCupo(sheet);
+  if (!cupo) return [];
+  const vals = sheet.getRange(COMPRAS_FIRST_ROW, 1, cupo, COMPRAS_HEADERS.length).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    if (!String(r[1] || '').trim()) continue;
+    const dCreada = r[0] ? (Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0])) : null;
+    const dComprado = r[3] ? (Object.prototype.toString.call(r[3]) === '[object Date]' ? r[3] : parseLocalDate(r[3])) : null;
+    out.push({
+      row: COMPRAS_FIRST_ROW + i,
+      creada: dCreada ? Utilities.formatDate(dCreada, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      texto: String(r[1] || '').trim(),
+      comprado: r[2] === true,
+      fechaComprado: dComprado ? Utilities.formatDate(dComprado, 'America/Montevideo', 'yyyy-MM-dd') : ''
+    });
+  }
+  return out;
+}
+
+function getComprasData() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateComprasTab(ss);
+    return { ok: true, tab: COMPRAS_TAB, items: _comprasRows(sheet) };
+  } catch (err) {
+    Logger.log('getComprasData: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+function addCompraEntry(p) {
+  const texto = String((p && p.texto) || '').trim();
+  if (!texto) throw new Error('Falta el texto');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let row;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateComprasTab(ss);
+    row = _comprasNextRow(sheet);
+    sheet.getRange(row, 1, 1, COMPRAS_HEADERS.length).setValues([[new Date(), texto.slice(0, 120), false, '']]);
+    sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: COMPRAS_TAB, row: row, texto: texto };
+}
+
+function toggleCompraEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < COMPRAS_FIRST_ROW) throw new Error('Fila inválida');
+  const comprado = p.comprado === true || String(p.comprado) === 'true';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateComprasTab(ss);
+    const cur = sheet.getRange(row, 1, 1, COMPRAS_HEADERS.length).getValues()[0];
+    if (!String(cur[1] || '').trim()) throw new Error('Ese ítem ya no existe — recargá la lista');
+    sheet.getRange(row, 3).setValue(comprado);
+    sheet.getRange(row, 4).setValue(comprado ? new Date() : '');
+    if (comprado) sheet.getRange(row, 4).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: COMPRAS_TAB, row: row, comprado: comprado };
+}
+
+function deleteCompraEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < COMPRAS_FIRST_ROW) throw new Error('Fila inválida');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateComprasTab(ss);
+    sheet.getRange(row, 1, 1, COMPRAS_HEADERS.length).clearContent();
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: COMPRAS_TAB, row: row };
+}
+
+// Botón "Vaciar comprados": sin esto la lista solo crece — una vez que ya
+// compraste todo, lo normal es limpiarla para la próxima.
+function clearBoughtCompras() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let borrados = 0;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateComprasTab(ss);
+    const cupo = _comprasCupo(sheet);
+    if (cupo) {
+      const rng = sheet.getRange(COMPRAS_FIRST_ROW, 1, cupo, COMPRAS_HEADERS.length);
+      const vals = rng.getValues();
+      for (let i = 0; i < vals.length; i++) {
+        if (String(vals[i][1] || '').trim() && vals[i][2] === true) {
+          vals[i] = ['', '', '', ''];
+          borrados++;
+        }
+      }
+      if (borrados) rng.setValues(vals);
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: COMPRAS_TAB, borrados: borrados };
+}
+
+function getComprasSafe() {
+  try { return getComprasData(); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function addCompraSafe(data) {
+  try { return addCompraEntry(data || {}); }
+  catch (err) { Logger.log('addCompraSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function toggleCompraSafe(data) {
+  try { return toggleCompraEntry(data || {}); }
+  catch (err) { Logger.log('toggleCompraSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function deleteCompraSafe(data) {
+  try { return deleteCompraEntry(data || {}); }
+  catch (err) { Logger.log('deleteCompraSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function clearBoughtComprasSafe() {
+  try { return clearBoughtCompras(); }
+  catch (err) { Logger.log('clearBoughtComprasSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
 // ---- Orden de las pestañas ------------------------------------------------
 
 // Clave ordenable a partir del nombre. Devuelve null si no es un mes.
@@ -5093,7 +5270,7 @@ function reorderSheets(dryRun) {
   for (const sh of sheets) {
     const info = _sheetKind(sh.getName());
     const item = { sheet: sh, name: sh.getName(), key: info.key };
-    if (sh.getName() === TASKS_TAB) tareas.push(item);
+    if (sh.getName() === TASKS_TAB || sh.getName() === COMPRAS_TAB) tareas.push(item);
     else if (sh.getName() === SAVINGS_TAB || sh.getName() === INGRESOS_TAB) ahorros.push(item);
     else if (info.kind === 'gasto') gastos.push(item);
     else if (info.kind === 'habito') habitos.push(item);

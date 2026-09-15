@@ -442,6 +442,28 @@
                       background: #0f766e; color: white; border-radius: 999px; }
   .task-counter-btn:active { background: #0d5f58; }
 
+  /* COMPRAS — lista simple, propia tarjeta adentro de Tareas. Mismo check
+     redondo que las tareas (teal) porque acá sí es "la misma acción": tocás
+     y queda comprado, sin capas de subtareas ni categorías. */
+  .hcompra-add { display: grid; grid-template-columns: 1fr 44px; gap: 8px; margin-bottom: 4px; }
+  .hcompra-add input { margin: 0; padding: 12px 14px; }
+  .hcompra-add button { margin: 0; padding: 0; font-size: 22px; font-weight: 700; }
+  .comp-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid #f0f0f0; }
+  .comp-row:last-child { border-bottom: none; }
+  .comp-check { width: 24px; height: 24px; flex: 0 0 24px; border-radius: 7px; border: 2px solid #cbd5e1;
+               background: white; display: flex; align-items: center; justify-content: center;
+               font-size: 15px; color: white; cursor: pointer; }
+  .comp-check.on { background: #0f766e; border-color: #0f766e; }
+  .comp-text { flex: 1; font-size: 14px; word-break: break-word; cursor: pointer; }
+  .comp-row.done .comp-text { text-decoration: line-through; color: #9ca3af; }
+  .comp-del { margin: 0; width: 26px; height: 26px; flex: 0 0 26px; padding: 0; font-size: 16px;
+             font-weight: 700; background: #fef2f2; color: #b91c1c; border-radius: 6px; line-height: 1; }
+  .comp-del:active { background: #fee2e2; }
+  #compStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
+  #compStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
+  #compStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
+  #compStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
+
   /* === PANTALLA DE INICIO === */
   .home-hero { text-align: center; padding: 22px 6px 26px; }
   .home-hero-emoji { font-size: 46px; line-height: 1; margin-bottom: 10px; }

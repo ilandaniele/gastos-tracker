@@ -435,7 +435,7 @@
     // respetan y no se pisan.
     if (panelId === 'argPanel') loadArg();
     if (panelId === 'ahoPanel') loadAhorros();
-    if (panelId === 'tareasPanel') loadTareas();
+    if (panelId === 'tareasPanel') { loadTareas(); loadCompras(); }
     if (panelId === 'habitPanel') {
       if (!habitLoadedOnce) loadHabitToday();
       else if (!H.dirty) loadDay(H.date || todayISO());
@@ -1192,6 +1192,130 @@
       })
       .deleteTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, nombre: nombre });
   }
+
+  // === COMPRAS ==============================================================
+  // A propósito mucho más simple que Tareas: un ítem es texto + comprado,
+  // nada de fecha/categoría/modal — es una lista de supermercado.
+  var COMP = { items: [] };
+  function compEl(id) { return document.getElementById(id); }
+  function compStatus(txt, cls) {
+    var el = compEl('compStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = txt || '';
+  }
+  function compRowHtml(it) {
+    return '<div class="comp-row' + (it.comprado ? ' done' : '') + '">' +
+      '<div class="comp-check' + (it.comprado ? ' on' : '') + '" data-compcheck="' + it.row + '">' + (it.comprado ? '✓' : '') + '</div>' +
+      '<div class="comp-text" data-compcheck="' + it.row + '">' + esc(it.texto) + '</div>' +
+      '<button type="button" class="comp-del" data-compdel="' + it.row + '">×</button></div>';
+  }
+  function compWire(cont) {
+    if (!cont) return;
+    var checks = cont.querySelectorAll('[data-compcheck]');
+    for (var i = 0; i < checks.length; i++) {
+      (function(el) { el.addEventListener('click', function() { compToggle(parseInt(el.getAttribute('data-compcheck'), 10)); }); })(checks[i]);
+    }
+    var dels = cont.querySelectorAll('[data-compdel]');
+    for (var j = 0; j < dels.length; j++) {
+      (function(el) { el.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        compBorrar(parseInt(el.getAttribute('data-compdel'), 10));
+      }); })(dels[j]);
+    }
+  }
+  function compPintar() {
+    var pend = COMP.items.filter(function(i) { return !i.comprado; });
+    var comprados = COMP.items.filter(function(i) { return i.comprado; });
+    var list = compEl('compList');
+    if (list) {
+      list.innerHTML = pend.length ? pend.map(compRowHtml).join('') : '<div class="task-empty">Lista vacía 🎉</div>';
+      compWire(list);
+    }
+    var listDone = compEl('compListDone');
+    if (listDone) {
+      listDone.innerHTML = comprados.length ? comprados.map(compRowHtml).join('') : '<div class="task-empty">Nada comprado todavía</div>';
+      compWire(listDone);
+    }
+    if (compEl('compDoneSummary')) compEl('compDoneSummary').textContent = '✓ Comprado (' + comprados.length + ')';
+  }
+  function loadCompras() {
+    compStatus('Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        COMP.items = r.items || [];
+        compStatus('', '');
+        compPintar();
+      })
+      .withFailureHandler(function(err) {
+        compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .getComprasSafe();
+  }
+  function compToggle(row) {
+    var it = COMP.items.find(function(x) { return x.row === row; });
+    if (!it) return;
+    var nuevo = !it.comprado;
+    it.comprado = nuevo; // optimista
+    compPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); it.comprado = !nuevo; compPintar(); }
+      })
+      .withFailureHandler(function(err) {
+        compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        it.comprado = !nuevo; compPintar();
+      })
+      .toggleCompraSafe({ row: row, comprado: nuevo });
+  }
+  function compBorrar(row) {
+    if (!confirm('¿Borrar este ítem de la lista?')) return;
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        COMP.items = COMP.items.filter(function(x) { return x.row !== row; });
+        compPintar();
+      })
+      .withFailureHandler(function(err) {
+        compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .deleteCompraSafe({ row: row });
+  }
+  if (compEl('compAddBtn')) compEl('compAddBtn').addEventListener('click', function() {
+    var v = (compEl('compTexto') && compEl('compTexto').value.trim()) || '';
+    if (!v) return;
+    compStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        compEl('compTexto').value = '';
+        compStatus('', '');
+        loadCompras();
+      })
+      .withFailureHandler(function(err) {
+        compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addCompraSafe({ texto: v });
+  });
+  if (compEl('compTexto')) compEl('compTexto').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); compEl('compAddBtn').click(); }
+  });
+  if (compEl('compRefresh')) compEl('compRefresh').addEventListener('click', loadCompras);
+  if (compEl('compVaciarBtn')) compEl('compVaciarBtn').addEventListener('click', function() {
+    if (!confirm('¿Borrar todos los ítems ya comprados?')) return;
+    compStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        compStatus('✓ Lista limpia', 'ok');
+        loadCompras();
+      })
+      .withFailureHandler(function(err) {
+        compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .clearBoughtComprasSafe();
+  });
 
   // === AHORROS =============================================================
   // Los ahorros no son de un mes: se leen enteros de su propia hoja. Cada
