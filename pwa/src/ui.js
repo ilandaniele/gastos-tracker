@@ -209,6 +209,29 @@ self.addEventListener('push', function(event) {
       renotify: true,
       data: { url: url }
     });
+
+    // Tareas: el push no dice por qué se mandó (va vacío a propósito, ver
+    // push.js), así que esto corre en TODO push que despierte el teléfono.
+    // Se limita a la franja de la mañana para no mostrar un recordatorio de
+    // citas si lo que en realidad llegó fue el aviso de cerrar el día a la
+    // noche — la hora la da el reloj del teléfono, no el servidor.
+    var hora = new Date().getHours();
+    if (hora >= 6 && hora < 12) {
+      try {
+        var rt = await conTimeout(fetch('/api/pending?tipo=tareas', { cache: 'no-store' }), 3000);
+        var dt = await rt.json();
+        if (dt && dt.pendingNum === 1) {
+          await self.registration.showNotification('🗓️ Tareas de hoy', {
+            body: dt.msg || 'Tenés pendientes',
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            tag: 'tareas',
+            renotify: true,
+            data: { url: url }
+          });
+        }
+      } catch (e) {}
+    }
   })());
 });
 

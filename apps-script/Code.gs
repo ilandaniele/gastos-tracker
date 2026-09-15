@@ -157,6 +157,16 @@ const ROUTES = {
   addIngreso: p => addIngresoEntry(p),
   getIngresos: () => getIngresosData(),
   deleteIngreso: p => deleteIngresoEntry(p),
+  // === TAREAS ===
+  tareas: () => getTasksData(),
+  addTarea: p => addTaskEntry(p),
+  updateTarea: p => updateTaskEntry(p),
+  toggleTarea: p => toggleTaskEntry(p),
+  deleteTarea: p => deleteTaskEntry(p),
+  tasksPending: () => tasksPending(),
+  sendTasksReport: p => sendDailyTasksEmail(p.email),
+  installTasksTrigger: p => installDailyTasksTrigger(p.hour),
+  removeTasksTrigger: () => removeDailyTasksTrigger(),
   precioAccion: p => {
     const px = fetchStockPrice(p.ticker);
     return px ? { ok: true, ticker: String(p.ticker).toUpperCase(), ...px }
@@ -4228,6 +4238,333 @@ function deleteArgentinaSafe(data) {
   catch (err) { Logger.log('deleteArgentinaSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
+// ============================================================================
+// === TAREAS: to-dos y citas, con aviso por mail a la mañana =================
+// ============================================================================
+//
+// Una sola tabla con columna "Tipo" (Tarea | Cita). Igual que en Ahorros, el
+// borrado limpia contenido en vez de deleteRow: el cliente guarda el número
+// de fila como id y correr las filas de abajo lo rompería.
+
+const TASKS_TAB = 'Tareas';
+const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada'];
+const TASKS_TIPOS = ['Tarea', 'Cita'];
+const TASKS_FIRST_ROW = 2;
+const TASKS_MAX_ROWS = 500;
+
+function getOrCreateTasksTab(ss) {
+  let sheet = ss.getSheetByName(TASKS_TAB);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(TASKS_TAB);
+  sheet.getRange(1, 1, 1, TASKS_HEADERS.length).setValues([TASKS_HEADERS])
+       .setFontWeight('bold').setBackground('#dbeafe');
+  sheet.setColumnWidth(3, 260);
+  sheet.setColumnWidth(6, 220);
+  sheet.setFrozenRows(1);
+  try { reorderSheets(false); } catch (e) { Logger.log('reorder: ' + e.message); }
+  return sheet;
+}
+
+function _tasksCupo(sheet) {
+  return Math.max(0, Math.min(TASKS_MAX_ROWS, sheet.getMaxRows() - TASKS_FIRST_ROW + 1));
+}
+
+// Primera fila libre (mira la columna Texto: Fecha es opcional en una tarea,
+// Texto no lo es nunca).
+function _tasksNextRow(sheet) {
+  const cupo = _tasksCupo(sheet);
+  if (!cupo) throw new Error('La hoja de tareas no tiene filas libres');
+  const vals = sheet.getRange(TASKS_FIRST_ROW, 3, cupo, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (!String(vals[i][0] || '').trim()) return TASKS_FIRST_ROW + i;
+  }
+  throw new Error('La hoja de tareas llegó al máximo de ' + TASKS_MAX_ROWS + ' filas');
+}
+
+function _tasksRows(sheet) {
+  const cupo = _tasksCupo(sheet);
+  if (!cupo) return [];
+  const vals = sheet.getRange(TASKS_FIRST_ROW, 1, cupo, TASKS_HEADERS.length).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    const r = vals[i];
+    if (!String(r[2] || '').trim()) continue;
+    const dCreada = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+    const dFecha = r[3] ? (Object.prototype.toString.call(r[3]) === '[object Date]' ? r[3] : parseLocalDate(r[3])) : null;
+    const dCompletada = r[7] ? (Object.prototype.toString.call(r[7]) === '[object Date]' ? r[7] : parseLocalDate(r[7])) : null;
+    out.push({
+      row: TASKS_FIRST_ROW + i,
+      creada: dCreada ? Utilities.formatDate(dCreada, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      tipo: TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea',
+      texto: String(r[2] || '').trim(),
+      fecha: dFecha ? Utilities.formatDate(dFecha, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      // "15:30" como texto puede quedar mal interpretado como hora-del-dia si
+      // la celda no está forzada a texto (formato viejo, o edición a mano en
+      // la hoja) — Sheets lo guarda como fecha-serial y Apps Script lo lee
+      // como un Date de 1899. Se recupera igual formateándolo en vez de
+      // mostrar el Date crudo.
+      hora: Object.prototype.toString.call(r[4]) === '[object Date]'
+        ? Utilities.formatDate(r[4], 'America/Montevideo', 'HH:mm') : String(r[4] || '').trim(),
+      notas: String(r[5] || '').trim(),
+      completada: r[6] === true,
+      fechaCompletada: dCompletada ? Utilities.formatDate(dCompletada, 'America/Montevideo', 'yyyy-MM-dd') : ''
+    });
+  }
+  return out;
+}
+
+// Normaliza lo que manda el cliente. Una cita necesita fecha (es LA cita);
+// una tarea puede no tenerla (un pendiente sin vencimiento puntual).
+function _normTask(p) {
+  const tipoRaw = String(p.tipo || '').trim();
+  const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw)) || 'Tarea';
+  const texto = String(p.texto || '').trim();
+  if (!texto) throw new Error('Falta el texto de la tarea');
+
+  const fechaRaw = String(p.fecha || '').trim();
+  if (tipo === 'Cita' && !fechaRaw) throw new Error('Una cita necesita fecha');
+  if (fechaRaw && isNaN(parseLocalDate(fechaRaw).getTime())) throw new Error('Fecha inválida');
+
+  const hora = String(p.hora || '').trim();
+  if (hora && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) throw new Error('Hora inválida (HH:mm)');
+
+  return {
+    tipo: tipo, texto: texto, fecha: fechaRaw || '', hora: hora,
+    notas: String(p.notas || '').trim()
+  };
+}
+
+function _tasksEscribirFila(sheet, row, e, opts) {
+  opts = opts || {};
+  const creada = opts.creada || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+  // Forzar texto en Hora ANTES de escribir: sin esto Sheets interpreta "15:30"
+  // como hora-del-día y lo guarda como fecha-serial (se lee de vuelta como un
+  // Date de 1899, no como el string que se mandó).
+  sheet.getRange(row, 5).setNumberFormat('@');
+  sheet.getRange(row, 1, 1, 8).setValues([[
+    parseLocalDate(creada), e.tipo, e.texto,
+    e.fecha ? parseLocalDate(e.fecha) : '', e.hora, e.notas,
+    opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : ''
+  ]]);
+  sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(row, 4).setNumberFormat('dd/MM/yyyy');
+  sheet.getRange(row, 8).setNumberFormat('dd/MM/yyyy');
+}
+
+function getTasksData() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const filas = _tasksRows(sheet);
+    const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+    return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, hoy: hoy };
+  } catch (err) {
+    Logger.log('getTasksData: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Agrega una tarea/cita. p: { tipo, texto, fecha, hora, notas }
+function addTaskEntry(p) {
+  const e = _normTask(p || {});
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let row;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    row = _tasksNextRow(sheet);
+    _tasksEscribirFila(sheet, row, e);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, row: row, written: e };
+}
+
+// Edita una tarea/cita ya cargada. p: { row, ...campos }. Conserva cuándo se
+// creó y si estaba completada — eso se toca aparte, con toggleTaskEntry.
+function updateTaskEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
+  const e = _normTask(p || {});
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
+    if (!String(cur[2] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    _tasksEscribirFila(sheet, row, e, { creada: cur[0], completada: cur[6] === true, fechaCompletada: cur[7] || '' });
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, row: row, written: e };
+}
+
+// Marca/desmarca completada — lo que dispara el checkbox, sin pasar por el modal.
+function toggleTaskEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
+  const completada = p.completada === true || String(p.completada) === 'true';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
+    if (!String(cur[2] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    sheet.getRange(row, 7).setValue(completada);
+    sheet.getRange(row, 8).setValue(completada ? new Date() : '');
+    if (completada) sheet.getRange(row, 8).setNumberFormat('dd/MM/yyyy');
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, row: row, completada: completada };
+}
+
+function deleteTaskEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let borrado;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
+    if (!String(cur[2] || '').trim()) throw new Error('Esa fila ya está vacía');
+    borrado = String(cur[2] || '');
+    sheet.getRange(row, 1, 1, TASKS_HEADERS.length).clearContent();
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, deleted: borrado };
+}
+
+function addTaskSafe(data) {
+  try { return addTaskEntry(data || {}); }
+  catch (err) { Logger.log('addTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function updateTaskSafe(data) {
+  try { return updateTaskEntry(data || {}); }
+  catch (err) { Logger.log('updateTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function toggleTaskSafe(data) {
+  try { return toggleTaskEntry(data || {}); }
+  catch (err) { Logger.log('toggleTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function deleteTaskSafe(data) {
+  try { return deleteTaskEntry(data || {}); }
+  catch (err) { Logger.log('deleteTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function getTasksSafe() {
+  try { return getTasksData(); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+// Lo que hay que resolver HOY: citas de hoy (con hora, ordenadas), tareas con
+// vencimiento hoy, y lo vencido que quedó sin completar. Mismo cálculo para
+// el mail de la mañana y para la tarjeta "Hoy" adentro de la app.
+function _tasksDigestHoy() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = getOrCreateTasksTab(ss);
+  const filas = _tasksRows(sheet).filter(f => !f.completada);
+  const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+
+  const citasHoy = filas.filter(f => f.tipo === 'Cita' && f.fecha === hoy)
+                        .sort((a, b) => (a.hora || '99:99').localeCompare(b.hora || '99:99'));
+  const tareasHoy = filas.filter(f => f.tipo === 'Tarea' && f.fecha === hoy);
+  const vencidas = filas.filter(f => f.fecha && f.fecha < hoy);
+  const sinFecha = filas.filter(f => f.tipo === 'Tarea' && !f.fecha);
+
+  return { hoy: hoy, citasHoy: citasHoy, tareasHoy: tareasHoy, vencidas: vencidas, sinFecha: sinFecha, pendientes: filas.length };
+}
+
+// Endpoint liviano para un atajo de iOS (mismo patrón que habitPending): una
+// automatización a la mañana puede pegarle acá y mostrar una notificación
+// nativa, como alternativa o complemento al mail.
+function tasksPending() {
+  const d = _tasksDigestHoy();
+  const total = d.citasHoy.length + d.tareasHoy.length + d.vencidas.length;
+  const partes = [];
+  d.citasHoy.forEach(c => partes.push('📅 ' + (c.hora ? c.hora + ' ' : '') + c.texto));
+  d.tareasHoy.forEach(t => partes.push('☐ ' + t.texto));
+  d.vencidas.forEach(v => partes.push('⚠️ ' + v.texto + (v.fecha ? ' (' + v.fecha + ')' : '')));
+  return {
+    ok: true, date: d.hoy, pendingNum: total > 0 ? 1 : 0,
+    msg: partes.length ? partes.join(' · ') : 'Sin tareas para hoy',
+    citasHoy: d.citasHoy, tareasHoy: d.tareasHoy, vencidas: d.vencidas
+  };
+}
+
+function _tasksDigestHtml() {
+  const d = _tasksDigestHoy();
+  const li = (icon, texto, sub) => '<li style="margin-bottom:6px">' + icon + ' <b>' + texto + '</b>' +
+    (sub ? ' <span style="color:#888">' + sub + '</span>' : '') + '</li>';
+  let h = '<div style="font-family:-apple-system,Segoe UI,sans-serif;color:#111827">';
+  h += '<h2 style="margin:0 0 12px">🗓️ Tareas de hoy — ' + d.hoy + '</h2>';
+  if (!d.citasHoy.length && !d.tareasHoy.length && !d.vencidas.length) {
+    h += '<p style="color:#4b5563">No tenés nada pendiente para hoy. 🎉</p>';
+  }
+  if (d.citasHoy.length) {
+    h += '<h3 style="font-size:14px;margin:16px 0 6px">📅 Citas de hoy</h3><ul style="padding-left:20px;margin:0">';
+    d.citasHoy.forEach(c => { h += li('📅', (c.hora ? c.hora + ' — ' : '') + c.texto, c.notas); });
+    h += '</ul>';
+  }
+  if (d.tareasHoy.length) {
+    h += '<h3 style="font-size:14px;margin:16px 0 6px">☐ Para hoy</h3><ul style="padding-left:20px;margin:0">';
+    d.tareasHoy.forEach(t => { h += li('☐', t.texto, t.notas); });
+    h += '</ul>';
+  }
+  if (d.vencidas.length) {
+    h += '<h3 style="font-size:14px;margin:16px 0 6px;color:#b91c1c">⚠️ Vencidas</h3><ul style="padding-left:20px;margin:0">';
+    d.vencidas.forEach(v => { h += li('⚠️', v.texto, v.fecha); });
+    h += '</ul>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function sendDailyTasksEmail(emailOpt) {
+  const d = _tasksDigestHoy();
+  const total = d.citasHoy.length + d.tareasHoy.length + d.vencidas.length;
+  if (!total) return { ok: true, sent: false, msg: 'Nada pendiente, no se manda mail' };
+  const email = emailOpt || Session.getEffectiveUser().getEmail();
+  if (!email) throw new Error('No se pudo determinar email destinatario');
+  MailApp.sendEmail({ to: email, subject: '🗓️ Tareas de hoy (' + total + ')', htmlBody: _tasksDigestHtml() });
+  return { ok: true, sent: true, sentTo: email, total: total };
+}
+
+function installDailyTasksTrigger(hour) {
+  const h = parseInt(hour, 10) || 7;
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (const t of triggers) {
+    if (t.getHandlerFunction() === 'dailyTasksCron') { ScriptApp.deleteTrigger(t); removed++; }
+  }
+  ScriptApp.newTrigger('dailyTasksCron').timeBased().everyDays(1).atHour(h).create();
+  return { ok: true, msg: 'Trigger instalado: todos los días a las ' + h + ':00', removedPrevious: removed };
+}
+
+function removeDailyTasksTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let removed = 0;
+  for (const t of triggers) {
+    if (t.getHandlerFunction() === 'dailyTasksCron') { ScriptApp.deleteTrigger(t); removed++; }
+  }
+  return { ok: true, removed: removed };
+}
+
+// Handler del trigger diario — sin argumentos, como pide ScriptApp.
+function dailyTasksCron() {
+  try { Logger.log('Daily tasks email: ' + JSON.stringify(sendDailyTasksEmail())); }
+  catch (e) { Logger.log('dailyTasksCron: ' + e.message); }
+}
+
 // ---- Orden de las pestañas ------------------------------------------------
 
 // Clave ordenable a partir del nombre. Devuelve null si no es un mes.
@@ -4265,11 +4602,12 @@ function reorderSheets(dryRun) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheets = ss.getSheets();
 
-  const gastos = [], habitos = [], ahorros = [], otros = [];
+  const gastos = [], habitos = [], tareas = [], ahorros = [], otros = [];
   for (const sh of sheets) {
     const info = _sheetKind(sh.getName());
     const item = { sheet: sh, name: sh.getName(), key: info.key };
-    if (sh.getName() === SAVINGS_TAB || sh.getName() === INGRESOS_TAB) ahorros.push(item);
+    if (sh.getName() === TASKS_TAB) tareas.push(item);
+    else if (sh.getName() === SAVINGS_TAB || sh.getName() === INGRESOS_TAB) ahorros.push(item);
     else if (info.kind === 'gasto') gastos.push(item);
     else if (info.kind === 'habito') habitos.push(item);
     else otros.push(item);
@@ -4277,9 +4615,9 @@ function reorderSheets(dryRun) {
   gastos.sort((a, b) => b.key - a.key);    // más reciente primero
   habitos.sort((a, b) => b.key - a.key);
 
-  // Ahorros va primero: es la hoja de seguimiento permanente y tiene que ser
-  // la pestaña visible al abrir el spreadsheet.
-  const orden = ahorros.concat(habitos).concat(gastos).concat(otros);
+  // Tareas va primero de todo: es lo que se mira apenas se abre la app a la
+  // mañana. Ahorros justo después, por la misma razón de siempre.
+  const orden = tareas.concat(ahorros).concat(habitos).concat(gastos).concat(otros);
   const antes = sheets.map(s => s.getName());
   const despues = orden.map(o => o.name);
 

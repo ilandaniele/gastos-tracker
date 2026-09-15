@@ -430,6 +430,7 @@
     // respetan y no se pisan.
     if (panelId === 'argPanel') loadArg();
     if (panelId === 'ahoPanel') loadAhorros();
+    if (panelId === 'tareasPanel') loadTareas();
     if (panelId === 'habitPanel') {
       if (!habitLoadedOnce) loadHabitToday();
       else if (!H.dirty) loadDay(H.date || todayISO());
@@ -442,6 +443,278 @@
     (function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-panel')); }); })(tabBtns[t]);
   }
   document.getElementById('refreshDash').addEventListener('click', function(){ loadDashboard(); });
+
+  // === TAREAS ===============================================================
+  // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
+  // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
+  // server) — lo que ves al abrir la app es lo que te llega por mail.
+  var TAR = { tareas: [], hoy: '', editando: null, tipoNuevo: 'Tarea', tipoModal: 'Tarea' };
+  function tarEl(id) { return document.getElementById(id); }
+  function tarStatus(txt, cls) {
+    var el = tarEl('tarStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = txt || '';
+  }
+  function tarDiaCorto(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    return p[2] + '/' + p[1];
+  }
+
+  var tarTipoBtns = document.querySelectorAll('.tartipo');
+  for (var ti = 0; ti < tarTipoBtns.length; ti++) {
+    (function(b) {
+      b.addEventListener('click', function() {
+        for (var k = 0; k < tarTipoBtns.length; k++) tarTipoBtns[k].classList.remove('activo');
+        b.classList.add('activo');
+        TAR.tipoNuevo = b.getAttribute('data-tipo');
+        var esCita = TAR.tipoNuevo === 'Cita';
+        if (tarEl('tarCampoFechaCita')) tarEl('tarCampoFechaCita').hidden = !esCita;
+        if (tarEl('tarCampoFechaTarea')) tarEl('tarCampoFechaTarea').hidden = esCita;
+      });
+    })(tarTipoBtns[ti]);
+  }
+
+  var tmTipoBtns = document.querySelectorAll('.tmtipo');
+  for (var tmi = 0; tmi < tmTipoBtns.length; tmi++) {
+    (function(b) {
+      b.addEventListener('click', function() {
+        for (var k = 0; k < tmTipoBtns.length; k++) tmTipoBtns[k].classList.remove('activo');
+        b.classList.add('activo');
+        TAR.tipoModal = b.getAttribute('data-tipo');
+        var esCita = TAR.tipoModal === 'Cita';
+        if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
+        if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
+      });
+    })(tmTipoBtns[tmi]);
+  }
+
+  function loadTareas() {
+    tarStatus('Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.tareas = r.tareas || [];
+        TAR.hoy = r.hoy || '';
+        tarStatus('', '');
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .getTasksSafe();
+  }
+
+  function tarBadges(t) {
+    var out = '';
+    if (t.tipo === 'Cita') {
+      out += '<span class="task-badge cita">📅 ' + esc(tarDiaCorto(t.fecha)) + (t.hora ? ' ' + esc(t.hora) : '') + '</span>';
+    } else if (t.fecha) {
+      var venc = t.fecha < TAR.hoy, esHoy = t.fecha === TAR.hoy;
+      out += '<span class="task-badge ' + (venc ? 'vencida' : (esHoy ? 'hoy' : 'cita')) + '">' +
+             (venc ? '⚠️ vencía ' : '📌 ') + esc(tarDiaCorto(t.fecha)) + '</span>';
+    }
+    if (t.notas) out += '<span class="task-badge notas">' + esc(t.notas) + '</span>';
+    return out;
+  }
+
+  function tarRowHtml(t) {
+    return '<div class="task-row' + (t.completada ? ' done' : '') + '">' +
+      '<div class="task-check' + (t.completada ? ' on' : '') + '" data-check="' + t.row + '">' + (t.completada ? '✓' : '') + '</div>' +
+      '<div class="task-body" data-open="' + t.row + '">' +
+        '<div class="task-text">' + esc(t.texto) + '</div>' +
+        '<div class="task-meta">' + tarBadges(t) + '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function tarWireRows(cont) {
+    if (!cont) return;
+    var checks = cont.querySelectorAll('[data-check]');
+    for (var i = 0; i < checks.length; i++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          tarToggle(parseInt(el.getAttribute('data-check'), 10));
+        });
+      })(checks[i]);
+    }
+    var opens = cont.querySelectorAll('[data-open]');
+    for (var j = 0; j < opens.length; j++) {
+      (function(el) {
+        el.addEventListener('click', function() { tarAbrirModal(parseInt(el.getAttribute('data-open'), 10)); });
+      })(opens[j]);
+    }
+  }
+
+  function tarPintar() {
+    var hoy = TAR.hoy;
+    var pendientes = TAR.tareas.filter(function(t) { return !t.completada; });
+    var completadas = TAR.tareas.filter(function(t) { return t.completada; });
+
+    // Tarjeta "Hoy": citas de hoy (por hora) + tareas que vencen hoy
+    var citasHoy = pendientes.filter(function(t) { return t.tipo === 'Cita' && t.fecha === hoy; })
+      .sort(function(a, b) { return (a.hora || '99:99').localeCompare(b.hora || '99:99'); });
+    var tareasHoy = pendientes.filter(function(t) { return t.tipo === 'Tarea' && t.fecha === hoy; });
+    var hoyCard = tarEl('tarHoyCard'), hoyList = tarEl('tarHoyList');
+    if (hoyList) {
+      if (!citasHoy.length && !tareasHoy.length) {
+        hoyList.innerHTML = '<div class="task-empty">Nada para hoy 🎉</div>';
+        if (hoyCard) hoyCard.classList.add('vacio');
+      } else {
+        if (hoyCard) hoyCard.classList.remove('vacio');
+        hoyList.innerHTML = citasHoy.concat(tareasHoy).map(tarRowHtml).join('');
+      }
+    }
+    if (tarEl('tarHoyFecha')) tarEl('tarHoyFecha').textContent = hoy ? tarDiaCorto(hoy) : '';
+
+    // Pendientes: vencidas primero, después próximas, después sin fecha
+    var vencidas = pendientes.filter(function(t) { return t.fecha && t.fecha < hoy; })
+      .sort(function(a, b) { return a.fecha.localeCompare(b.fecha); });
+    var proximas = pendientes.filter(function(t) { return t.fecha && t.fecha >= hoy; })
+      .sort(function(a, b) { return (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || '')); });
+    var sinFecha = pendientes.filter(function(t) { return !t.fecha; });
+
+    var html = '';
+    if (vencidas.length) html += '<div class="task-section-title">⚠️ Vencidas</div>' + vencidas.map(tarRowHtml).join('');
+    if (proximas.length) html += '<div class="task-section-title">Próximas</div>' + proximas.map(tarRowHtml).join('');
+    if (sinFecha.length) html += '<div class="task-section-title">Sin fecha</div>' + sinFecha.map(tarRowHtml).join('');
+    if (!html) html = '<div class="task-empty">No tenés tareas pendientes</div>';
+    if (tarEl('tarList')) tarEl('tarList').innerHTML = html;
+
+    completadas.sort(function(a, b) { return (b.fechaCompletada || '').localeCompare(a.fechaCompletada || ''); });
+    if (tarEl('tarListDone')) {
+      tarEl('tarListDone').innerHTML = completadas.length ? completadas.map(tarRowHtml).join('')
+        : '<div class="task-empty">Todavía no completaste nada</div>';
+    }
+    if (tarEl('tarDoneSummary')) tarEl('tarDoneSummary').textContent = '✓ Completadas (' + completadas.length + ')';
+
+    tarWireRows(hoyList);
+    tarWireRows(tarEl('tarList'));
+    tarWireRows(tarEl('tarListDone'));
+  }
+
+  function tarToggle(row) {
+    var t = TAR.tareas.find(function(x) { return x.row === row; });
+    if (!t) return;
+    var nuevo = !t.completada;
+    t.completada = nuevo; // optimista: se ve al toque, sin esperar la vuelta del server
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.completada = !nuevo; tarPintar(); }
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        t.completada = !nuevo; tarPintar();
+      })
+      .toggleTaskSafe({ row: row, completada: nuevo });
+  }
+
+  if (tarEl('tarAdd')) tarEl('tarAdd').addEventListener('click', function() {
+    var texto = (tarEl('tarTexto') && tarEl('tarTexto').value.trim()) || '';
+    if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
+    var payload = { tipo: TAR.tipoNuevo, texto: texto, notas: (tarEl('tarNotas') && tarEl('tarNotas').value.trim()) || '' };
+    if (TAR.tipoNuevo === 'Cita') {
+      payload.fecha = (tarEl('tarFechaCita') && tarEl('tarFechaCita').value) || '';
+      payload.hora = (tarEl('tarHoraCita') && tarEl('tarHoraCita').value) || '';
+      if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
+    } else {
+      payload.fecha = (tarEl('tarFechaTarea') && tarEl('tarFechaTarea').value) || '';
+    }
+    tarStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        tarEl('tarTexto').value = '';
+        if (tarEl('tarNotas')) tarEl('tarNotas').value = '';
+        if (tarEl('tarFechaCita')) tarEl('tarFechaCita').value = '';
+        if (tarEl('tarHoraCita')) tarEl('tarHoraCita').value = '';
+        if (tarEl('tarFechaTarea')) tarEl('tarFechaTarea').value = '';
+        tarStatus('✓ Agregado', 'ok');
+        loadTareas();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addTaskSafe(payload);
+  });
+
+  if (tarEl('tarRefresh')) tarEl('tarRefresh').addEventListener('click', loadTareas);
+
+  function tarAbrirModal(row) {
+    var t = TAR.tareas.find(function(x) { return x.row === row; });
+    if (!t) return;
+    TAR.editando = t;
+    TAR.tipoModal = t.tipo;
+    if (tarEl('tarModalTit')) tarEl('tarModalTit').textContent = 'Editar ' + t.tipo.toLowerCase();
+    for (var k = 0; k < tmTipoBtns.length; k++) {
+      tmTipoBtns[k].classList.toggle('activo', tmTipoBtns[k].getAttribute('data-tipo') === t.tipo);
+    }
+    var esCita = t.tipo === 'Cita';
+    if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
+    if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
+    if (tarEl('tmTexto')) tarEl('tmTexto').value = t.texto || '';
+    if (tarEl('tmFechaCita')) tarEl('tmFechaCita').value = esCita ? (t.fecha || '') : '';
+    if (tarEl('tmHoraCita')) tarEl('tmHoraCita').value = esCita ? (t.hora || '') : '';
+    if (tarEl('tmFechaTarea')) tarEl('tmFechaTarea').value = !esCita ? (t.fecha || '') : '';
+    if (tarEl('tmNotas')) tarEl('tmNotas').value = t.notas || '';
+    if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
+  }
+  function tarCerrarModal() {
+    TAR.editando = null;
+    if (tarEl('tarModal')) tarEl('tarModal').classList.remove('show');
+  }
+  if (tarEl('tmCancel')) tarEl('tmCancel').addEventListener('click', tarCerrarModal);
+  if (tarEl('tarModal')) tarEl('tarModal').addEventListener('click', function(ev) {
+    if (ev.target === tarEl('tarModal')) tarCerrarModal();
+  });
+
+  if (tarEl('tmSave')) tarEl('tmSave').addEventListener('click', function() {
+    var t = TAR.editando;
+    if (!t) return;
+    var texto = (tarEl('tmTexto') && tarEl('tmTexto').value.trim()) || '';
+    if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
+    var payload = { row: t.row, tipo: TAR.tipoModal, texto: texto, notas: (tarEl('tmNotas') && tarEl('tmNotas').value.trim()) || '' };
+    if (TAR.tipoModal === 'Cita') {
+      payload.fecha = (tarEl('tmFechaCita') && tarEl('tmFechaCita').value) || '';
+      payload.hora = (tarEl('tmHoraCita') && tarEl('tmHoraCita').value) || '';
+      if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
+    } else {
+      payload.fecha = (tarEl('tmFechaTarea') && tarEl('tmFechaTarea').value) || '';
+    }
+    tarStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        tarCerrarModal();
+        tarStatus('✓ Actualizado', 'ok');
+        loadTareas();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .updateTaskSafe(payload);
+  });
+
+  if (tarEl('tmDelete')) tarEl('tmDelete').addEventListener('click', function() {
+    var t = TAR.editando;
+    if (!t) return;
+    if (!confirm('¿Borrar esto?')) return;
+    tarStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        tarCerrarModal();
+        tarStatus('✓ Borrado', 'ok');
+        loadTareas();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .deleteTaskSafe({ row: t.row });
+  });
 
   // === AHORROS =============================================================
   // Los ahorros no son de un mes: se leen enteros de su propia hoja. Cada

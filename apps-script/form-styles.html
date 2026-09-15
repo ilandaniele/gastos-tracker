@@ -173,8 +173,8 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show { display: flex; }
+  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
@@ -279,4 +279,32 @@
   .argmov .aq { font-size: 10px; color: #94a3b8; white-space: nowrap; }
   .arghint { font-size: 12px; color: #64748b; background: #f8fafc; border-left: 3px solid #cbd5e1;
              padding: 7px 10px; border-radius: 0 6px 6px 0; margin: 8px 0 4px; line-height: 1.4; }
+
+  /* TAREAS */
+  #tarStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
+  #tarStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
+  #tarStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
+  #tarStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
+  .task-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 2px; border-bottom: 1px solid #f0f0f0; }
+  .task-row:last-child { border-bottom: none; }
+  .task-check { width: 24px; height: 24px; flex: 0 0 24px; border-radius: 7px; border: 2px solid #cbd5e1;
+                background: white; display: flex; align-items: center; justify-content: center;
+                font-size: 15px; color: white; margin-top: 1px; cursor: pointer; }
+  .task-check.on { background: #0f766e; border-color: #0f766e; }
+  .task-body { flex: 1; min-width: 0; cursor: pointer; }
+  .task-text { font-size: 14px; line-height: 1.35; word-break: break-word; }
+  .task-row.done .task-text { text-decoration: line-through; color: #9ca3af; }
+  .task-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .task-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+  .task-badge.cita { background: #eef2ff; color: #4338ca; }
+  .task-badge.vencida { background: #fef2f2; color: #b91c1c; }
+  .task-badge.hoy { background: #f0fdfa; color: #0f766e; }
+  .task-badge.notas { background: #f5f5f5; color: #666; font-weight: 500; }
+  .task-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                         letter-spacing: 0.4px; color: #999; margin: 14px 0 4px; }
+  .task-section-title:first-child { margin-top: 0; }
+  .task-empty { font-size: 13px; color: #999; padding: 8px 2px; }
+  #tarHoyCard.vacio { opacity: 0.7; }
+  #tarDoneSummary { cursor: pointer; list-style: none; }
+  #tarDoneSummary::-webkit-details-marker { display: none; }
 </style>

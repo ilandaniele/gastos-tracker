@@ -2,6 +2,7 @@
 <?!= include('form-styles') ?></head><body>
 <div class="tabs">
   <button type="button" class="tab active" data-panel="addPanel">+ Gasto</button>
+  <button type="button" class="tab" data-panel="tareasPanel">✅ Tareas</button>
   <button type="button" class="tab" data-panel="dashPanel">📊 Dash</button>
   <button type="button" class="tab" data-panel="habitPanel">🧘 Hábitos</button>
   <button type="button" class="tab" data-panel="ahoPanel">💰 Ahorros</button>
@@ -122,6 +123,92 @@
   </div>
 </details>
 </div><!-- /addPanel -->
+
+<div id="tareasPanel" class="panel">
+<h1>Tareas</h1>
+
+<!-- HOY -->
+<div class="hcard" id="tarHoyCard">
+  <div class="hcard-title">🔔 Hoy <span id="tarHoyFecha" class="hhint"></span></div>
+  <div id="tarHoyList"></div>
+</div>
+
+<!-- AGREGAR -->
+<div class="hcard">
+  <div class="hcard-title">➕ Agregar</div>
+  <div class="argtipos">
+    <button type="button" class="tartipo activo" data-tipo="Tarea">📝 Tarea</button>
+    <button type="button" class="tartipo" data-tipo="Cita">📅 Cita</button>
+  </div>
+
+  <label class="hlabel">Qué es</label>
+  <input type="text" id="tarTexto" placeholder="ej: Turno con el dentista" autocomplete="off">
+
+  <div id="tarCampoFechaCita" hidden>
+    <div class="hscan-row">
+      <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
+      <div><label class="hlabel">Hora</label><input type="time" id="tarHoraCita"></div>
+    </div>
+  </div>
+
+  <div id="tarCampoFechaTarea">
+    <label class="hlabel">Fecha límite <span class="hhint">opcional</span></label>
+    <input type="date" id="tarFechaTarea">
+  </div>
+
+  <label class="hlabel">Notas</label>
+  <input type="text" id="tarNotas" placeholder="opcional" autocomplete="off">
+
+  <button type="button" id="tarAdd">Agregar</button>
+  <div id="tarStatus"></div>
+</div>
+
+<!-- LISTA -->
+<div class="hcard">
+  <div class="hcard-title">📋 Pendientes <span class="hhint">tocá una para editarla</span>
+    <button type="button" id="tarRefresh" class="hmini">↻</button>
+  </div>
+  <div id="tarList"></div>
+</div>
+
+<!-- COMPLETADAS -->
+<div class="hcard">
+  <details>
+    <summary id="tarDoneSummary" class="hcard-title">✓ Completadas</summary>
+    <div id="tarListDone" style="margin-top:8px"></div>
+  </details>
+</div>
+</div><!-- /tareasPanel -->
+
+<!-- MODAL EDITAR TAREA -->
+<div id="tarModal">
+  <div class="hmodal-box">
+    <h3 id="tarModalTit">Editar</h3>
+    <div class="argtipos">
+      <button type="button" class="tmtipo activo" data-tipo="Tarea">📝 Tarea</button>
+      <button type="button" class="tmtipo" data-tipo="Cita">📅 Cita</button>
+    </div>
+    <label class="hlabel">Qué es</label>
+    <input type="text" id="tmTexto" autocomplete="off">
+    <div id="tmCampoFechaCita" hidden>
+      <div class="hscan-row">
+        <div><label class="hlabel">Fecha</label><input type="date" id="tmFechaCita"></div>
+        <div><label class="hlabel">Hora</label><input type="time" id="tmHoraCita"></div>
+      </div>
+    </div>
+    <div id="tmCampoFechaTarea">
+      <label class="hlabel">Fecha límite <span class="hhint">opcional</span></label>
+      <input type="date" id="tmFechaTarea">
+    </div>
+    <label class="hlabel">Notas</label>
+    <input type="text" id="tmNotas" autocomplete="off">
+    <div class="hmodal-actions">
+      <button type="button" id="tmDelete" class="hdanger">Borrar</button>
+      <button type="button" id="tmCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="tmSave">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <div id="dashPanel" class="panel">
   <h1 id="dashTitle">Dashboard</h1>

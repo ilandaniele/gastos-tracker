@@ -20,11 +20,13 @@ sí, es gratis en el plan free, y de paso sirve la PWA y corre el cron.
 | `/api/vapid` | La clave pública para suscribirse |
 | `/api/subscribe` | Guarda la suscripción del navegador en KV |
 | `/api/pending?modo=auto` | Le pregunta a Apps Script qué falta cargar |
-| `/api/test?key=...` | Disparar un aviso a mano, para probar |
+| `/api/pending?tipo=tareas` | Le pregunta a Apps Script las tareas/citas de hoy |
+| `/api/test?key=...` | Disparar un aviso a mano, para probar (agregá `&tipo=tareas` para forzar el de tareas) |
 
 Y por cron (23, 00, 01, 02 y 09 de Montevideo) pregunta qué falta y manda el
 push **solo si falta algo**. Si ya cargaste, no manda nada: la insistencia se
-apaga sola.
+apaga sola. A las 09 además se manda, si corresponde, el aviso de tareas y
+citas del día (una sola vez, no en los otros horarios).
 
 ## El push va vacío a propósito
 

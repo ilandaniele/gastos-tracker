@@ -10,7 +10,8 @@
 //
 // El cron corre en UTC. Montevideo es UTC-3 todo el año, así que
 // 2,3,4,5 UTC = 23, 00, 01, 02 local (el cierre del día) y 12 UTC = 09 local
-// (la hora de levantarse).
+// (la hora de levantarse — el mismo horario en el que también se avisan las
+// tareas/citas del día, ver avisarTareas()).
 
 import { sendPush } from './push.js';
 import { SHELL_HTML, SERVICE_WORKER, MANIFEST } from './ui.js';
@@ -64,6 +65,14 @@ async function pending(env, modoRaw, extra) {
   const res = await fetch(url.toString(), { redirect: 'follow', cf: { cacheTtl: 0 } });
   const data = await res.json();
   return { ...data, modoUsado: modo };
+}
+
+// Citas de hoy + tareas que vencen hoy + vencidas sin completar.
+async function pendingTareas(env) {
+  const url = appUrl(env);
+  url.searchParams.set('action', 'tasksPending');
+  const res = await fetch(url.toString(), { redirect: 'follow', cf: { cacheTtl: 0 } });
+  return await res.json();
 }
 
 // Todo lo que no sea de control se reenvía a Apps Script
@@ -176,8 +185,9 @@ export default {
       // Se anota quién consulta: cuando llega un push, el service worker del
       // teléfono pega acá. Ver ese registro es la única forma de saber, desde
       // afuera, si el push llegó al teléfono y el service worker se despertó.
-      ctx.waitUntil(anotarConsulta(env, request));
+      ctx.waitUntil(anotarConsulta(env, request, url.searchParams.get('tipo') === 'tareas' ? 'pending tareas' : 'pending'));
       try {
+        if (url.searchParams.get('tipo') === 'tareas') return json(await pendingTareas(env));
         return json(await pending(env, url.searchParams.get('modo') || '', extraParams(url.searchParams)));
       } catch (e) {
         return json({ ok: false, error: String(e) }, 502);
@@ -207,9 +217,13 @@ export default {
 
     // Disparo manual, para probar sin esperar a la noche:
     //   /api/test?key=<ADMIN_KEY>&modo=noche&force=1
+    //   /api/test?key=<ADMIN_KEY>&tipo=tareas          (fuerza el aviso de tareas)
     if (p === '/api/test') {
       if (!env.ADMIN_KEY || url.searchParams.get('key') !== env.ADMIN_KEY) {
         return json({ ok: false, error: 'no' }, 403);
+      }
+      if (url.searchParams.get('tipo') === 'tareas') {
+        return json(await avisarTareas(env));
       }
       const r = await avisar(env, url.searchParams.get('modo') || 'auto',
                              url.searchParams.get('force') === '1',
@@ -230,12 +244,22 @@ export default {
       } catch (e) {
         r = { ok: false, excepcion: String(e && e.stack || e) };
       }
+      // Tareas: una sola vez al día, en el mismo horario que "¿a qué hora te
+      // levantaste?" — no tiene sentido recordar citas de noche.
+      let rt = null;
+      if (horaLocal() === 9) {
+        try {
+          rt = await avisarTareas(env);
+        } catch (e) {
+          rt = { ok: false, excepcion: String(e && e.stack || e) };
+        }
+      }
       try {
         const previo = (await env.SUBS.get('log:cron', 'json')) || [];
         previo.unshift({ cuando: new Date().toISOString(),
                          hora: new Intl.DateTimeFormat('es-UY', { timeZone: 'America/Montevideo',
                                  hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
-                         cron: event && event.cron, r });
+                         cron: event && event.cron, r, rt });
         await env.SUBS.put('log:cron', JSON.stringify(previo.slice(0, 20)));
       } catch (e) {}
     })());
@@ -273,4 +297,33 @@ async function avisar(env, modo, force, extra) {
   }
   return { ok: true, enviados, borrados, suscripciones: subs.length,
            errores, estado: estado };
+}
+
+// Igual que avisar() pero para tareas/citas — sin franjas horarias ni force,
+// porque solo se llama una vez al día (ver scheduled()).
+async function avisarTareas(env) {
+  let estado;
+  try {
+    estado = await pendingTareas(env);
+  } catch (e) {
+    return { ok: false, error: 'No se pudo consultar Apps Script (tareas): ' + String(e) };
+  }
+  if (!estado || estado.pendingNum === 0) {
+    return { ok: true, enviados: 0, motivo: 'nada pendiente', estado: estado };
+  }
+
+  const subs = await listarSubs(env);
+  let enviados = 0, borrados = 0;
+  const errores = [];
+  for (const { key, sub } of subs) {
+    try {
+      const r = await sendPush(sub, env);
+      if (r.ok) enviados++;
+      else if (r.gone) { await env.SUBS.delete(key); borrados++; }
+      else errores.push(r.status);
+    } catch (e) {
+      errores.push(String(e));
+    }
+  }
+  return { ok: true, enviados, borrados, suscripciones: subs.length, errores, estado: estado };
 }
