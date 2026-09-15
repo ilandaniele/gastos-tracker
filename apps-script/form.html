@@ -196,10 +196,10 @@
 
   <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
   <div class="hsubcat-row">
-    <input type="text" id="tarSubcategoria" list="tarSubcatList" placeholder="ej: Proyecto A" autocomplete="off">
+    <input type="text" id="tarSubcategoria" placeholder="ej: Proyecto A (o elegí abajo)" autocomplete="off">
     <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
   </div>
-  <datalist id="tarSubcatList"></datalist>
+  <div id="tarSubcatChips" class="quick-scroll subcat-chips"></div>
 
   <div id="tarCampoFechaCita" hidden>
     <div class="hscan-row">
@@ -290,10 +290,10 @@
     </div>
     <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
     <div class="hsubcat-row">
-      <input type="text" id="tmSubcategoria" list="tmSubcatList" placeholder="ej: Proyecto A" autocomplete="off">
+      <input type="text" id="tmSubcategoria" placeholder="ej: Proyecto A (o elegí abajo)" autocomplete="off">
       <button type="button" id="tmSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
     </div>
-    <datalist id="tmSubcatList"></datalist>
+    <div id="tmSubcatChips" class="quick-scroll subcat-chips"></div>
     <div id="tmCampoFechaCita" hidden>
       <div class="hscan-row">
         <div><label class="hlabel">Fecha</label><input type="date" id="tmFechaCita"></div>
@@ -354,7 +354,8 @@
 <div id="catModal">
   <div class="hmodal-box">
     <h3>Categorías</h3>
-    <div class="hsubcat-add">
+    <div class="hcat-add">
+      <input type="text" id="catNuevoEmoji" placeholder="🏷️" maxlength="8" autocomplete="off">
       <input type="text" id="catNuevoInput" placeholder="Nueva categoría" autocomplete="off">
       <button type="button" id="catAgregarBtn">Agregar</button>
     </div>

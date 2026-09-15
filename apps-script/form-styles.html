@@ -387,6 +387,12 @@
   .hsubcat-add { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
   .hsubcat-add input { margin: 0; padding: 12px 14px; }
   .hsubcat-add button { margin: 0; padding: 0 8px; font-size: 13px; }
+  /* Igual que .hsubcat-add pero con un campo angosto para el emoji al frente
+     — elegir el ícono de la categoría en vez de que todas caigan en 📌. */
+  .hcat-add { display: grid; grid-template-columns: 56px 1fr 96px; gap: 8px; }
+  .hcat-add input { margin: 0; padding: 12px 8px; text-align: center; }
+  .hcat-add input#catNuevoInput { text-align: left; padding: 12px 14px; }
+  .hcat-add button { margin: 0; padding: 0 8px; font-size: 13px; }
   .hsubcat-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; }
   .hsubcat-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
                  background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; }
@@ -395,6 +401,17 @@
   .hsubcat-item .hsub-rn { color: #0f766e; }
   .hsubcat-item .hsub-del { color: #b91c1c; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
+
+  /* Chips de subcategorías ya usadas, para TOCAR y elegir en vez de
+     depender de <datalist> — que en Mobile Safari/iOS no siempre muestra
+     sugerencias, así que "elegir una" no funcionaba de forma confiable.
+     Mismo criterio visual que .quick-scroll.fijos: violeta porque es el
+     mismo color que ya usa el badge de subcategoría en la pizarra. */
+  .quick-scroll.subcat-chips:empty { display: none; }
+  .quick-scroll.subcat-chips { margin-top: 8px; }
+  .quick-scroll.subcat-chips button { background: #ede9fe; color: #5b21b6; }
+  .quick-scroll.subcat-chips button:active { background: #ddd6fe; }
+  .quick-scroll.subcat-chips button.activo { background: #5b21b6; color: white; }
 
   /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a
      propósito (distinta del teal del check principal y del violeta de

@@ -4403,11 +4403,36 @@ function _tasksCategoriaValida(raw) {
   return _tasksCategoriasGet().find(c => _stripAccents(c) === _stripAccents(String(raw || ''))) || null;
 }
 
-// Agrega una categoría nueva a la lista.
+// Emoji por categoría: antes era un mapa fijo en el cliente (TAR_CAT_EMOJI),
+// así que toda categoría nueva caía siempre en el mismo ícono de "no sé cuál
+// es" (📌). Ahora se elige al crear/renombrar y se guarda acá — las 6 de
+// siempre arrancan con los emojis de toda la vida aunque nunca se hayan
+// tocado, para no cambiarle el aspecto a nadie de la nada.
+const TASKS_CAT_EMOJIS_DEFAULT = { 'Salud': '🩺', 'Trabajo': '💼', 'Personal': '🙋', 'Hogar': '🏠', 'Finanzas': '💵', 'Otros': '📌' };
+const TASKS_CAT_EMOJIS_PROP = 'TASKS_CAT_EMOJIS_V1';
+const TASKS_CAT_EMOJI_LEN_MAX = 8; // un emoji compuesto (piel, ZWJ) puede ser varios code units
+
+function _tasksCatEmojisGet() {
+  let obj = {};
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_CAT_EMOJIS_PROP);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
+  } catch (e) {}
+  return Object.assign({}, TASKS_CAT_EMOJIS_DEFAULT, obj);
+}
+function _tasksCatEmojisSet(obj) {
+  PropertiesService.getScriptProperties().setProperty(TASKS_CAT_EMOJIS_PROP, JSON.stringify(obj));
+}
+
+// Agrega una categoría nueva a la lista, con el emoji que haya elegido (si
+// no mandó nada, o mandó algo raro, se cae en el mismo 📌 de siempre — pero
+// ahora es una posibilidad, no la única).
 function addTaskCategory(p) {
   const nombre = String((p && p.nombre) || '').trim();
   if (!nombre) throw new Error('Falta el nombre de la categoría');
   if (nombre.length > TASKS_CATEGORIA_LEN_MAX) throw new Error('Nombre demasiado largo (máx ' + TASKS_CATEGORIA_LEN_MAX + ' caracteres)');
+  const emoji = String((p && p.emoji) || '').trim().slice(0, TASKS_CAT_EMOJI_LEN_MAX) || '📌';
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -4415,21 +4440,26 @@ function addTaskCategory(p) {
     if (lista.some(c => _stripAccents(c) === _stripAccents(nombre))) throw new Error('Ya existe esa categoría');
     lista.push(nombre);
     _tasksCategoriasSet(lista);
-    return { ok: true, categorias: lista };
+    const emojis = _tasksCatEmojisGet();
+    emojis[nombre] = emoji;
+    _tasksCatEmojisSet(emojis);
+    return { ok: true, categorias: lista, categoriaEmojis: emojis };
   } finally {
     lock.releaseLock();
   }
 }
 
 // Renombra una categoría: actualiza la lista, las tareas que ya la tenían
-// cargada, y muda sus subcategorías (ver TASKS_SUBCATS_PROP) al nuevo nombre
-// — si no, quedarían huérfanas bajo una clave que ya no existe.
+// cargada, y muda sus subcategorías (ver TASKS_SUBCATS_PROP) y su emoji al
+// nuevo nombre — si no, quedarían huérfanas bajo una clave que ya no existe.
+// El emoji es opcional: si no mandan uno nuevo, se conserva el que tenía.
 function renameTaskCategory(p) {
   const antes = _tasksCategoriaValida(p && p.antes);
   if (!antes) throw new Error('Esa categoría no existe');
   const despues = String((p && p.despues) || '').trim();
   if (!despues) throw new Error('Falta el nombre nuevo');
   if (despues.length > TASKS_CATEGORIA_LEN_MAX) throw new Error('Nombre demasiado largo (máx ' + TASKS_CATEGORIA_LEN_MAX + ' caracteres)');
+  const emojiNuevo = String((p && p.emoji) || '').trim().slice(0, TASKS_CAT_EMOJI_LEN_MAX);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -4441,6 +4471,12 @@ function renameTaskCategory(p) {
     }
     lista[idx] = despues;
     _tasksCategoriasSet(lista);
+
+    const emojis = _tasksCatEmojisGet();
+    const emojiActual = emojis[antes] || '📌';
+    delete emojis[antes];
+    emojis[despues] = emojiNuevo || emojiActual;
+    _tasksCatEmojisSet(emojis);
 
     const subs = _tasksSubcatsGet();
     if (subs[antes] !== undefined) {
@@ -4465,7 +4501,7 @@ function renameTaskCategory(p) {
       }
       if (tocado) rng.setValues(vals);
     }
-    return { ok: true, categorias: lista };
+    return { ok: true, categorias: lista, categoriaEmojis: emojis };
   } finally {
     lock.releaseLock();
   }
@@ -4487,7 +4523,9 @@ function deleteTaskCategory(p) {
     _tasksCategoriasSet(lista);
     const subs = _tasksSubcatsGet();
     if (subs[nombre] !== undefined) { delete subs[nombre]; _tasksSubcatsSet(subs); }
-    return { ok: true, categorias: lista };
+    const emojis = _tasksCatEmojisGet();
+    if (emojis[nombre] !== undefined) { delete emojis[nombre]; _tasksCatEmojisSet(emojis); }
+    return { ok: true, categorias: lista, categoriaEmojis: emojis };
   } finally {
     lock.releaseLock();
   }
@@ -4891,7 +4929,8 @@ function getTasksData() {
     const filas = _tasksRows(sheet);
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
-             periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories() };
+             periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories(),
+             categoriaEmojis: _tasksCatEmojisGet() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
     return { ok: false, error: err.message };
