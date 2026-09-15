@@ -495,7 +495,8 @@
   // server) — lo que ves al abrir la app es lo que te llega por mail.
   var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
-              recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '' };
+              recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '',
+              subtareasNuevas: [], subtareasModal: [] };
   var TAR_CAT_EMOJI = { 'Salud': '🩺', 'Trabajo': '💼', 'Personal': '🙋', 'Hogar': '🏠', 'Finanzas': '💵', 'Otros': '📌' };
   function tarEl(id) { return document.getElementById(id); }
   function tarStatus(txt, cls) {
@@ -536,6 +537,71 @@
     dl.innerHTML = lista.map(function(s) { return '<option value="' + esc(s) + '"></option>'; }).join('');
   }
 
+  // Subtareas: un checklist propio adentro de "Agregar" (TAR.subtareasNuevas)
+  // y otro adentro del modal de editar (TAR.subtareasModal) — arrancan vacíos
+  // o precargados con lo que ya tenía la tarea (ver tarAbrirModal) y se
+  // arman/editan en el cliente; recién viajan al server al guardar.
+  function tarSubtareaRowHtml(s, i, conCheck) {
+    var check = conCheck
+      ? '<span class="hsubtask-check' + (s.d ? ' on' : '') + '" data-subtoglocal="' + i + '">' + (s.d ? '✓' : '') + '</span>'
+      : '';
+    return '<div class="hsubtask-row' + (s.d ? ' done' : '') + '">' + check +
+      '<span class="hsubtask-txt">' + esc(s.t) + '</span>' +
+      '<button type="button" class="hsubtask-rm" data-subrm="' + i + '">×</button></div>';
+  }
+  function tarPintarSubtareasNuevas() {
+    var cont = tarEl('tarSubtareasList');
+    if (!cont) return;
+    cont.innerHTML = TAR.subtareasNuevas.map(function(s, i) { return tarSubtareaRowHtml(s, i, false); }).join('');
+    var rms = cont.querySelectorAll('[data-subrm]');
+    for (var i = 0; i < rms.length; i++) {
+      (function(el) { el.addEventListener('click', function() {
+        TAR.subtareasNuevas.splice(parseInt(el.getAttribute('data-subrm'), 10), 1);
+        tarPintarSubtareasNuevas();
+      }); })(rms[i]);
+    }
+  }
+  function tarPintarSubtareasModal() {
+    var cont = tarEl('tmSubtareasList');
+    if (!cont) return;
+    cont.innerHTML = TAR.subtareasModal.map(function(s, i) { return tarSubtareaRowHtml(s, i, true); }).join('');
+    var togs = cont.querySelectorAll('[data-subtoglocal]');
+    for (var i = 0; i < togs.length; i++) {
+      (function(el) { el.addEventListener('click', function() {
+        var idx = parseInt(el.getAttribute('data-subtoglocal'), 10);
+        TAR.subtareasModal[idx].d = !TAR.subtareasModal[idx].d;
+        tarPintarSubtareasModal();
+      }); })(togs[i]);
+    }
+    var rms = cont.querySelectorAll('[data-subrm]');
+    for (var j = 0; j < rms.length; j++) {
+      (function(el) { el.addEventListener('click', function() {
+        TAR.subtareasModal.splice(parseInt(el.getAttribute('data-subrm'), 10), 1);
+        tarPintarSubtareasModal();
+      }); })(rms[j]);
+    }
+  }
+  if (tarEl('tarSubtareaAddBtn')) tarEl('tarSubtareaAddBtn').addEventListener('click', function() {
+    var v = (tarEl('tarSubtareaInput') && tarEl('tarSubtareaInput').value.trim()) || '';
+    if (!v) return;
+    TAR.subtareasNuevas.push({ t: v, d: false });
+    tarEl('tarSubtareaInput').value = '';
+    tarPintarSubtareasNuevas();
+  });
+  if (tarEl('tarSubtareaInput')) tarEl('tarSubtareaInput').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); tarEl('tarSubtareaAddBtn').click(); }
+  });
+  if (tarEl('tmSubtareaAddBtn')) tarEl('tmSubtareaAddBtn').addEventListener('click', function() {
+    var v = (tarEl('tmSubtareaInput') && tarEl('tmSubtareaInput').value.trim()) || '';
+    if (!v) return;
+    TAR.subtareasModal.push({ t: v, d: false });
+    tarEl('tmSubtareaInput').value = '';
+    tarPintarSubtareasModal();
+  });
+  if (tarEl('tmSubtareaInput')) tarEl('tmSubtareaInput').addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); tarEl('tmSubtareaAddBtn').click(); }
+  });
+
   var tarTipoBtns = document.querySelectorAll('.tartipo');
   for (var ti = 0; ti < tarTipoBtns.length; ti++) {
     (function(b) {
@@ -546,8 +612,13 @@
         var esCita = TAR.tipoNuevo === 'Cita';
         if (tarEl('tarCampoFechaCita')) tarEl('tarCampoFechaCita').hidden = !esCita;
         if (tarEl('tarCampoFechaTarea')) tarEl('tarCampoFechaTarea').hidden = esCita;
-        // Una cita es un momento puntual — no tiene sentido "repetirla y contar".
-        if (tarEl('tarCampoRecurrente')) tarEl('tarCampoRecurrente').hidden = esCita;
+        // Las dos pueden ser recurrentes, pero una cita no "cuenta veces" — solo
+        // repite en el mismo día de la semana/mes (ver _citaProximaFecha en el
+        // server), así que a ella le alcanza con el selector "Cada".
+        if (tarEl('tarCampoObjetivoNum')) tarEl('tarCampoObjetivoNum').hidden = esCita;
+        if (tarEl('tarObjetivoRow')) tarEl('tarObjetivoRow').style.gridTemplateColumns = esCita ? '1fr' : '1fr 1fr';
+        if (tarEl('tarPeriodoLbl')) tarEl('tarPeriodoLbl').textContent = esCita ? 'Se repite' : 'Cada';
+        if (tarEl('tarRecurBtn')) tarEl('tarRecurBtn').textContent = esCita ? '🔁 Es una cita fija (ej: todos los martes)' : '🔁 Hacerla recurrente';
       });
     })(tarTipoBtns[ti]);
   }
@@ -562,7 +633,11 @@
         var esCita = TAR.tipoModal === 'Cita';
         if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
         if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
-        if (tarEl('tmCampoRecurrente')) tarEl('tmCampoRecurrente').hidden = esCita;
+        if (tarEl('tmCampoObjetivoNum')) tarEl('tmCampoObjetivoNum').hidden = esCita;
+        if (tarEl('tmObjetivoRow')) tarEl('tmObjetivoRow').style.gridTemplateColumns = esCita ? '1fr' : '1fr 1fr';
+        if (tarEl('tmPeriodoLbl')) tarEl('tmPeriodoLbl').textContent = esCita ? 'Se repite' : 'Cada';
+        if (tarEl('tmContadorRow')) tarEl('tmContadorRow').hidden = esCita;
+        if (tarEl('tmRecurBtn')) tarEl('tmRecurBtn').textContent = esCita ? '🔁 Es una cita fija (ej: todos los martes)' : '🔁 Hacerla recurrente';
       });
     })(tmTipoBtns[tmi]);
   }
@@ -610,18 +685,37 @@
     tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
   });
 
-  function tarBadges(t, hideSubcat) {
+  function tarBadges(t, hideSubcat, hideSubtasks) {
     var out = '';
     if (t.tipo === 'Cita') {
-      out += '<span class="task-badge cita">📅 ' + esc(tarDiaCorto(t.fecha)) + (t.hora ? ' ' + esc(t.hora) : '') + '</span>';
+      out += '<span class="task-badge cita">📅 ' + (t.recurrente ? '🔁 ' : '') + esc(tarDiaCorto(t.fecha)) +
+             (t.hora ? ' ' + esc(t.hora) : '') + '</span>';
     } else if (t.fecha) {
       var venc = t.fecha < TAR.hoy, esHoy = t.fecha === TAR.hoy;
       out += '<span class="task-badge ' + (venc ? 'vencida' : (esHoy ? 'hoy' : 'cita')) + '">' +
              (venc ? '⚠️ vencía ' : '📌 ') + esc(tarDiaCorto(t.fecha)) + '</span>';
     }
     if (t.subcategoria && !hideSubcat) out += '<span class="task-badge subcat">' + esc(t.subcategoria) + '</span>';
+    if (t.subtareas && t.subtareas.length && !hideSubtasks) {
+      var hechas = t.subtareas.filter(function(s) { return s.d; }).length;
+      out += '<span class="task-badge subtasks">☑️ ' + hechas + '/' + t.subtareas.length + '</span>';
+    }
     if (t.notas) out += '<span class="task-badge notas">' + esc(t.notas) + '</span>';
     return out;
+  }
+
+  // Checklist de subtareas dentro de la tarjeta de la pizarra — el check de
+  // cada una viaja solo (toggleSubtaskSafe), sin tocar el resto de la tarea.
+  function tarSubtareasHtml(t) {
+    if (!t.subtareas || !t.subtareas.length) return '';
+    var hechas = t.subtareas.filter(function(s) { return s.d; }).length;
+    var rows = t.subtareas.map(function(s, i) {
+      return '<div class="hsubtask-row' + (s.d ? ' done' : '') + '">' +
+        '<span class="hsubtask-check' + (s.d ? ' on' : '') + '" data-subtog="' + t.row + ':' + i + '">' + (s.d ? '✓' : '') + '</span>' +
+        '<span class="hsubtask-txt">' + esc(s.t) + '</span></div>';
+    }).join('');
+    return '<div class="task-subtasks"><div class="task-subtasks-head"><span>☑️ Subtareas</span>' +
+      '<span class="n">' + hechas + '/' + t.subtareas.length + '</span></div>' + rows + '</div>';
   }
 
   // withCat: la tarjeta "Hoy" y "Completadas" mezclan categorías, así que
@@ -655,8 +749,9 @@
       '<div class="task-check' + (t.completada ? ' on' : '') + '" data-check="' + t.row + '">' + (t.completada ? '✓' : '') + '</div>' +
       '<div class="task-body" data-open="' + t.row + '">' +
         '<div class="task-text">' + esc(t.texto) + '</div>' +
-        '<div class="task-meta">' + tarBadges(t, hideSubcat) + '</div>' +
+        '<div class="task-meta">' + tarBadges(t, hideSubcat, true) + '</div>' +
         tarCounterHtml(t) +
+        tarSubtareasHtml(t) +
       '</div>' +
     '</div>';
   }
@@ -706,6 +801,16 @@
           tarBump(parseInt(el.getAttribute('data-bump'), 10));
         });
       })(bumps[m]);
+    }
+    var subtogs = cont.querySelectorAll('[data-subtog]');
+    for (var s = 0; s < subtogs.length; s++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var partes = el.getAttribute('data-subtog').split(':');
+          tarToggleSubtask(parseInt(partes[0], 10), parseInt(partes[1], 10));
+        });
+      })(subtogs[s]);
     }
     var opens = cont.querySelectorAll('[data-open]');
     for (var j = 0; j < opens.length; j++) {
@@ -809,22 +914,44 @@
       .toggleTaskSafe({ row: row, completada: nuevo });
   }
 
+  // Check de UNA subtarea puntual, adentro de la tarjeta de la pizarra — no
+  // pasa por el modal de editar, mismo criterio optimista que tarToggle/tarBump.
+  function tarToggleSubtask(row, index) {
+    var t = TAR.tareas.find(function(x) { return x.row === row; });
+    if (!t || !t.subtareas || !t.subtareas[index]) return;
+    var prev = t.subtareas[index].d;
+    t.subtareas[index].d = !prev;
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.subtareas[index].d = prev; tarPintar(); }
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        t.subtareas[index].d = prev; tarPintar();
+      })
+      .toggleSubtaskSafe({ row: row, index: index, completada: !prev });
+  }
+
   if (tarEl('tarAdd')) tarEl('tarAdd').addEventListener('click', function() {
     var texto = (tarEl('tarTexto') && tarEl('tarTexto').value.trim()) || '';
     if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
     var payload = { tipo: TAR.tipoNuevo, categoria: TAR.catNuevo, texto: texto,
                     subcategoria: (tarEl('tarSubcategoria') && tarEl('tarSubcategoria').value.trim()) || '',
-                    notas: (tarEl('tarNotas') && tarEl('tarNotas').value.trim()) || '' };
+                    notas: (tarEl('tarNotas') && tarEl('tarNotas').value.trim()) || '',
+                    subtareas: TAR.subtareasNuevas };
     if (TAR.tipoNuevo === 'Cita') {
       payload.fecha = (tarEl('tarFechaCita') && tarEl('tarFechaCita').value) || '';
       payload.hora = (tarEl('tarHoraCita') && tarEl('tarHoraCita').value) || '';
       if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
     } else {
       payload.fecha = (tarEl('tarFechaTarea') && tarEl('tarFechaTarea').value) || '';
-      if (TAR.recurNuevo) {
-        payload.recurrente = true;
+    }
+    if (TAR.recurNuevo) {
+      payload.recurrente = true;
+      payload.periodo = (tarEl('tarPeriodo') && tarEl('tarPeriodo').value) || '';
+      if (TAR.tipoNuevo === 'Tarea') {
         payload.objetivo = (tarEl('tarObjetivo') && tarEl('tarObjetivo').value.trim()) || '';
-        payload.periodo = (tarEl('tarPeriodo') && tarEl('tarPeriodo').value) || '';
         if (!payload.objetivo) { tarStatus('Poné cuántas veces (ej: 10)', 'err'); return; }
       }
     }
@@ -842,6 +969,8 @@
         if (tarEl('tarRecurBtn')) tarEl('tarRecurBtn').classList.remove('activo');
         if (tarEl('tarCampoObjetivo')) tarEl('tarCampoObjetivo').hidden = true;
         if (tarEl('tarObjetivo')) tarEl('tarObjetivo').value = '';
+        TAR.subtareasNuevas = [];
+        tarPintarSubtareasNuevas();
         tarStatus('✓ Agregado', 'ok');
         loadTareas();
       })
@@ -865,7 +994,11 @@
     var esCita = t.tipo === 'Cita';
     if (tarEl('tmCampoFechaCita')) tarEl('tmCampoFechaCita').hidden = !esCita;
     if (tarEl('tmCampoFechaTarea')) tarEl('tmCampoFechaTarea').hidden = esCita;
-    if (tarEl('tmCampoRecurrente')) tarEl('tmCampoRecurrente').hidden = esCita;
+    if (tarEl('tmCampoObjetivoNum')) tarEl('tmCampoObjetivoNum').hidden = esCita;
+    if (tarEl('tmObjetivoRow')) tarEl('tmObjetivoRow').style.gridTemplateColumns = esCita ? '1fr' : '1fr 1fr';
+    if (tarEl('tmPeriodoLbl')) tarEl('tmPeriodoLbl').textContent = esCita ? 'Se repite' : 'Cada';
+    if (tarEl('tmContadorRow')) tarEl('tmContadorRow').hidden = esCita;
+    if (tarEl('tmRecurBtn')) tarEl('tmRecurBtn').textContent = esCita ? '🔁 Es una cita fija (ej: todos los martes)' : '🔁 Hacerla recurrente';
     TAR.catModal = t.categoria || 'Otros';
     if (tarEl('tmCategoria')) tarEl('tmCategoria').value = TAR.catModal;
     tarPoblarSubcatList(TAR.catModal, 'tmSubcatList');
@@ -881,6 +1014,9 @@
     if (tarEl('tmPeriodo')) tarEl('tmPeriodo').value = t.periodo || 'Semanal';
     if (tarEl('tmContador')) tarEl('tmContador').value = t.contador != null ? t.contador : 0;
     if (tarEl('tmNotas')) tarEl('tmNotas').value = t.notas || '';
+    TAR.subtareasModal = (t.subtareas || []).map(function(s) { return { t: s.t, d: s.d }; });
+    if (tarEl('tmSubtareaInput')) tarEl('tmSubtareaInput').value = '';
+    tarPintarSubtareasModal();
     if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
   }
   function tarCerrarModal() {
@@ -899,17 +1035,20 @@
     if (!texto) { tarStatus('Escribí qué es', 'err'); return; }
     var payload = { row: t.row, tipo: TAR.tipoModal, categoria: TAR.catModal, texto: texto,
                     subcategoria: (tarEl('tmSubcategoria') && tarEl('tmSubcategoria').value.trim()) || '',
-                    notas: (tarEl('tmNotas') && tarEl('tmNotas').value.trim()) || '' };
+                    notas: (tarEl('tmNotas') && tarEl('tmNotas').value.trim()) || '',
+                    subtareas: TAR.subtareasModal };
     if (TAR.tipoModal === 'Cita') {
       payload.fecha = (tarEl('tmFechaCita') && tarEl('tmFechaCita').value) || '';
       payload.hora = (tarEl('tmHoraCita') && tarEl('tmHoraCita').value) || '';
       if (!payload.fecha) { tarStatus('Una cita necesita fecha', 'err'); return; }
     } else {
       payload.fecha = (tarEl('tmFechaTarea') && tarEl('tmFechaTarea').value) || '';
-      if (TAR.recurModal) {
-        payload.recurrente = true;
+    }
+    if (TAR.recurModal) {
+      payload.recurrente = true;
+      payload.periodo = (tarEl('tmPeriodo') && tarEl('tmPeriodo').value) || '';
+      if (TAR.tipoModal === 'Tarea') {
         payload.objetivo = (tarEl('tmObjetivo') && tarEl('tmObjetivo').value.trim()) || '';
-        payload.periodo = (tarEl('tmPeriodo') && tarEl('tmPeriodo').value) || '';
         payload.contador = (tarEl('tmContador') && tarEl('tmContador').value.trim()) || '';
         if (!payload.objetivo) { tarStatus('Poné cuántas veces (ej: 10)', 'err'); return; }
       }

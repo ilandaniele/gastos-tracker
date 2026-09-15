@@ -396,6 +396,33 @@
   .hsubcat-item .hsub-del { color: #b91c1c; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
 
+  /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a
+     propósito (distinta del teal del check principal y del violeta de
+     subcategoría) para que las tres cosas se distingan de un vistazo. */
+  .task-subtasks { margin-top: 9px; padding-top: 9px; border-top: 1px dashed #e5e7eb; }
+  .task-subtasks-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px;
+                        font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.4px; }
+  .task-subtasks-head .n { font-size: 10px; font-weight: 700; background: #fef3c7; color: #92400e;
+                           padding: 1px 7px; border-radius: 999px; }
+  .task-badge.subtasks { background: #fef3c7; color: #92400e; }
+
+  .hsubtask-list { display: flex; flex-direction: column; gap: 6px; }
+  .hsubtask-list:not(:empty) { margin-top: 8px; }
+  .hsubtask-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .hsubtask-row.done .hsubtask-txt { text-decoration: line-through; color: #9ca3af; }
+  .hsubtask-txt { flex: 1; word-break: break-word; }
+  .hsubtask-check { width: 20px; height: 20px; flex: 0 0 20px; border-radius: 6px; border: 2px solid #fcd34d;
+                    background: white; display: flex; align-items: center; justify-content: center;
+                    font-size: 12px; color: white; cursor: pointer; }
+  .hsubtask-check.on { background: #d97706; border-color: #d97706; }
+  .hsubtask-rm { margin: 0; width: 26px; height: 26px; flex: 0 0 26px; padding: 0; font-size: 16px;
+                font-weight: 700; background: #fef2f2; color: #b91c1c; border-radius: 6px; line-height: 1; }
+  .hsubtask-rm:active { background: #fee2e2; }
+  .hsubtask-add { display: grid; grid-template-columns: 1fr 44px; gap: 8px; margin-top: 8px; }
+  .hsubtask-add input { margin: 0; padding: 10px 12px; font-size: 14px; }
+  .hsubtask-add button { margin: 0; padding: 0; font-size: 20px; font-weight: 700; background: #d97706; }
+  .hsubtask-add button:active { background: #b45309; }
+
   /* Botón "Hacerla recurrente" — toggle simple, un solo botón (no un grupo
      como .argtipos), mismo criterio visual: gris apagado / teal cuando está
      prendido. */

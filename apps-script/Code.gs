@@ -4350,18 +4350,21 @@ function deleteArgentinaSafe(data) {
 // de fila como id y correr las filas de abajo lo rompería.
 
 const TASKS_TAB = 'Tareas';
-// Subcategoría va al final (columna 15) en vez de al lado de Categoría para
-// no correr los índices de todas las columnas que ya existían.
+// Subcategoría y Subtareas van al final (columnas 15 y 16) en vez de al lado
+// de Categoría/Notas para no correr los índices de las columnas que ya existían.
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
-                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría'];
+                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
 // Fijas (como CATEGORIES de gastos) en vez de texto libre: así la pizarra
 // tiene columnas estables en vez de una nueva por cada typo.
 const TASKS_CATEGORIAS = ['Salud', 'Trabajo', 'Personal', 'Hogar', 'Finanzas', 'Otros'];
-// Cada cuánto se reinicia el contador de una tarea recurrente.
+// Cada cuánto se reinicia el contador de una tarea recurrente (Tarea) o cada
+// cuánto vuelve a caer una cita fija (Cita) — ver _citaProximaFecha.
 const TASKS_PERIODOS = ['Diario', 'Semanal', 'Mensual'];
 const TASKS_FIRST_ROW = 2;
 const TASKS_MAX_ROWS = 500;
+const TASKS_SUBTAREAS_MAX = 30;    // tope por tarea, evita que la celda crezca sin límite
+const TASKS_SUBTAREA_LEN_MAX = 80;
 
 // Subcategorías: a diferencia de Categoría (fija), acá el usuario define las
 // suyas — ej. dentro de "Trabajo": "Proyecto A", "Reuniones". Se guardan
@@ -4564,6 +4567,45 @@ function _tasksPeriodKey(d, periodo) {
   return Utilities.formatDate(_tasksMondayOf(d), 'America/Montevideo', 'yyyy-MM-dd'); // Semanal
 }
 
+// Próxima fecha (hoy inclusive) en la que cae una Cita recurrente — ej. "la
+// psicóloga, todos los martes 18hs": la fila guarda la fecha en la que se
+// cargó la primera vez (el ancla) y acá se recalcula, en cada lectura, cuándo
+// es la próxima, sin tener que tocar la fila cada semana (mismo criterio que
+// el contador de una Tarea recurrente, que también se recalcula al leer).
+// Semanal usa el día de la semana del ancla; Mensual, el día del mes; Diario
+// siempre es hoy.
+function _citaProximaFecha(fechaAncla, periodo, ahora) {
+  const ancla = parseLocalDate(fechaAncla);
+  const hoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+  if (periodo === 'Diario') return Utilities.formatDate(hoy, 'America/Montevideo', 'yyyy-MM-dd');
+  if (periodo === 'Mensual') {
+    const dia = ancla.getDate();
+    let cand = new Date(hoy.getFullYear(), hoy.getMonth(), dia);
+    if (cand < hoy) cand = new Date(hoy.getFullYear(), hoy.getMonth() + 1, dia);
+    return Utilities.formatDate(cand, 'America/Montevideo', 'yyyy-MM-dd');
+  }
+  // Semanal (default)
+  const delta = (ancla.getDay() - hoy.getDay() + 7) % 7;
+  const cand = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + delta);
+  return Utilities.formatDate(cand, 'America/Montevideo', 'yyyy-MM-dd');
+}
+
+// Subtareas: se guardan como JSON en su propia columna ([{t: texto, d:
+// hecha}, ...]) en vez de filas aparte — no necesitan fecha, categoría ni
+// nada del resto del modelo de Tareas, así que una fila por tarea alcanza.
+function _tasksParseSubtareas(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(x => (x && typeof x === 'object') ? { t: String(x.t || '').trim(), d: x.d === true } : null)
+      .filter(x => x && x.t)
+      .map(x => ({ t: x.t.slice(0, TASKS_SUBTAREA_LEN_MAX), d: x.d }))
+      .slice(0, TASKS_SUBTAREAS_MAX);
+  } catch (e) { return []; }
+}
+
 function _tasksRows(sheet) {
   const cupo = _tasksCupo(sheet);
   if (!cupo) return [];
@@ -4577,6 +4619,7 @@ function _tasksRows(sheet) {
     const dCreada = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
     const dFecha = r[4] ? (Object.prototype.toString.call(r[4]) === '[object Date]' ? r[4] : parseLocalDate(r[4])) : null;
     const dCompletada = r[8] ? (Object.prototype.toString.call(r[8]) === '[object Date]' ? r[8] : parseLocalDate(r[8])) : null;
+    const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea';
 
     const recurrente = r[9] === true;
     const periodo = TASKS_PERIODOS.find(x => _stripAccents(x) === _stripAccents(String(r[12] || ''))) || 'Semanal';
@@ -4586,8 +4629,9 @@ function _tasksRows(sheet) {
 
     // Self-healing igual que la columna Fecha en gastos: si pasó el período
     // desde el último reset, se pisa el contador en la propia lectura — no
-    // hace falta un cron aparte para "vaciar" tareas recurrentes.
-    if (recurrente) {
+    // hace falta un cron aparte para "vaciar" tareas recurrentes. Solo aplica
+    // a Tareas: una Cita recurrente no cuenta veces, ver _citaProximaFecha.
+    if (recurrente && tipo === 'Tarea') {
       const vencido = !dUltimoReset || _tasksPeriodKey(dUltimoReset, periodo) !== _tasksPeriodKey(ahora, periodo);
       if (vencido) {
         contador = 0;
@@ -4596,13 +4640,19 @@ function _tasksRows(sheet) {
       }
     }
 
+    let fecha = dFecha ? Utilities.formatDate(dFecha, 'America/Montevideo', 'yyyy-MM-dd') : '';
+    // Cita recurrente: lo que se muestra (y lo que se usa para "es hoy" /
+    // digest de la mañana) es la PRÓXIMA ocurrencia, no la fecha ancla que
+    // quedó guardada en la hoja desde que se cargó la primera vez.
+    if (recurrente && tipo === 'Cita' && fecha) fecha = _citaProximaFecha(fecha, periodo, ahora);
+
     out.push({
       row: TASKS_FIRST_ROW + i,
       creada: dCreada ? Utilities.formatDate(dCreada, 'America/Montevideo', 'yyyy-MM-dd') : '',
-      tipo: TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea',
+      tipo: tipo,
       categoria: TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(String(r[2] || ''))) || 'Otros',
       texto: String(r[3] || '').trim(),
-      fecha: dFecha ? Utilities.formatDate(dFecha, 'America/Montevideo', 'yyyy-MM-dd') : '',
+      fecha: fecha,
       // "15:30" como texto puede quedar mal interpretado como hora-del-dia si
       // la celda no está forzada a texto (formato viejo, o edición a mano en
       // la hoja) — Sheets lo guarda como fecha-serial y Apps Script lo lee
@@ -4615,7 +4665,8 @@ function _tasksRows(sheet) {
       fechaCompletada: dCompletada ? Utilities.formatDate(dCompletada, 'America/Montevideo', 'yyyy-MM-dd') : '',
       recurrente: recurrente, objetivo: objetivo, contador: contador, periodo: periodo,
       ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : '',
-      subcategoria: String(r[14] || '').trim()
+      subcategoria: String(r[14] || '').trim(),
+      subtareas: _tasksParseSubtareas(r[15])
     });
   }
   resets.forEach(function(rs) {
@@ -4626,9 +4677,11 @@ function _tasksRows(sheet) {
 }
 
 // Normaliza lo que manda el cliente. Una cita necesita fecha (es LA cita);
-// una tarea puede no tenerla (un pendiente sin vencimiento puntual). Solo
-// una Tarea puede ser recurrente — una Cita es un momento puntual, no algo
-// que se repite y se cuenta.
+// una tarea puede no tenerla (un pendiente sin vencimiento puntual). Las dos
+// pueden ser recurrentes, pero con distinto sentido: una Tarea recurrente
+// cuenta cuántas veces la hiciste en el período (objetivo/contador); una
+// Cita recurrente simplemente vuelve a caer cada período en el mismo día de
+// la semana/mes (ver _citaProximaFecha) — no tiene objetivo ni contador.
 function _normTask(p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw)) || 'Tarea';
@@ -4648,22 +4701,39 @@ function _normTask(p) {
   const hora = String(p.hora || '').trim();
   if (hora && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) throw new Error('Hora inválida (HH:mm)');
 
-  const recurrente = tipo === 'Tarea' && (p.recurrente === true || String(p.recurrente) === 'true');
+  const recurrente = p.recurrente === true || String(p.recurrente) === 'true';
   let objetivo = 0, periodo = '', contador = null;
   if (recurrente) {
-    objetivo = toNumber(p.objetivo);
-    if (objetivo == null || objetivo <= 0) throw new Error('Poné cuántas veces (objetivo) para la tarea recurrente');
     const perRaw = String(p.periodo || '').trim();
     periodo = TASKS_PERIODOS.find(x => _stripAccents(x) === _stripAccents(perRaw)) || 'Semanal';
-    // Editable a mano desde el modal ("Van hechas"). Si no lo mandan (alta
-    // nueva) queda null y el llamador decide el contador real.
-    if (p.contador !== undefined && p.contador !== '') contador = Math.max(0, toNumber(p.contador) || 0);
+    if (tipo === 'Tarea') {
+      objetivo = toNumber(p.objetivo);
+      if (objetivo == null || objetivo <= 0) throw new Error('Poné cuántas veces (objetivo) para la tarea recurrente');
+      // Editable a mano desde el modal ("Van hechas"). Si no lo mandan (alta
+      // nueva) queda null y el llamador decide el contador real.
+      if (p.contador !== undefined && p.contador !== '') contador = Math.max(0, toNumber(p.contador) || 0);
+    }
+    // Cita recurrente: solo necesita periodo — la fecha que ya se validó
+    // arriba es el ancla (ver _citaProximaFecha), no hace falta objetivo.
+  }
+
+  let subtareas = [];
+  if (Array.isArray(p.subtareas)) {
+    subtareas = p.subtareas
+      .map(x => {
+        if (typeof x === 'string') return { t: x.trim(), d: false };
+        if (x && typeof x === 'object') return { t: String(x.t || '').trim(), d: x.d === true };
+        return null;
+      })
+      .filter(x => x && x.t)
+      .map(x => ({ t: x.t.slice(0, TASKS_SUBTAREA_LEN_MAX), d: x.d }))
+      .slice(0, TASKS_SUBTAREAS_MAX);
   }
 
   return {
     tipo: tipo, categoria: categoria, subcategoria: subcategoria, texto: texto, fecha: fechaRaw || '', hora: hora,
     notas: String(p.notas || '').trim(), recurrente: recurrente, objetivo: objetivo,
-    periodo: periodo, contador: contador
+    periodo: periodo, contador: contador, subtareas: subtareas
   };
 }
 
@@ -4685,7 +4755,8 @@ function _tasksEscribirFila(sheet, row, e, opts) {
     e.fecha ? parseLocalDate(e.fecha) : '', e.hora, e.notas,
     opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : '',
     e.recurrente, e.recurrente ? e.objetivo : '', e.recurrente ? contador : '',
-    e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || ''
+    e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || '',
+    JSON.stringify(e.subtareas || [])
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, 14).setNumberFormat('dd/MM/yyyy');
@@ -4826,6 +4897,33 @@ function bumpTaskEntry(p) {
   return { ok: true, tab: TASKS_TAB, row: row, contador: contador };
 }
 
+// Marca/desmarca UNA subtarea puntual, sin pasar por todo el modal de editar
+// — mismo criterio que toggleTaskEntry con la tarea entera.
+function toggleSubtaskEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
+  const index = parseInt(p.index, 10);
+  if (!isFinite(index) || index < 0) throw new Error('Índice inválido');
+  const completada = p.completada === true || String(p.completada) === 'true';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let subtareas;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
+    if (!String(cur[3] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    subtareas = _tasksParseSubtareas(cur[15]);
+    if (!subtareas[index]) throw new Error('Esa subtarea ya no existe — recargá las tareas');
+    subtareas[index].d = completada;
+    sheet.getRange(row, 16).setValue(JSON.stringify(subtareas));
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, row: row, subtareas: subtareas };
+}
+
 function addTaskSafe(data) {
   try { return addTaskEntry(data || {}); }
   catch (err) { Logger.log('addTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
@@ -4845,6 +4943,10 @@ function deleteTaskSafe(data) {
 function bumpTaskSafe(data) {
   try { return bumpTaskEntry(data || {}); }
   catch (err) { Logger.log('bumpTaskSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+function toggleSubtaskSafe(data) {
+  try { return toggleSubtaskEntry(data || {}); }
+  catch (err) { Logger.log('toggleSubtaskSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 function getTasksSafe() {
   try { return getTasksData(); }

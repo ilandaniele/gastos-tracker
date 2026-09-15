@@ -213,16 +213,23 @@
   <div id="tarCampoRecurrente">
     <button type="button" id="tarRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
     <div id="tarCampoObjetivo" hidden>
-      <div class="hscan-row">
-        <div><label class="hlabel">Cuántas veces</label>
+      <div class="hscan-row" id="tarObjetivoRow">
+        <div id="tarCampoObjetivoNum"><label class="hlabel">Cuántas veces</label>
           <input type="text" id="tarObjetivo" inputmode="numeric" pattern="[0-9]*" placeholder="ej: 10"></div>
-        <div><label class="hlabel">Cada</label><select id="tarPeriodo"></select></div>
+        <div><label class="hlabel" id="tarPeriodoLbl">Cada</label><select id="tarPeriodo"></select></div>
       </div>
     </div>
   </div>
 
   <label class="hlabel">Notas</label>
   <input type="text" id="tarNotas" placeholder="opcional" autocomplete="off">
+
+  <label class="hlabel">Subtareas <span class="hhint">opcional</span></label>
+  <div id="tarSubtareasList" class="hsubtask-list"></div>
+  <div class="hsubtask-add">
+    <input type="text" id="tarSubtareaInput" placeholder="Agregar subtarea" autocomplete="off">
+    <button type="button" id="tarSubtareaAddBtn">+</button>
+  </div>
 
   <button type="button" id="tarAdd">Agregar</button>
   <div id="tarStatus"></div>
@@ -276,12 +283,12 @@
     <div id="tmCampoRecurrente">
       <button type="button" id="tmRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
       <div id="tmCampoObjetivo" hidden>
-        <div class="hscan-row">
-          <div><label class="hlabel">Cuántas veces</label>
+        <div class="hscan-row" id="tmObjetivoRow">
+          <div id="tmCampoObjetivoNum"><label class="hlabel">Cuántas veces</label>
             <input type="text" id="tmObjetivo" inputmode="numeric" pattern="[0-9]*"></div>
-          <div><label class="hlabel">Cada</label><select id="tmPeriodo"></select></div>
+          <div><label class="hlabel" id="tmPeriodoLbl">Cada</label><select id="tmPeriodo"></select></div>
         </div>
-        <div class="hscan-row">
+        <div class="hscan-row" id="tmContadorRow">
           <div><label class="hlabel">Van hechas <span class="hhint">editable</span></label>
             <input type="text" id="tmContador" inputmode="numeric" pattern="[0-9]*"></div>
         </div>
@@ -289,6 +296,12 @@
     </div>
     <label class="hlabel">Notas</label>
     <input type="text" id="tmNotas" autocomplete="off">
+    <label class="hlabel">Subtareas <span class="hhint">opcional</span></label>
+    <div id="tmSubtareasList" class="hsubtask-list"></div>
+    <div class="hsubtask-add">
+      <input type="text" id="tmSubtareaInput" placeholder="Agregar subtarea" autocomplete="off">
+      <button type="button" id="tmSubtareaAddBtn">+</button>
+    </div>
     <div class="hmodal-actions">
       <button type="button" id="tmDelete" class="hdanger">Borrar</button>
       <button type="button" id="tmCancel" class="hsecondary">Cancelar</button>
