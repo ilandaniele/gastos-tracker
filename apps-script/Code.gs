@@ -4834,7 +4834,8 @@ function _tasksRows(sheet) {
     if (!String(r[3] || '').trim()) continue;
     const dCreada = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
     const dFecha = r[4] ? (Object.prototype.toString.call(r[4]) === '[object Date]' ? r[4] : parseLocalDate(r[4])) : null;
-    const dCompletada = r[8] ? (Object.prototype.toString.call(r[8]) === '[object Date]' ? r[8] : parseLocalDate(r[8])) : null;
+    let completada = r[7] === true;
+    let dCompletada = r[8] ? (Object.prototype.toString.call(r[8]) === '[object Date]' ? r[8] : parseLocalDate(r[8])) : null;
     const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea';
 
     const recurrente = r[9] === true;
@@ -4852,7 +4853,12 @@ function _tasksRows(sheet) {
       if (vencido) {
         contador = 0;
         dUltimoReset = ahora;
-        resets.push({ row: TASKS_FIRST_ROW + i, contador: contador, ultimoReset: ahora });
+        // Si además la habías marcado como completada, se reactiva: si no,
+        // el contador volvería a 0 pero la tarjeta seguiría escondida en
+        // "Completadas" para siempre y nunca se vería el nuevo período.
+        const reactivar = completada;
+        if (reactivar) { completada = false; dCompletada = null; }
+        resets.push({ row: TASKS_FIRST_ROW + i, contador: contador, ultimoReset: ahora, reactivar: reactivar });
       }
     }
 
@@ -4877,7 +4883,7 @@ function _tasksRows(sheet) {
       hora: Object.prototype.toString.call(r[5]) === '[object Date]'
         ? Utilities.formatDate(r[5], 'America/Montevideo', 'HH:mm') : String(r[5] || '').trim(),
       notas: String(r[6] || '').trim(),
-      completada: r[7] === true,
+      completada: completada,
       fechaCompletada: dCompletada ? Utilities.formatDate(dCompletada, 'America/Montevideo', 'yyyy-MM-dd') : '',
       recurrente: recurrente, objetivo: objetivo, contador: contador, periodo: periodo,
       ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : '',
@@ -4888,6 +4894,10 @@ function _tasksRows(sheet) {
   resets.forEach(function(rs) {
     sheet.getRange(rs.row, 12).setValue(rs.contador);
     sheet.getRange(rs.row, 14).setValue(rs.ultimoReset).setNumberFormat('dd/MM/yyyy');
+    if (rs.reactivar) {
+      sheet.getRange(rs.row, 8).setValue(false);
+      sheet.getRange(rs.row, 9).setValue('');
+    }
   });
   return out;
 }
