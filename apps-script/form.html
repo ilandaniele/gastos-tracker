@@ -189,7 +189,10 @@
   <input type="text" id="tarTexto" placeholder="ej: Turno con el dentista" autocomplete="off">
 
   <label class="hlabel">Categoría</label>
-  <select id="tarCategoria"></select>
+  <div class="hsubcat-row">
+    <select id="tarCategoria"></select>
+    <button type="button" id="tarCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
+  </div>
 
   <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
   <div class="hsubcat-row">
@@ -281,7 +284,10 @@
     <label class="hlabel">Qué es</label>
     <input type="text" id="tmTexto" autocomplete="off">
     <label class="hlabel">Categoría</label>
-    <select id="tmCategoria"></select>
+    <div class="hsubcat-row">
+      <select id="tmCategoria"></select>
+      <button type="button" id="tmCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
+    </div>
     <label class="hlabel">Subcategoría <span class="hhint">opcional, la definís vos</span></label>
     <div class="hsubcat-row">
       <input type="text" id="tmSubcategoria" list="tmSubcatList" placeholder="ej: Proyecto A" autocomplete="off">
@@ -340,6 +346,22 @@
     <div id="subcatStatus"></div>
     <div class="hmodal-actions" style="grid-template-columns:1fr">
       <button type="button" id="subcatCerrarBtn" class="hsecondary">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL GESTIONAR CATEGORIAS -->
+<div id="catModal">
+  <div class="hmodal-box">
+    <h3>Categorías</h3>
+    <div class="hsubcat-add">
+      <input type="text" id="catNuevoInput" placeholder="Nueva categoría" autocomplete="off">
+      <button type="button" id="catAgregarBtn">Agregar</button>
+    </div>
+    <div id="catLista" class="hsubcat-list"></div>
+    <div id="catStatus"></div>
+    <div class="hmodal-actions" style="grid-template-columns:1fr">
+      <button type="button" id="catCerrarBtn" class="hsecondary">Cerrar</button>
     </div>
   </div>
 </div>

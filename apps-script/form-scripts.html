@@ -519,8 +519,10 @@
     var html = TAR.categorias.map(function(c) {
       return '<option value="' + esc(c) + '">' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</option>';
     }).join('');
-    if (tarEl('tarCategoria')) tarEl('tarCategoria').innerHTML = html;
-    if (tarEl('tmCategoria')) tarEl('tmCategoria').innerHTML = html;
+    // Mantiene seleccionada la que ya estaba elegida (importante después de
+    // agregar/renombrar/borrar una categoría desde el modal de gestión).
+    if (tarEl('tarCategoria')) { tarEl('tarCategoria').innerHTML = html; tarEl('tarCategoria').value = TAR.catNuevo; }
+    if (tarEl('tmCategoria')) { tarEl('tmCategoria').innerHTML = html; tarEl('tmCategoria').value = TAR.catModal; }
   }
   function tarPoblarPeriodos() {
     var html = TAR.periodos.map(function(p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
@@ -1191,6 +1193,116 @@
         subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
       .deleteTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, nombre: nombre });
+  }
+
+  // === CATEGORÍAS (gestión) ================================================
+  // Mismo modal para las dos: "Agregar" y el modal de editar comparten el
+  // mismo ⚙️ de gestión, porque la lista de categorías es una sola, global —
+  // a diferencia de subcategorías, que son por categoría.
+  function catStatus(txt, cls) {
+    var el = tarEl('catStatus');
+    if (!el) return;
+    el.className = cls || '';
+    el.textContent = txt || '';
+  }
+  function catPintarLista() {
+    var cont = tarEl('catLista');
+    if (!cont) return;
+    var lista = TAR.categorias || [];
+    if (!lista.length) { cont.innerHTML = '<div class="hsubcat-empty">No hay categorías</div>'; return; }
+    cont.innerHTML = lista.map(function(c) {
+      var puedeBorrar = _stripAccentsJs(c) !== 'otros';
+      return '<div class="hsubcat-item"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
+        '<button type="button" class="hsub-rn" data-catrn="' + esc(c) + '">✎</button>' +
+        (puedeBorrar ? '<button type="button" class="hsub-del" data-catdel="' + esc(c) + '">🗑</button>' : '') +
+        '</div>';
+    }).join('');
+    var rns = cont.querySelectorAll('[data-catrn]');
+    for (var i = 0; i < rns.length; i++) {
+      (function(el) { el.addEventListener('click', function() { catRenombrar(el.getAttribute('data-catrn')); }); })(rns[i]);
+    }
+    var dels = cont.querySelectorAll('[data-catdel]');
+    for (var j = 0; j < dels.length; j++) {
+      (function(el) { el.addEventListener('click', function() { catBorrar(el.getAttribute('data-catdel')); }); })(dels[j]);
+    }
+  }
+  // "Otros" no se puede borrar (ver deleteTaskCategory en el server) — acá
+  // alcanza con comparar sin tildes/mayúsculas, no hace falta _stripAccents
+  // del servidor.
+  function _stripAccentsJs(s) {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  }
+  function tarAbrirCatModal() {
+    catStatus('', '');
+    if (tarEl('catNuevoInput')) tarEl('catNuevoInput').value = '';
+    catPintarLista();
+    if (tarEl('catModal')) tarEl('catModal').classList.add('show');
+  }
+  function catCerrarModal() {
+    if (tarEl('catModal')) tarEl('catModal').classList.remove('show');
+  }
+  if (tarEl('tarCatGestionar')) tarEl('tarCatGestionar').addEventListener('click', tarAbrirCatModal);
+  if (tarEl('tmCatGestionar')) tarEl('tmCatGestionar').addEventListener('click', tarAbrirCatModal);
+  if (tarEl('catCerrarBtn')) tarEl('catCerrarBtn').addEventListener('click', catCerrarModal);
+  if (tarEl('catModal')) tarEl('catModal').addEventListener('click', function(ev) {
+    if (ev.target === tarEl('catModal')) catCerrarModal();
+  });
+  if (tarEl('catAgregarBtn')) tarEl('catAgregarBtn').addEventListener('click', function() {
+    var nombre = (tarEl('catNuevoInput') && tarEl('catNuevoInput').value.trim()) || '';
+    if (!nombre) { catStatus('Escribí un nombre', 'err'); return; }
+    catStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.categorias = r.categorias || [];
+        tarPoblarCategorias();
+        tarEl('catNuevoInput').value = '';
+        catStatus('', '');
+        catPintarLista();
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .addTaskCategorySafe({ nombre: nombre });
+  });
+  function catRenombrar(nombreActual) {
+    var nuevo = prompt('Nuevo nombre para "' + nombreActual + '"', nombreActual);
+    if (nuevo == null) return; // cancelado
+    nuevo = nuevo.trim();
+    if (!nuevo || nuevo === nombreActual) return;
+    catStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.categorias = r.categorias || [];
+        if (TAR.catNuevo === nombreActual) TAR.catNuevo = nuevo;
+        if (TAR.catModal === nombreActual) TAR.catModal = nuevo;
+        tarPoblarCategorias();
+        catStatus('✓ Renombrada', 'ok');
+        catPintarLista();
+        loadTareas(); // las tareas que ya la tenían cambiaron de nombre en el server
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .renameTaskCategorySafe({ antes: nombreActual, despues: nuevo });
+  }
+  function catBorrar(nombre) {
+    if (!confirm('¿Borrar la categoría "' + nombre + '"? Las tareas que ya la tienen pasan a "Otros".')) return;
+    catStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        TAR.categorias = r.categorias || [];
+        tarPoblarCategorias();
+        catStatus('✓ Borrada', 'ok');
+        catPintarLista();
+        loadTareas();
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .deleteTaskCategorySafe({ nombre: nombre });
   }
 
   // === COMPRAS ==============================================================

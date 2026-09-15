@@ -4355,9 +4355,13 @@ const TASKS_TAB = 'Tareas';
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
                        'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
-// Fijas (como CATEGORIES de gastos) en vez de texto libre: así la pizarra
-// tiene columnas estables en vez de una nueva por cada typo.
-const TASKS_CATEGORIAS = ['Salud', 'Trabajo', 'Personal', 'Hogar', 'Finanzas', 'Otros'];
+// Antes eran una lista fija en el código; ahora viven en Script Properties
+// (ver _tasksCategoriasGet) para poder agregar/renombrar/borrar desde la app.
+// Esta es solo la semilla: una instalación que nunca las tocó arranca con
+// las mismas de siempre.
+const TASKS_CATEGORIAS_DEFAULT = ['Salud', 'Trabajo', 'Personal', 'Hogar', 'Finanzas', 'Otros'];
+const TASKS_CATEGORIAS_PROP = 'TASKS_CATEGORIAS_V1';
+const TASKS_CATEGORIA_LEN_MAX = 24;
 // Cada cuánto se reinicia el contador de una tarea recurrente (Tarea) o cada
 // cuánto vuelve a caer una cita fija (Cita) — ver _citaProximaFecha.
 const TASKS_PERIODOS = ['Diario', 'Semanal', 'Mensual'];
@@ -4383,8 +4387,123 @@ function _tasksSubcatsGet() {
 function _tasksSubcatsSet(obj) {
   PropertiesService.getScriptProperties().setProperty(TASKS_SUBCATS_PROP, JSON.stringify(obj));
 }
+
+function _tasksCategoriasGet() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_CATEGORIAS_PROP);
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch (e) {}
+  return TASKS_CATEGORIAS_DEFAULT.slice();
+}
+function _tasksCategoriasSet(arr) {
+  PropertiesService.getScriptProperties().setProperty(TASKS_CATEGORIAS_PROP, JSON.stringify(arr));
+}
 function _tasksCategoriaValida(raw) {
-  return TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(String(raw || ''))) || null;
+  return _tasksCategoriasGet().find(c => _stripAccents(c) === _stripAccents(String(raw || ''))) || null;
+}
+
+// Agrega una categoría nueva a la lista.
+function addTaskCategory(p) {
+  const nombre = String((p && p.nombre) || '').trim();
+  if (!nombre) throw new Error('Falta el nombre de la categoría');
+  if (nombre.length > TASKS_CATEGORIA_LEN_MAX) throw new Error('Nombre demasiado largo (máx ' + TASKS_CATEGORIA_LEN_MAX + ' caracteres)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const lista = _tasksCategoriasGet();
+    if (lista.some(c => _stripAccents(c) === _stripAccents(nombre))) throw new Error('Ya existe esa categoría');
+    lista.push(nombre);
+    _tasksCategoriasSet(lista);
+    return { ok: true, categorias: lista };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Renombra una categoría: actualiza la lista, las tareas que ya la tenían
+// cargada, y muda sus subcategorías (ver TASKS_SUBCATS_PROP) al nuevo nombre
+// — si no, quedarían huérfanas bajo una clave que ya no existe.
+function renameTaskCategory(p) {
+  const antes = _tasksCategoriaValida(p && p.antes);
+  if (!antes) throw new Error('Esa categoría no existe');
+  const despues = String((p && p.despues) || '').trim();
+  if (!despues) throw new Error('Falta el nombre nuevo');
+  if (despues.length > TASKS_CATEGORIA_LEN_MAX) throw new Error('Nombre demasiado largo (máx ' + TASKS_CATEGORIA_LEN_MAX + ' caracteres)');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const lista = _tasksCategoriasGet();
+    const idx = lista.findIndex(c => _stripAccents(c) === _stripAccents(antes));
+    if (idx === -1) throw new Error('Esa categoría no existe');
+    if (lista.some((c, i) => i !== idx && _stripAccents(c) === _stripAccents(despues))) {
+      throw new Error('Ya existe una categoría con ese nombre');
+    }
+    lista[idx] = despues;
+    _tasksCategoriasSet(lista);
+
+    const subs = _tasksSubcatsGet();
+    if (subs[antes] !== undefined) {
+      subs[despues] = subs[antes];
+      delete subs[antes];
+      _tasksSubcatsSet(subs);
+    }
+
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cupo = _tasksCupo(sheet);
+    if (cupo) {
+      const rng = sheet.getRange(TASKS_FIRST_ROW, 1, cupo, TASKS_HEADERS.length);
+      const vals = rng.getValues();
+      let tocado = false;
+      for (let i = 0; i < vals.length; i++) {
+        if (!String(vals[i][3] || '').trim()) continue;
+        if (_stripAccents(String(vals[i][2] || '')) === _stripAccents(antes)) {
+          vals[i][2] = despues;
+          tocado = true;
+        }
+      }
+      if (tocado) rng.setValues(vals);
+    }
+    return { ok: true, categorias: lista };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Borra una categoría de la lista — nunca "Otros", que es el fallback
+// universal de todo lo que no matchee ninguna categoría válida (ver
+// _tasksCategoriaValida / _normTask / _tasksRows). Las tareas que ya la
+// tenían NO se tocan: en la próxima lectura caen solas en "Otros", igual que
+// cualquier categoría desconocida (ej. una borrada a mano en la hoja).
+function deleteTaskCategory(p) {
+  const nombre = _tasksCategoriaValida(p && p.nombre);
+  if (!nombre) throw new Error('Esa categoría no existe');
+  if (_stripAccents(nombre) === _stripAccents('Otros')) throw new Error('"Otros" no se puede borrar');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const lista = _tasksCategoriasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
+    _tasksCategoriasSet(lista);
+    const subs = _tasksSubcatsGet();
+    if (subs[nombre] !== undefined) { delete subs[nombre]; _tasksSubcatsSet(subs); }
+    return { ok: true, categorias: lista };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function addTaskCategorySafe(data) {
+  try { return addTaskCategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function renameTaskCategorySafe(data) {
+  try { return renameTaskCategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+function deleteTaskCategorySafe(data) {
+  try { return deleteTaskCategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
 }
 
 function getTaskSubcategories() {
@@ -4612,6 +4731,7 @@ function _tasksRows(sheet) {
   const vals = sheet.getRange(TASKS_FIRST_ROW, 1, cupo, TASKS_HEADERS.length).getValues();
   const out = [];
   const ahora = new Date();
+  const categorias = _tasksCategoriasGet(); // una sola lectura, no una por fila
   const resets = []; // filas a las que hay que pisarles Contador/Último reset
   for (let i = 0; i < vals.length; i++) {
     const r = vals[i];
@@ -4650,7 +4770,7 @@ function _tasksRows(sheet) {
       row: TASKS_FIRST_ROW + i,
       creada: dCreada ? Utilities.formatDate(dCreada, 'America/Montevideo', 'yyyy-MM-dd') : '',
       tipo: tipo,
-      categoria: TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(String(r[2] || ''))) || 'Otros',
+      categoria: categorias.find(c => _stripAccents(c) === _stripAccents(String(r[2] || ''))) || 'Otros',
       texto: String(r[3] || '').trim(),
       fecha: fecha,
       // "15:30" como texto puede quedar mal interpretado como hora-del-dia si
@@ -4686,7 +4806,7 @@ function _normTask(p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(tipoRaw)) || 'Tarea';
   const catRaw = String(p.categoria || '').trim();
-  const categoria = TASKS_CATEGORIAS.find(c => _stripAccents(c) === _stripAccents(catRaw)) || 'Otros';
+  const categoria = _tasksCategoriaValida(catRaw) || 'Otros';
   // Texto libre, definida por el usuario — no hay una lista fija como con
   // Categoría (ver TASKS_SUBCATS_PROP). Guardarla acá la registra sola en la
   // lista de sugerencias (ver addTaskEntry/updateTaskEntry).
@@ -4770,7 +4890,7 @@ function getTasksData() {
     const sheet = getOrCreateTasksTab(ss);
     const filas = _tasksRows(sheet);
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
-    return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: TASKS_CATEGORIAS,
+    return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
              periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
