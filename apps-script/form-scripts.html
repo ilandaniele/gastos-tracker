@@ -490,6 +490,25 @@
   document.getElementById('refreshDash').addEventListener('click', function(){ loadDashboard(); });
 
   // === TAREAS ===============================================================
+  // Qué columnas de la pizarra están compactadas, por categoría — guardado
+  // en localStorage (por dispositivo, no por usuario) para que una que
+  // cerraste siga cerrada la próxima vez que entrás. Si el storage no está
+  // disponible (modo privado, etc.) simplemente no se acuerda entre sesiones.
+  function tarCargarColapsadas() {
+    try {
+      var arr = JSON.parse(localStorage.getItem('pizarraColapsadas') || '[]');
+      var obj = {};
+      if (Array.isArray(arr)) arr.forEach(function(c) { obj[c] = true; });
+      return obj;
+    } catch (e) { return {}; }
+  }
+  function tarGuardarColapsadas() {
+    try {
+      var arr = Object.keys(TAR.pizarraColapsadas).filter(function(c) { return TAR.pizarraColapsadas[c]; });
+      localStorage.setItem('pizarraColapsadas', JSON.stringify(arr));
+    } catch (e) {}
+  }
+
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
@@ -497,7 +516,7 @@
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [], completadaModal: false,
-              filtroTipo: 'Todas', filtroHoy: false };
+              filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas() };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
   // el usuario al crear/renombrar, ver catModal), esto es solo el arranque.
@@ -832,6 +851,23 @@
         el.addEventListener('click', function() { tarAbrirModal(parseInt(el.getAttribute('data-open'), 10)); });
       })(opens[j]);
     }
+    // Compactar/expandir una columna de la pizarra — toca directo la clase
+    // en el DOM (no repinta todo) para que la transición de CSS se vea.
+    var colapsars = cont.querySelectorAll('[data-colapsar]');
+    for (var cl = 0; cl < colapsars.length; cl++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          var cat = el.getAttribute('data-colapsar');
+          var col = el.parentElement;
+          var wrap = col ? col.querySelector('.task-col-collapse') : null;
+          var nuevo = !TAR.pizarraColapsadas[cat];
+          TAR.pizarraColapsadas[cat] = nuevo;
+          tarGuardarColapsadas();
+          if (col) col.classList.toggle('colapsado', nuevo);
+          if (wrap) wrap.classList.toggle('colapsado', nuevo);
+        });
+      })(colapsars[cl]);
+    }
   }
 
   function tarBump(row) {
@@ -897,10 +933,17 @@
             return ak.localeCompare(bk);
           });
         if (!items.length) return '';
-        return '<div class="task-col ' + tarCatSlug(cat) + '">' +
-          '<div class="task-col-head"><span>' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
+        // Colapsada: se acuerda por categoría (ver TAR.pizarraColapsadas,
+        // guardado en localStorage) — así una que cerraste sigue cerrada la
+        // próxima vez que entrás, aunque se repinte todo el tablero.
+        var colapsado = !!TAR.pizarraColapsadas[cat];
+        return '<div class="task-col ' + tarCatSlug(cat) + (colapsado ? ' colapsado' : '') + '">' +
+          '<div class="task-col-head" data-colapsar="' + esc(cat) + '">' +
+            '<span><span class="task-col-chevron">▾</span> ' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
             '<span class="n">' + items.length + '</span></div>' +
-          tarColBodyHtml(items) +
+          '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
+            tarColBodyHtml(items) +
+          '</div></div>' +
         '</div>';
       }).join('');
       board.innerHTML = catsHtml || '<div class="task-empty">' +
