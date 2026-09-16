@@ -508,6 +508,23 @@
       localStorage.setItem('pizarraColapsadas', JSON.stringify(arr));
     } catch (e) {}
   }
+  // Mismo criterio para los sub-grupos (subcategoría) adentro de una
+  // columna — clave "categoria|subcategoria" para no mezclar subcategorías
+  // de mismo nombre en categorías distintas.
+  function tarCargarSubColapsadas() {
+    try {
+      var arr = JSON.parse(localStorage.getItem('pizarraSubColapsadas') || '[]');
+      var obj = {};
+      if (Array.isArray(arr)) arr.forEach(function(c) { obj[c] = true; });
+      return obj;
+    } catch (e) { return {}; }
+  }
+  function tarGuardarSubColapsadas() {
+    try {
+      var arr = Object.keys(TAR.pizarraSubColapsadas).filter(function(c) { return TAR.pizarraSubColapsadas[c]; });
+      localStorage.setItem('pizarraSubColapsadas', JSON.stringify(arr));
+    } catch (e) {}
+  }
 
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
@@ -516,7 +533,8 @@
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [], completadaModal: false,
-              filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas() };
+              filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas(),
+              pizarraSubColapsadas: tarCargarSubColapsadas() };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
   // el usuario al crear/renombrar, ver catModal), esto es solo el arranque.
@@ -786,14 +804,17 @@
         tarCounterHtml(t) +
         tarSubtareasHtml(t) +
       '</div>' +
+      '<span class="task-card-drag-grip" data-drag-row="' + t.row + '" title="Arrastrar para mover de categoría">⠿</span>' +
     '</div>';
   }
 
   // Sub-pizarra: si alguna pendiente de la categoría tiene subcategoría, la
   // columna se parte en grupos por subcategoría (orden: como van apareciendo,
   // "Sin subcategoría" siempre al final). Si ninguna tiene, se listan todas
-  // juntas como siempre — no se agrega un grupo por nada.
-  function tarColBodyHtml(items) {
+  // juntas como siempre — no se agrega un grupo por nada. Cada grupo se puede
+  // compactar/expandir igual que una columna entera (misma animación de
+  // grid-template-rows), y también se acuerda en localStorage.
+  function tarColBodyHtml(items, cat) {
     var conSub = items.some(function(t) { return t.subcategoria; });
     if (!conSub) return '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t); }).join('') + '</div>';
     var orden = [], grupos = {};
@@ -807,10 +828,15 @@
     orden.sort(function(a, b) { return (a ? 0 : 1) - (b ? 0 : 1); });
     return orden.map(function(key) {
       var esSinSub = !key;
-      return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + '">' +
-        '<div class="task-subgroup-head"><span>' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
+      var claveColapso = cat + '|' + key;
+      var colapsado = !!TAR.pizarraSubColapsadas[claveColapso];
+      return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + (colapsado ? ' colapsado' : '') + '">' +
+        '<div class="task-subgroup-head" data-colapsar-sub="' + esc(claveColapso) + '">' +
+          '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
           '<span class="n">' + grupos[key].length + '</span></div>' +
-        '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true); }).join('') + '</div>' +
+        '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
+          '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true); }).join('') + '</div>' +
+        '</div></div>' +
       '</div>';
     }).join('');
   }
@@ -868,6 +894,22 @@
         });
       })(colapsars[cl]);
     }
+    // Lo mismo, para un sub-grupo (subcategoría) adentro de una columna.
+    var colapsarsSub = cont.querySelectorAll('[data-colapsar-sub]');
+    for (var cs = 0; cs < colapsarsSub.length; cs++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          var clave = el.getAttribute('data-colapsar-sub');
+          var grupo = el.parentElement;
+          var wrap = grupo ? grupo.querySelector('.task-col-collapse') : null;
+          var nuevo = !TAR.pizarraSubColapsadas[clave];
+          TAR.pizarraSubColapsadas[clave] = nuevo;
+          tarGuardarSubColapsadas();
+          if (grupo) grupo.classList.toggle('colapsado', nuevo);
+          if (wrap) wrap.classList.toggle('colapsado', nuevo);
+        });
+      })(colapsarsSub[cs]);
+    }
   }
 
   function tarBump(row) {
@@ -911,14 +953,18 @@
     if (tarEl('tarHoyFecha')) tarEl('tarHoyFecha').textContent = hoy ? tarDiaCorto(hoy) : '';
 
     // Pizarra: una sección por categoría, pero solo las que tienen algo
-    // pendiente — una categoría vacía no aporta nada y solo agrega scroll.
-    // Adentro de cada una, vencidas primero para que no se pierdan de vista.
-    // El orden de las columnas es el de TAR.categorias — reordenable desde
-    // el modal de gestión (⚙️, ver catMover/moveTaskCategorySafe).
+    // (pendiente o completada) — una categoría vacía no aporta nada y solo
+    // agrega scroll. Una completada NO se saca de su columna: se queda en el
+    // lugar, al final, marcada con el rayón de tiza (ver tarCardHtml/CSS) —
+    // así no desaparece de golpe al tocarla. Adentro, pendientes primero
+    // (vencidas antes que nada para que no se pierdan de vista).
+    // El orden de las columnas es el de TAR.categorias — se puede arrastrar
+    // de la manija (ver el módulo de drag & drop más abajo) o, para
+    // reordenar de a una, desde el modal de gestión (⚙️).
     var board = tarEl('tarBoard');
     if (board) {
       var hayFiltro = TAR.filtroTipo !== 'Todas' || TAR.filtroHoy;
-      var filtradas = pendientes.filter(function(t) {
+      var filtradas = TAR.tareas.filter(function(t) {
         if (TAR.filtroTipo !== 'Todas' && t.tipo !== TAR.filtroTipo) return false;
         if (TAR.filtroHoy && t.fecha !== hoy) return false;
         return true;
@@ -926,6 +972,7 @@
       var catsHtml = TAR.categorias.map(function(cat) {
         var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
+            if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
             var av = !!(a.fecha && a.fecha < hoy), bv = !!(b.fecha && b.fecha < hoy);
             if (av !== bv) return av ? -1 : 1;
             var ak = a.fecha ? a.fecha + (a.hora || '') : '9999';
@@ -933,16 +980,18 @@
             return ak.localeCompare(bk);
           });
         if (!items.length) return '';
+        var pendEnCat = items.filter(function(t) { return !t.completada; }).length;
         // Colapsada: se acuerda por categoría (ver TAR.pizarraColapsadas,
         // guardado en localStorage) — así una que cerraste sigue cerrada la
         // próxima vez que entrás, aunque se repinte todo el tablero.
         var colapsado = !!TAR.pizarraColapsadas[cat];
-        return '<div class="task-col ' + tarCatSlug(cat) + (colapsado ? ' colapsado' : '') + '">' +
+        return '<div class="task-col ' + tarCatSlug(cat) + (colapsado ? ' colapsado' : '') + '" data-cat="' + esc(cat) + '">' +
           '<div class="task-col-head" data-colapsar="' + esc(cat) + '">' +
-            '<span><span class="task-col-chevron">▾</span> ' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
-            '<span class="n">' + items.length + '</span></div>' +
+            '<span><span class="task-col-drag-grip" data-drag-col="' + esc(cat) + '" title="Arrastrar para reordenar">⠿</span> ' +
+              '<span class="task-col-chevron">▾</span> ' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
+            '<span class="n">' + pendEnCat + '</span></div>' +
           '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
-            tarColBodyHtml(items) +
+            tarColBodyHtml(items, cat) +
           '</div></div>' +
         '</div>';
       }).join('');
@@ -962,6 +1011,170 @@
     tarWireRows(board);
     tarWireRows(tarEl('tarListDone'));
   }
+
+  // === PIZARRA: arrastrar y soltar =========================================
+  // HTML5 drag-and-drop nativo no anda con touch en iOS Safari, que es donde
+  // se usa esta app — así que todo esto es a mano con Pointer Events (mouse,
+  // touch y pen con la misma API). Dos manijas separadas, cada una con su
+  // propio gesto:
+  //   - "⠿" en la esquina de una tarjeta → arrastrarla a otra columna cambia
+  //     su categoría (moveTaskToCategorySafe).
+  //   - "⠿" en el encabezado de una columna → arrastrarla reordena las
+  //     columnas (reorderTaskCategoriesSafe).
+  // Un tap corto sin arrastre no dispara nada de esto — se distingue por un
+  // umbral de movimiento, así seguir tocando para tildar o abrir el modal
+  // sigue funcionando igual que siempre.
+  (function() {
+    var UMBRAL = 6; // px antes de considerar que es un arrastre y no un tap
+    var arr = null;
+
+    function limpiar() {
+      if (!arr) return;
+      if (arr.clon && arr.clon.parentNode) arr.clon.parentNode.removeChild(arr.clon);
+      var board = tarEl('tarBoard');
+      if (board) {
+        var over = board.querySelectorAll('.drag-over');
+        for (var i = 0; i < over.length; i++) over[i].classList.remove('drag-over');
+        var dragging = board.querySelectorAll('.dragging');
+        for (var j = 0; j < dragging.length; j++) dragging[j].classList.remove('dragging');
+      }
+      arr = null;
+    }
+
+    function clonarComoGhost(el, ev) {
+      var rect = el.getBoundingClientRect();
+      var clon = el.cloneNode(true);
+      clon.className += ' task-drag-ghost';
+      clon.style.width = rect.width + 'px';
+      clon.style.left = rect.left + 'px';
+      clon.style.top = rect.top + 'px';
+      clon.style.pointerEvents = 'none';
+      document.body.appendChild(clon);
+      return { clon: clon, offsetX: ev.clientX - rect.left, offsetY: ev.clientY - rect.top };
+    }
+
+    document.addEventListener('pointerdown', function(ev) {
+      if (ev.button != null && ev.button !== 0) return; // solo click izquierdo / touch / pen
+      var gripCard = ev.target.closest ? ev.target.closest('[data-drag-row]') : null;
+      var gripCol = ev.target.closest ? ev.target.closest('[data-drag-col]') : null;
+      if (gripCard) {
+        arr = { tipo: 'card', row: parseInt(gripCard.getAttribute('data-drag-row'), 10),
+                startX: ev.clientX, startY: ev.clientY, movido: false, grip: gripCard };
+      } else if (gripCol) {
+        arr = { tipo: 'col', cat: gripCol.getAttribute('data-drag-col'),
+                startX: ev.clientX, startY: ev.clientY, movido: false, grip: gripCol };
+      }
+    });
+
+    document.addEventListener('pointermove', function(ev) {
+      if (!arr) return;
+      var dx = ev.clientX - arr.startX, dy = ev.clientY - arr.startY;
+      if (!arr.movido) {
+        if (Math.abs(dx) < UMBRAL && Math.abs(dy) < UMBRAL) return; // todavía podría ser un tap
+        arr.movido = true;
+        // Recién ahora se arma el ghost — un tap que no se convierte en
+        // arrastre nunca crea ni mueve nada.
+        if (arr.tipo === 'card') {
+          var card = arr.grip.closest('.task-card');
+          if (!card) { arr = null; return; }
+          card.classList.add('dragging');
+          var g = clonarComoGhost(card, ev);
+          arr.card = card; arr.clon = g.clon; arr.offsetX = g.offsetX; arr.offsetY = g.offsetY;
+        } else {
+          var col = arr.grip.closest('.task-col');
+          if (!col) { arr = null; return; }
+          col.classList.add('dragging');
+          var g2 = clonarComoGhost(col, ev);
+          arr.col = col; arr.clon = g2.clon; arr.offsetX = g2.offsetX; arr.offsetY = g2.offsetY;
+        }
+      }
+      ev.preventDefault();
+      arr.clon.style.left = (ev.clientX - arr.offsetX) + 'px';
+      arr.clon.style.top = (ev.clientY - arr.offsetY) + 'px';
+      var debajo = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!debajo) return;
+      if (arr.tipo === 'card') {
+        var board = tarEl('tarBoard');
+        if (board) {
+          var over = board.querySelectorAll('.drag-over');
+          for (var i = 0; i < over.length; i++) over[i].classList.remove('drag-over');
+        }
+        var colDebajo = debajo.closest('.task-col');
+        if (colDebajo) colDebajo.classList.add('drag-over');
+        arr.colDestino = colDebajo;
+      } else {
+        var colDebajo2 = debajo.closest('.task-col');
+        if (colDebajo2 && colDebajo2 !== arr.col) {
+          var padre = arr.col.parentNode;
+          var rect2 = colDebajo2.getBoundingClientRect();
+          // En celular la pizarra es una lista vertical (una columna abajo
+          // de otra); en escritorio pasa a ser una fila que envuelve. Se
+          // mira cuál de las dos está activa para comparar contra el eje que
+          // corresponda — si no, en celular quedaría comparando X, que ahí
+          // no significa nada.
+          var esFila = getComputedStyle(padre).flexDirection.indexOf('row') === 0;
+          var antes = esFila
+            ? ev.clientX < rect2.left + rect2.width / 2
+            : ev.clientY < rect2.top + rect2.height / 2;
+          padre.insertBefore(arr.col, antes ? colDebajo2 : colDebajo2.nextSibling);
+        }
+      }
+    });
+
+    document.addEventListener('pointerup', function(ev) {
+      if (!arr) return;
+      var fueArrastre = arr.movido;
+      if (fueArrastre && arr.tipo === 'card') {
+        var t = TAR.tareas.find(function(x) { return x.row === arr.row; });
+        var catNueva = arr.colDestino ? arr.colDestino.getAttribute('data-cat') : null;
+        if (t && catNueva && t.categoria !== catNueva) {
+          var catAnterior = t.categoria;
+          t.categoria = catNueva; // optimista
+          tarPintar();
+          google.script.run
+            .withSuccessHandler(function(r) {
+              if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.categoria = catAnterior; tarPintar(); }
+            })
+            .withFailureHandler(function(err) {
+              tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+              t.categoria = catAnterior; tarPintar();
+            })
+            .moveTaskToCategorySafe({ row: arr.row, categoria: catNueva });
+        }
+      } else if (fueArrastre && arr.tipo === 'col') {
+        var board2 = tarEl('tarBoard');
+        var cols = board2 ? Array.prototype.slice.call(board2.querySelectorAll('.task-col')) : [];
+        var orden = cols.map(function(el) { return el.getAttribute('data-cat'); });
+        TAR.categorias = orden; // optimista: ya quedó así en el DOM
+        google.script.run
+          .withSuccessHandler(function(r) {
+            if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); loadTareas(); return; }
+            TAR.categorias = r.categorias || orden;
+            tarPoblarCategorias();
+          })
+          .withFailureHandler(function(err) {
+            tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+            loadTareas();
+          })
+          .reorderTaskCategoriesSafe({ orden: orden });
+      }
+      // Si sí hubo arrastre, el "click" que el navegador dispara después
+      // (con mouse, aunque se haya soltado sobre otro elemento) no tiene que
+      // abrir el modal de la tarjeta ni plegar/desplegar una columna. Se
+      // traga el próximo click de toda la página, venga de donde venga —
+      // pero con un plazo corto: en touch (donde el navegador ya suprime el
+      // click sintético solo) nunca llegaría ninguno, y si el listener se
+      // quedara esperando para siempre se comería el próximo tap real del
+      // usuario en cualquier otro lado.
+      if (fueArrastre) {
+        var tragarClick = function(ev2) { ev2.stopPropagation(); ev2.preventDefault(); };
+        document.addEventListener('click', tragarClick, { capture: true, once: true });
+        setTimeout(function() { document.removeEventListener('click', tragarClick, true); }, 400);
+      }
+      limpiar();
+    });
+    document.addEventListener('pointercancel', limpiar);
+  })();
 
   function tarToggle(row) {
     var t = TAR.tareas.find(function(x) { return x.row === row; });

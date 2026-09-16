@@ -4602,6 +4602,62 @@ function moveTaskCategorySafe(data) {
   catch (err) { return { ok: false, error: err.message }; }
 }
 
+// Reordena TODAS las categorías de una — arrastrar una columna en la
+// pizarra manda el orden entero en vez de subir/bajar de a una (ver
+// moveTaskCategory, que sigue existiendo para las flechas del modal).
+function reorderTaskCategories(p) {
+  const orden = Array.isArray(p && p.orden) ? p.orden.map(String) : null;
+  if (!orden || !orden.length) throw new Error('Falta el orden');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const actual = _tasksCategoriasGet();
+    // Tiene que ser la MISMA lista, solo reordenada — ni se pierde ni se
+    // inventa una categoría por un desfasaje del cliente.
+    const actualNorm = actual.map(c => _stripAccents(c)).sort();
+    const ordenNorm = orden.map(c => _stripAccents(c)).sort();
+    if (actualNorm.join('|') !== ordenNorm.join('|')) throw new Error('El orden no coincide con las categorías actuales');
+    // Se guarda con los nombres "oficiales" (los de la lista actual), no
+    // los que mande el cliente, por si difieren en mayúsculas o tildes.
+    const final = orden.map(c => actual.find(x => _stripAccents(x) === _stripAccents(c)));
+    _tasksCategoriasSet(final);
+    return { ok: true, categorias: final };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function reorderTaskCategoriesSafe(data) {
+  try { return reorderTaskCategories(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+// Mueve una tarea a otra categoría — drag & drop de la tarjeta en la
+// pizarra. Solo pisa esa celda: no pasa por _normTask/_tasksEscribirFila
+// porque no hace falta revalidar el resto de la fila para esto.
+function moveTaskToCategory(p) {
+  const row = parseInt(p && p.row, 10);
+  if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
+  const categoria = _tasksCategoriaValida(p && p.categoria);
+  if (!categoria) throw new Error('Categoría inválida');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
+    if (!String(cur[3] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
+    sheet.getRange(row, 3).setValue(categoria);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, tab: TASKS_TAB, row: row, categoria: categoria };
+}
+function moveTaskToCategorySafe(data) {
+  try { return moveTaskToCategory(data || {}); }
+  catch (err) { Logger.log('moveTaskToCategorySafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
 function getTaskSubcategories() {
   return _tasksSubcatsGet();
 }
