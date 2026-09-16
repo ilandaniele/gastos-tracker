@@ -435,7 +435,7 @@
     // respetan y no se pisan.
     if (panelId === 'argPanel') loadArg();
     if (panelId === 'ahoPanel') loadAhorros();
-    if (panelId === 'tareasPanel') { loadTareas(); loadCompras(); }
+    if (panelId === 'tareasPanel') loadTareasPanel();
     if (panelId === 'habitPanel') {
       if (!habitLoadedOnce) loadHabitToday();
       else if (!H.dirty) loadDay(H.date || todayISO());
@@ -507,6 +507,7 @@
       var arr = Object.keys(TAR.pizarraColapsadas).filter(function(c) { return TAR.pizarraColapsadas[c]; });
       localStorage.setItem('pizarraColapsadas', JSON.stringify(arr));
     } catch (e) {}
+    tarGuardarUiStateServidor();
   }
   // Mismo criterio para los sub-grupos (subcategoría) adentro de una
   // columna — clave "categoria|subcategoria" para no mezclar subcategorías
@@ -524,7 +525,83 @@
       var arr = Object.keys(TAR.pizarraSubColapsadas).filter(function(c) { return TAR.pizarraSubColapsadas[c]; });
       localStorage.setItem('pizarraSubColapsadas', JSON.stringify(arr));
     } catch (e) {}
+    tarGuardarUiStateServidor();
   }
+
+  // localStorage solo no alcanza para "sigue así la próxima vez que entrás":
+  // iOS Safari lo poda si no volvés a abrir la app en unos días, y cada nuevo
+  // deployment del webapp puede servir el contenido desde un origen distinto
+  // (el storage queda huérfano, atado al origen viejo). Por eso, además de
+  // escribir en localStorage (para el repintado instantáneo, sin esperar al
+  // server), este estado también se manda a guardar del lado del servidor
+  // (Script Properties) — ver _tasksUiStateGet/saveTasksUiState. Es
+  // "fire and forget": si falla, no pasa nada grave, es solo una preferencia
+  // de pantalla, no datos.
+  function tarGuardarUiStateServidor() {
+    try {
+      var colapsadas = Object.keys(TAR.pizarraColapsadas).filter(function(c) { return TAR.pizarraColapsadas[c]; });
+      var subColapsadas = Object.keys(TAR.pizarraSubColapsadas).filter(function(c) { return TAR.pizarraSubColapsadas[c]; });
+      var detallesAbiertos = {};
+      var dets = document.querySelectorAll('[data-persist-open]');
+      for (var i = 0; i < dets.length; i++) {
+        detallesAbiertos[dets[i].getAttribute('data-persist-open')] = !!dets[i].open;
+      }
+      google.script.run
+        .withFailureHandler(function() {})
+        .saveTasksUiStateSafe({ colapsadas: colapsadas, subColapsadas: subColapsadas, detallesAbiertos: detallesAbiertos });
+    } catch (e) {}
+  }
+
+  // Al cargar las tareas del server, si esta es la PRIMERA carga de la
+  // página, el estado guardado ahí (más confiable que el localStorage del
+  // navegador, ver arriba) pisa lo que ya se haya pintado con el respaldo
+  // local. Las cargas siguientes (después de agregar/editar/tocar un check)
+  // no lo vuelven a aplicar: para entonces lo que hay en pantalla es lo más
+  // reciente (ya se mandó a guardar al toque, ver tarGuardarUiStateServidor).
+  function tarAplicarUiState(uiState) {
+    if (TAR.uiStateAplicado || !uiState) return;
+    TAR.uiStateAplicado = true;
+    if (Array.isArray(uiState.colapsadas)) {
+      var obj = {};
+      uiState.colapsadas.forEach(function(c) { obj[c] = true; });
+      TAR.pizarraColapsadas = obj;
+      try { localStorage.setItem('pizarraColapsadas', JSON.stringify(uiState.colapsadas)); } catch (e) {}
+    }
+    if (Array.isArray(uiState.subColapsadas)) {
+      var obj2 = {};
+      uiState.subColapsadas.forEach(function(c) { obj2[c] = true; });
+      TAR.pizarraSubColapsadas = obj2;
+      try { localStorage.setItem('pizarraSubColapsadas', JSON.stringify(uiState.subColapsadas)); } catch (e) {}
+    }
+    var det = uiState.detallesAbiertos || {};
+    Object.keys(det).forEach(function(clave) {
+      var el = document.querySelector('[data-persist-open="' + clave + '"]');
+      if (el) el.open = !!det[clave];
+      try { localStorage.setItem('tarDetailsAbierto_' + clave, det[clave] ? '1' : '0'); } catch (e) {}
+    });
+  }
+
+  // Ventanas plegables de Tareas que son <details> nativos (Completadas,
+  // Comprado): abierto/cerrado también se acuerda (localStorage al toque +
+  // servidor, ver tarGuardarUiStateServidor), misma idea que las columnas de
+  // la pizarra — la abrís una vez y sigue abierta la próxima vez que entrás.
+  (function() {
+    var claves = document.querySelectorAll('[data-persist-open]');
+    for (var i = 0; i < claves.length; i++) {
+      (function(det) {
+        var clave = 'tarDetailsAbierto_' + det.getAttribute('data-persist-open');
+        try {
+          var guardado = localStorage.getItem(clave);
+          if (guardado === '1') det.open = true;
+          else if (guardado === '0') det.open = false;
+        } catch (e) {}
+        det.addEventListener('toggle', function() {
+          try { localStorage.setItem(clave, det.open ? '1' : '0'); } catch (e) {}
+          tarGuardarUiStateServidor();
+        });
+      })(claves[i]);
+    }
+  })();
 
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
@@ -533,8 +610,13 @@
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [], completadaModal: false,
+              impNuevo: 'Media', impModal: 'Media', uiStateAplicado: false,
               filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas(),
               pizarraSubColapsadas: tarCargarSubColapsadas() };
+  // Orden de importancia para el sorting de la pizarra (ver tarPintar) — más
+  // alto va primero. Una tarea vieja sin valor guardado llega como 'Media'
+  // (default que ya puso el server, ver TASKS_IMPORTANCIA_DEFAULT).
+  var TAR_IMPORTANCIA_RANGO = { 'Alta': 3, 'Media': 2, 'Baja': 1 };
   // Respaldo por si todavía no llegó la respuesta del server (primer paint) —
   // una vez que carga, manda lo que venga en TAR.categoriaEmojis (elegido por
   // el usuario al crear/renombrar, ver catModal), esto es solo el arranque.
@@ -690,6 +772,27 @@
     })(tmTipoBtns[tmi]);
   }
 
+  var tarImpBtns = document.querySelectorAll('.tarimp');
+  for (var ii = 0; ii < tarImpBtns.length; ii++) {
+    (function(b) {
+      b.addEventListener('click', function() {
+        for (var k = 0; k < tarImpBtns.length; k++) tarImpBtns[k].classList.remove('activo');
+        b.classList.add('activo');
+        TAR.impNuevo = b.getAttribute('data-imp');
+      });
+    })(tarImpBtns[ii]);
+  }
+  var tmImpBtns = document.querySelectorAll('.tmimp');
+  for (var im = 0; im < tmImpBtns.length; im++) {
+    (function(b) {
+      b.addEventListener('click', function() {
+        for (var k = 0; k < tmImpBtns.length; k++) tmImpBtns[k].classList.remove('activo');
+        b.classList.add('activo');
+        TAR.impModal = b.getAttribute('data-imp');
+      });
+    })(tmImpBtns[im]);
+  }
+
   if (tarEl('tarRecurBtn')) tarEl('tarRecurBtn').addEventListener('click', function() {
     TAR.recurNuevo = !TAR.recurNuevo;
     this.classList.toggle('activo', TAR.recurNuevo);
@@ -701,24 +804,29 @@
     if (tarEl('tmCampoObjetivo')) tarEl('tmCampoObjetivo').hidden = !TAR.recurModal;
   });
 
+  // Separado de loadTareas() para poder reusarlo desde loadTareasPanel(), que
+  // trae Tareas + Compras en una sola llamada al entrar a la pestaña (ver más
+  // abajo) — acá solo se aplica lo que ya llegó, sin disparar otro pedido.
+  function tarAplicarDatos(r) {
+    if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+    TAR.tareas = r.tareas || [];
+    TAR.categorias = r.categorias || [];
+    TAR.periodos = r.periodos || [];
+    TAR.subcategorias = r.subcategorias || {};
+    TAR.categoriaEmojis = r.categoriaEmojis || {};
+    TAR.hoy = r.hoy || '';
+    tarAplicarUiState(r.uiState);
+    tarPoblarCategorias();
+    tarPoblarPeriodos();
+    tarPoblarSubcatSelect(TAR.catNuevo, 'tarSubcategoria');
+    tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria');
+    tarStatus('', '');
+    tarPintar();
+  }
   function loadTareas() {
     tarStatus('Cargando...', 'loading');
     google.script.run
-      .withSuccessHandler(function(r) {
-        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        TAR.tareas = r.tareas || [];
-        TAR.categorias = r.categorias || [];
-        TAR.periodos = r.periodos || [];
-        TAR.subcategorias = r.subcategorias || {};
-        TAR.categoriaEmojis = r.categoriaEmojis || {};
-        TAR.hoy = r.hoy || '';
-        tarPoblarCategorias();
-        tarPoblarPeriodos();
-        tarPoblarSubcatSelect(TAR.catNuevo, 'tarSubcategoria');
-        tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria');
-        tarStatus('', '');
-        tarPintar();
-      })
+      .withSuccessHandler(tarAplicarDatos)
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
@@ -736,8 +844,13 @@
     tarPoblarSubcatSelect(TAR.catModal, 'tmSubcategoria', '');
   });
 
+  var TAR_IMP_EMOJI = { 'Alta': '🔴', 'Media': '🟡', 'Baja': '🟢' };
   function tarBadges(t, hideSubcat, hideSubtasks) {
     var out = '';
+    if (t.importancia && t.importancia !== 'Media') {
+      out += '<span class="task-badge imp-' + t.importancia.toLowerCase() + '">' +
+             TAR_IMP_EMOJI[t.importancia] + ' ' + esc(t.importancia) + '</span>';
+    }
     if (t.tipo === 'Cita') {
       out += '<span class="task-badge cita">📅 ' + (t.recurrente ? '🔁 ' : '') + esc(tarDiaCorto(t.fecha)) +
              (t.hora ? ' ' + esc(t.hora) : '') + '</span>';
@@ -830,10 +943,18 @@
       var esSinSub = !key;
       var claveColapso = cat + '|' + key;
       var colapsado = !!TAR.pizarraSubColapsadas[claveColapso];
+      // Un sub-grupo real (con subcategoría) que ya terminó del todo se queda
+      // igual en la pizarra, con todas sus tarjetas tachadas — sin esto no
+      // había forma de sacarlo de encima salvo borrar tarjeta por tarjeta.
+      var todasHechas = !esSinSub && grupos[key].every(function(t) { return t.completada; });
+      var borrarBtn = todasHechas
+        ? '<button type="button" class="task-subgroup-del" data-borrar-subgrupo="' + esc(cat) + '|' + esc(key) + '" ' +
+          'title="Ya terminaste todo acá — borrar estas tareas">🗑</button>'
+        : '';
       return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + (colapsado ? ' colapsado' : '') + '">' +
         '<div class="task-subgroup-head" data-colapsar-sub="' + esc(claveColapso) + '">' +
           '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
-          '<span class="n">' + grupos[key].length + '</span></div>' +
+          '<span class="n">' + grupos[key].length + '</span>' + borrarBtn + '</div>' +
         '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
           '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true); }).join('') + '</div>' +
         '</div></div>' +
@@ -910,6 +1031,30 @@
         });
       })(colapsarsSub[cs]);
     }
+    // Borrar un sub-grupo que ya terminó del todo (botón 🗑, solo aparece
+    // cuando todas sus tarjetas están completadas — ver tarColBodyHtml).
+    var borrarSubgrupos = cont.querySelectorAll('[data-borrar-subgrupo]');
+    for (var bs = 0; bs < borrarSubgrupos.length; bs++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation(); // que no dispare también el colapsar del encabezado
+          var partes = el.getAttribute('data-borrar-subgrupo').split('|');
+          var categoria = partes[0], subcategoria = partes.slice(1).join('|');
+          if (!confirm('¿Borrar las tareas completadas de "' + subcategoria + '"?')) return;
+          tarStatus('Borrando...', 'loading');
+          google.script.run
+            .withSuccessHandler(function(r) {
+              if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+              tarStatus('✓ Borradas', 'ok');
+              loadTareas();
+            })
+            .withFailureHandler(function(err) {
+              tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+            })
+            .deleteCompletedTasksInSubcategorySafe({ categoria: categoria, subcategoria: subcategoria });
+        });
+      })(borrarSubgrupos[bs]);
+    }
   }
 
   function tarBump(row) {
@@ -939,7 +1084,8 @@
     // Tarjeta "Hoy": citas de hoy (por hora) + tareas que vencen hoy
     var citasHoy = pendientes.filter(function(t) { return t.tipo === 'Cita' && t.fecha === hoy; })
       .sort(function(a, b) { return (a.hora || '99:99').localeCompare(b.hora || '99:99'); });
-    var tareasHoy = pendientes.filter(function(t) { return t.tipo === 'Tarea' && t.fecha === hoy; });
+    var tareasHoy = pendientes.filter(function(t) { return t.tipo === 'Tarea' && t.fecha === hoy; })
+      .sort(function(a, b) { return (TAR_IMPORTANCIA_RANGO[b.importancia] || 2) - (TAR_IMPORTANCIA_RANGO[a.importancia] || 2); });
     var hoyCard = tarEl('tarHoyCard'), hoyList = tarEl('tarHoyList');
     if (hoyList) {
       if (!citasHoy.length && !tareasHoy.length) {
@@ -973,6 +1119,10 @@
         var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
             if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
+            // Entre pendientes, primero la más importante; a igual importancia,
+            // vencidas antes que nada para que no se pierdan de vista.
+            var ai = TAR_IMPORTANCIA_RANGO[a.importancia] || 2, bi = TAR_IMPORTANCIA_RANGO[b.importancia] || 2;
+            if (ai !== bi) return bi - ai;
             var av = !!(a.fecha && a.fecha < hoy), bv = !!(b.fecha && b.fecha < hoy);
             if (av !== bv) return av ? -1 : 1;
             var ak = a.fecha ? a.fecha + (a.hora || '') : '9999';
@@ -1218,7 +1368,7 @@
     var payload = { tipo: TAR.tipoNuevo, categoria: TAR.catNuevo, texto: texto,
                     subcategoria: (tarEl('tarSubcategoria') && tarEl('tarSubcategoria').value.trim()) || '',
                     notas: (tarEl('tarNotas') && tarEl('tarNotas').value.trim()) || '',
-                    subtareas: TAR.subtareasNuevas };
+                    subtareas: TAR.subtareasNuevas, importancia: TAR.impNuevo };
     if (TAR.tipoNuevo === 'Cita') {
       payload.fecha = (tarEl('tarFechaCita') && tarEl('tarFechaCita').value) || '';
       payload.hora = (tarEl('tarHoraCita') && tarEl('tarHoraCita').value) || '';
@@ -1250,6 +1400,8 @@
         if (tarEl('tarObjetivo')) tarEl('tarObjetivo').value = '';
         TAR.subtareasNuevas = [];
         tarPintarSubtareasNuevas();
+        TAR.impNuevo = 'Media';
+        for (var ri = 0; ri < tarImpBtns.length; ri++) tarImpBtns[ri].classList.toggle('activo', tarImpBtns[ri].getAttribute('data-imp') === 'Media');
         tarStatus('✓ Agregado', 'ok');
         loadTareas();
       })
@@ -1315,6 +1467,10 @@
     TAR.subtareasModal = (t.subtareas || []).map(function(s) { return { t: s.t, d: s.d }; });
     if (tarEl('tmSubtareaInput')) tarEl('tmSubtareaInput').value = '';
     tarPintarSubtareasModal();
+    TAR.impModal = t.importancia || 'Media';
+    for (var ki = 0; ki < tmImpBtns.length; ki++) {
+      tmImpBtns[ki].classList.toggle('activo', tmImpBtns[ki].getAttribute('data-imp') === TAR.impModal);
+    }
     TAR.completadaModal = !!t.completada;
     tarPintarCompletadaBtn();
     if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
@@ -1349,7 +1505,7 @@
     var payload = { row: t.row, tipo: TAR.tipoModal, categoria: TAR.catModal, texto: texto,
                     subcategoria: (tarEl('tmSubcategoria') && tarEl('tmSubcategoria').value.trim()) || '',
                     notas: (tarEl('tmNotas') && tarEl('tmNotas').value.trim()) || '',
-                    subtareas: TAR.subtareasModal };
+                    subtareas: TAR.subtareasModal, importancia: TAR.impModal };
     if (TAR.tipoModal === 'Cita') {
       payload.fecha = (tarEl('tmFechaCita') && tarEl('tmFechaCita').value) || '';
       payload.hora = (tarEl('tmHoraCita') && tarEl('tmHoraCita').value) || '';
@@ -1720,19 +1876,44 @@
     }
     if (compEl('compDoneSummary')) compEl('compDoneSummary').textContent = '✓ Comprado (' + comprados.length + ')';
   }
+  // Separado igual que tarAplicarDatos, mismo motivo (ver loadTareasPanel).
+  function compAplicarDatos(r) {
+    if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+    COMP.items = r.items || [];
+    compStatus('', '');
+    compPintar();
+  }
   function loadCompras() {
     compStatus('Cargando...', 'loading');
     google.script.run
-      .withSuccessHandler(function(r) {
-        if (!r || !r.ok) { compStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        COMP.items = r.items || [];
-        compStatus('', '');
-        compPintar();
-      })
+      .withSuccessHandler(compAplicarDatos)
       .withFailureHandler(function(err) {
         compStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
       .getComprasSafe();
+  }
+  // Al entrar a la pestaña Tareas se necesitan Tareas + Compras juntas — antes
+  // eran dos google.script.run separadas, cada una abriendo el spreadsheet
+  // entero por su cuenta (ver getTareasPanelDataSafe en el server). Una sola
+  // llamada, un solo open: la pestaña tarda notoriamente menos en entrar.
+  function loadTareasPanel() {
+    tarStatus('Cargando...', 'loading');
+    compStatus('Cargando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) {
+          var msg = '✗ ' + ((r && r.error) || 'error');
+          tarStatus(msg, 'err'); compStatus(msg, 'err');
+          return;
+        }
+        tarAplicarDatos(r.tareas);
+        compAplicarDatos(r.compras);
+      })
+      .withFailureHandler(function(err) {
+        var msg = '✗ ' + (err && err.message ? err.message : err);
+        tarStatus(msg, 'err'); compStatus(msg, 'err');
+      })
+      .getTareasPanelDataSafe();
   }
   function compToggle(row) {
     var it = COMP.items.find(function(x) { return x.row === row; });

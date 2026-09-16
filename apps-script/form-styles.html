@@ -311,9 +311,14 @@
   #tarStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
   .task-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 2px; border-bottom: 1px solid #f0f0f0; }
   .task-row:last-child { border-bottom: none; }
+  /* margin-top negativo a propósito: el check es más alto que una línea de
+     texto (24-26px contra ~19-20px de line-height), así que con flex-start
+     puro quedaba visiblemente más abajo que el centro del texto — esto lo
+     sube lo justo para que quede centrado con la primera línea, tanto acá
+     como en .task-card (ver override de tamaño más abajo). */
   .task-check { width: 24px; height: 24px; flex: 0 0 24px; border-radius: 7px; border: 2px solid #cbd5e1;
                 background: white; display: flex; align-items: center; justify-content: center;
-                font-size: 15px; color: white; margin-top: 1px; cursor: pointer; }
+                font-size: 15px; color: white; margin-top: -2.5px; cursor: pointer; }
   .task-check.on { background: #0f766e; border-color: #0f766e; }
   .task-body { flex: 1; min-width: 0; cursor: pointer; }
   .task-text { font-size: 14px; line-height: 1.35; word-break: break-word; }
@@ -332,6 +337,8 @@
                        flex-basis: 100%; }
   .task-badge.cat { background: #f1f5f9; color: #475569; }
   .task-badge.subcat { background: #ede9fe; color: #5b21b6; }
+  .task-badge.imp-alta { background: #fef2f2; color: #b91c1c; }
+  .task-badge.imp-baja { background: #f0fdf4; color: #15803d; }
   .task-empty { font-size: 13px; color: #999; padding: 8px 2px; }
   #tarHoyCard.vacio { opacity: 0.7; }
   #tarDoneSummary { cursor: pointer; list-style: none; }
@@ -391,16 +398,23 @@
      completada se queda en su columna (ya no se saca de la pizarra) marcada
      con un garabato torcido, como si la hubieran tachado a mano en un
      pizarrón — no una línea recta y prolija. Dos trazos de un SVG inline,
-     apenas rotados y superpuestos, en vez de un único text-decoration. */
+     estirados (no repetidos en mosaico, que quedaba con pinta de patrón
+     mecánico/repetido) para que el garabato sea un solo trazo continuo de
+     punta a punta del texto, cualquiera sea su largo. */
   .task-card.done .task-text { text-decoration: none; color: #94a3b8; position: relative; display: inline-block; }
   .task-card.done .task-text::before,
   .task-card.done .task-text::after {
-    content: ''; position: absolute; left: -3%; right: -3%; top: 46%; height: 16px;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 20' preserveAspectRatio='none'><path d='M2 12 Q 18 4, 36 11 T 74 8 T 112 13 T 150 7 T 188 12 T 218 9' stroke='%2394a3b8' stroke-width='3.5' fill='none' stroke-linecap='round'/></svg>");
-    background-repeat: repeat-x; background-size: 110px 16px; pointer-events: none;
+    content: ''; position: absolute; left: -4%; right: -4%; top: 42%; height: 18px;
+    background-repeat: no-repeat; background-size: 100% 100%; pointer-events: none;
   }
-  .task-card.done .task-text::before { transform: rotate(-1.5deg); opacity: 0.9; }
-  .task-card.done .task-text::after { transform: rotate(1.5deg) translateY(2px); opacity: 0.6; }
+  .task-card.done .task-text::before {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 24' preserveAspectRatio='none'><path d='M3,14 C25,6 45,20 68,11 C95,3 130,21 160,12 C190,4 215,19 240,10 C258,5 275,14 297,11' stroke='%2394a3b8' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
+    transform: rotate(-0.8deg); opacity: 0.9;
+  }
+  .task-card.done .task-text::after {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 24' preserveAspectRatio='none'><path d='M2,16 C30,22 55,9 82,17 C115,23 145,7 175,18 C205,23 230,9 258,19 C272,22 285,15 298,17' stroke='%23cbd5e1' stroke-width='3' fill='none' stroke-linecap='round'/></svg>");
+    transform: rotate(0.6deg) translateY(1px); opacity: 0.7;
+  }
   /* Manija para arrastrar la tarjeta a otra columna — separada del check y
      del cuerpo (que abre el modal), así no compite con esos toques. */
   .task-card-drag-grip { position: absolute; top: 6px; right: 8px; color: #cbd5e1; font-size: 13px;
@@ -435,6 +449,12 @@
                         cursor: pointer; user-select: none; -webkit-user-select: none; }
   .task-subgroup-head .n { font-size: 10px; font-weight: 700; background: #ede9fe; color: #6d28d9;
                            padding: 1px 7px; border-radius: 999px; margin-left: auto; }
+  /* Solo aparece cuando el sub-grupo terminó del todo (ver tarColBodyHtml) —
+     por eso margin-left:0 en vez de auto, así queda pegado al badge de
+     cantidad en vez de empujarlo. */
+  .task-subgroup-del { margin: 0 0 0 6px; width: auto; padding: 2px 7px; font-size: 12px;
+                        background: #fef2f2; color: #b91c1c; border-radius: 999px; line-height: 1.4; }
+  .task-subgroup-del:active { background: #fee2e2; }
   .task-subgroup.sin .task-subgroup-head { color: #94a3b8; }
   .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #94a3b8; }
   .task-subgroup .task-col-body { gap: 9px; }

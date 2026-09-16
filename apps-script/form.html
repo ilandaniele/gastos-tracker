@@ -200,6 +200,13 @@
     <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
   </div>
 
+  <label class="hlabel">Importancia</label>
+  <div class="argtipos" id="tarImportancia">
+    <button type="button" class="tarimp" data-imp="Alta">🔴 Alta</button>
+    <button type="button" class="tarimp activo" data-imp="Media">🟡 Media</button>
+    <button type="button" class="tarimp" data-imp="Baja">🟢 Baja</button>
+  </div>
+
   <div id="tarCampoFechaCita" hidden>
     <div class="hscan-row">
       <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
@@ -255,7 +262,7 @@
 
 <!-- COMPLETADAS -->
 <div class="hcard">
-  <details>
+  <details id="tarDoneDetails" data-persist-open="tarCompletadas">
     <summary id="tarDoneSummary" class="hcard-title">✓ Completadas</summary>
     <div id="tarListDone" style="margin-top:8px"></div>
   </details>
@@ -271,7 +278,7 @@
     <button type="button" id="compAddBtn">+</button>
   </div>
   <div id="compList"></div>
-  <details>
+  <details id="compDoneDetails" data-persist-open="tarComprados">
     <summary id="compDoneSummary" class="hcard-title">✓ Comprado</summary>
     <div id="compListDone" style="margin-top:8px"></div>
     <button type="button" id="compVaciarBtn" class="hdanger" style="margin-top:10px">🗑 Vaciar comprados</button>
@@ -299,6 +306,12 @@
     <div class="hsubcat-row">
       <select id="tmSubcategoria"><option value="">Sin subcategoría</option></select>
       <button type="button" id="tmSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
+    </div>
+    <label class="hlabel">Importancia</label>
+    <div class="argtipos" id="tmImportancia">
+      <button type="button" class="tmimp" data-imp="Alta">🔴 Alta</button>
+      <button type="button" class="tmimp activo" data-imp="Media">🟡 Media</button>
+      <button type="button" class="tmimp" data-imp="Baja">🟢 Baja</button>
     </div>
     <div id="tmCampoFechaCita" hidden>
       <div class="hscan-row">

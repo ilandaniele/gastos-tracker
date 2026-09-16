@@ -4378,11 +4378,17 @@ function deleteArgentinaSafe(data) {
 // de fila como id y correr las filas de abajo lo rompería.
 
 const TASKS_TAB = 'Tareas';
-// Subcategoría y Subtareas van al final (columnas 15 y 16) en vez de al lado
-// de Categoría/Notas para no correr los índices de las columnas que ya existían.
+// Subcategoría, Subtareas e Importancia van al final (columnas 15 a 17) en vez
+// de al lado de Categoría/Notas para no correr los índices de las columnas
+// que ya existían.
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
-                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas'];
+                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas', 'Importancia'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
+// Para ordenar la pizarra por importancia (ver tarPintar en el cliente) — el
+// orden de esta lista importa: primero la más urgente. Una tarea sin valor
+// guardado (fila vieja, de antes de esta columna) cae en 'Media'.
+const TASKS_IMPORTANCIAS = ['Alta', 'Media', 'Baja'];
+const TASKS_IMPORTANCIA_DEFAULT = 'Media';
 // Antes eran una lista fija en el código; ahora viven en Script Properties
 // (ver _tasksCategoriasGet) para poder agregar/renombrar/borrar desde la app.
 // Esta es solo la semilla: una instalación que nunca las tocó arranca con
@@ -4405,27 +4411,44 @@ const TASKS_SUBTAREA_LEN_MAX = 80;
 // vacía (o renombrarla) antes/después de tener tareas en ella.
 const TASKS_SUBCATS_PROP = 'TASKS_SUBCATS_V1';
 
+// Traer TODAS las Script Properties de un saque (una sola llamada) y
+// reusarlas durante el resto de esta ejecución, en vez de un getProperty()
+// por cada clave (categorías, subcategorías, emojis...) — cada llamada a
+// PropertiesService es un viaje aparte, y getTasksData() las pedía 4 veces
+// por carga. Esta cache vive solo mientras dura la ejecución actual (cada
+// invocación de Apps Script arranca con las variables de módulo en null), no
+// hay riesgo de servir un valor viejo a otra request.
+var _SCRIPT_PROPS_CACHE = null;
+function _scriptProps() {
+  if (!_SCRIPT_PROPS_CACHE) _SCRIPT_PROPS_CACHE = PropertiesService.getScriptProperties().getProperties();
+  return _SCRIPT_PROPS_CACHE;
+}
+function _scriptPropSet(key, value) {
+  PropertiesService.getScriptProperties().setProperty(key, value);
+  _scriptProps()[key] = value; // mantiene la cache al día si se vuelve a leer en la misma ejecución
+}
+
 function _tasksSubcatsGet() {
   try {
-    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_SUBCATS_PROP);
+    const raw = _scriptProps()[TASKS_SUBCATS_PROP];
     const obj = raw ? JSON.parse(raw) : {};
     return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
   } catch (e) { return {}; }
 }
 function _tasksSubcatsSet(obj) {
-  PropertiesService.getScriptProperties().setProperty(TASKS_SUBCATS_PROP, JSON.stringify(obj));
+  _scriptPropSet(TASKS_SUBCATS_PROP, JSON.stringify(obj));
 }
 
 function _tasksCategoriasGet() {
   try {
-    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_CATEGORIAS_PROP);
+    const raw = _scriptProps()[TASKS_CATEGORIAS_PROP];
     const arr = raw ? JSON.parse(raw) : null;
     if (Array.isArray(arr) && arr.length) return arr;
   } catch (e) {}
   return TASKS_CATEGORIAS_DEFAULT.slice();
 }
 function _tasksCategoriasSet(arr) {
-  PropertiesService.getScriptProperties().setProperty(TASKS_CATEGORIAS_PROP, JSON.stringify(arr));
+  _scriptPropSet(TASKS_CATEGORIAS_PROP, JSON.stringify(arr));
 }
 function _tasksCategoriaValida(raw) {
   return _tasksCategoriasGet().find(c => _stripAccents(c) === _stripAccents(String(raw || ''))) || null;
@@ -4443,14 +4466,52 @@ const TASKS_CAT_EMOJI_LEN_MAX = 8; // un emoji compuesto (piel, ZWJ) puede ser v
 function _tasksCatEmojisGet() {
   let obj = {};
   try {
-    const raw = PropertiesService.getScriptProperties().getProperty(TASKS_CAT_EMOJIS_PROP);
+    const raw = _scriptProps()[TASKS_CAT_EMOJIS_PROP];
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
   } catch (e) {}
   return Object.assign({}, TASKS_CAT_EMOJIS_DEFAULT, obj);
 }
 function _tasksCatEmojisSet(obj) {
-  PropertiesService.getScriptProperties().setProperty(TASKS_CAT_EMOJIS_PROP, JSON.stringify(obj));
+  _scriptPropSet(TASKS_CAT_EMOJIS_PROP, JSON.stringify(obj));
+}
+
+// Qué columnas/sub-grupos de la pizarra y qué desplegables (Completadas,
+// Comprado) están cerrados — antes solo vivía en localStorage del navegador,
+// "por dispositivo". Un browser puede perder ese localStorage sin aviso (iOS
+// Safari lo poda si no volvés a entrar en unos días, y cada nuevo deployment
+// del webapp sirve el contenido desde un origen distinto, así que el storage
+// viejo queda huérfano) — quedaba la sensación de que "no se acuerda nada".
+// Ahora también se guarda acá (Script Properties) como respaldo: el cliente
+// sigue escribiendo en localStorage para el repintado instantáneo, pero al
+// cargar usa esto si el navegador perdió lo suyo.
+const TASKS_UI_STATE_PROP = 'TASKS_UI_STATE_V1';
+function _tasksUiStateGet() {
+  try {
+    const raw = _scriptProps()[TASKS_UI_STATE_PROP];
+    const obj = raw ? JSON.parse(raw) : null;
+    if (obj && typeof obj === 'object') {
+      return {
+        colapsadas: Array.isArray(obj.colapsadas) ? obj.colapsadas.map(String) : [],
+        subColapsadas: Array.isArray(obj.subColapsadas) ? obj.subColapsadas.map(String) : [],
+        detallesAbiertos: (obj.detallesAbiertos && typeof obj.detallesAbiertos === 'object') ? obj.detallesAbiertos : {}
+      };
+    }
+  } catch (e) {}
+  return { colapsadas: [], subColapsadas: [], detallesAbiertos: {} };
+}
+function saveTasksUiState(p) {
+  const estado = {
+    colapsadas: Array.isArray(p && p.colapsadas) ? p.colapsadas.map(String).slice(0, 60) : [],
+    subColapsadas: Array.isArray(p && p.subColapsadas) ? p.subColapsadas.map(String).slice(0, 120) : [],
+    detallesAbiertos: (p && p.detallesAbiertos && typeof p.detallesAbiertos === 'object') ? p.detallesAbiertos : {}
+  };
+  _scriptPropSet(TASKS_UI_STATE_PROP, JSON.stringify(estado));
+  return { ok: true };
+}
+function saveTasksUiStateSafe(p) {
+  try { return saveTasksUiState(p || {}); }
+  catch (err) { Logger.log('saveTasksUiStateSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 // Agrega una categoría nueva a la lista, con el emoji que haya elegido (si
@@ -4914,7 +4975,12 @@ function _tasksRows(sheet) {
         // "Completadas" para siempre y nunca se vería el nuevo período.
         const reactivar = completada;
         if (reactivar) { completada = false; dCompletada = null; }
-        resets.push({ row: TASKS_FIRST_ROW + i, contador: contador, ultimoReset: ahora, reactivar: reactivar });
+        // Guarda también lo que NO cambia (Recurrente/Objetivo/Periodo) para
+        // poder pisar las 7 columnas de un solo tiro más abajo (una llamada a
+        // la API de Sheets por fila en vez de hasta 4) — ver el forEach.
+        resets.push({ row: TASKS_FIRST_ROW + i, contador: contador, ultimoReset: ahora, reactivar: reactivar,
+                      completadaPrev: r[7], fechaCompletadaPrev: r[8],
+                      recurrentePrev: r[9], objetivoPrev: r[10], periodoPrev: r[12] });
       }
     }
 
@@ -4944,17 +5010,23 @@ function _tasksRows(sheet) {
       recurrente: recurrente, objetivo: objetivo, contador: contador, periodo: periodo,
       ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : '',
       subcategoria: String(r[14] || '').trim(),
-      subtareas: _tasksParseSubtareas(r[15])
+      subtareas: _tasksParseSubtareas(r[15]),
+      importancia: TASKS_IMPORTANCIAS.find(i => _stripAccents(i) === _stripAccents(String(r[16] || ''))) || TASKS_IMPORTANCIA_DEFAULT
     });
   }
-  resets.forEach(function(rs) {
-    sheet.getRange(rs.row, 12).setValue(rs.contador);
-    sheet.getRange(rs.row, 14).setValue(rs.ultimoReset).setNumberFormat('dd/MM/yyyy');
-    if (rs.reactivar) {
-      sheet.getRange(rs.row, 8).setValue(false);
-      sheet.getRange(rs.row, 9).setValue('');
-    }
-  });
+  // Una sola llamada a Sheets por fila (columnas 8 a 14 juntas) en vez de
+  // hasta 4 separadas — con varias recurrentes venciendo a la vez (típico al
+  // abrir la app por primera vez en el día) esto era la causa real de la
+  // demora al entrar a Tareas: cada getRange/setValue es un viaje de ida y
+  // vuelta propio, no una operación local.
+  if (resets.length) {
+    resets.forEach(function(rs) {
+      sheet.getRange(rs.row, 8, 1, 7).setValues([[
+        rs.reactivar ? false : rs.completadaPrev, rs.reactivar ? '' : rs.fechaCompletadaPrev,
+        rs.recurrentePrev, rs.objetivoPrev, rs.contador, rs.periodoPrev, rs.ultimoReset
+      ]]);
+    });
+  }
   return out;
 }
 
@@ -5012,10 +5084,13 @@ function _normTask(p) {
       .slice(0, TASKS_SUBTAREAS_MAX);
   }
 
+  const importanciaRaw = String(p.importancia || '').trim();
+  const importancia = TASKS_IMPORTANCIAS.find(i => _stripAccents(i) === _stripAccents(importanciaRaw)) || TASKS_IMPORTANCIA_DEFAULT;
+
   return {
     tipo: tipo, categoria: categoria, subcategoria: subcategoria, texto: texto, fecha: fechaRaw || '', hora: hora,
     notas: String(p.notas || '').trim(), recurrente: recurrente, objetivo: objetivo,
-    periodo: periodo, contador: contador, subtareas: subtareas
+    periodo: periodo, contador: contador, subtareas: subtareas, importancia: importancia
   };
 }
 
@@ -5038,7 +5113,7 @@ function _tasksEscribirFila(sheet, row, e, opts) {
     opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : '',
     e.recurrente, e.recurrente ? e.objetivo : '', e.recurrente ? contador : '',
     e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || '',
-    JSON.stringify(e.subtareas || [])
+    JSON.stringify(e.subtareas || []), e.importancia || TASKS_IMPORTANCIA_DEFAULT
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, 14).setNumberFormat('dd/MM/yyyy');
@@ -5046,15 +5121,19 @@ function _tasksEscribirFila(sheet, row, e, opts) {
   sheet.getRange(row, 9).setNumberFormat('dd/MM/yyyy');
 }
 
-function getTasksData() {
+// ssOpt: de dónde viene el spreadsheet ya abierto (ver getTareasPanelDataSafe,
+// que junta Tareas + Compras en una sola llamada para no pagar dos veces el
+// costo de abrir el archivo entero) — sin eso, se abre acá como siempre.
+function getTasksData(ssOpt) {
   try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const ss = ssOpt || SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const filas = _tasksRows(sheet);
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
              periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories(),
-             categoriaEmojis: _tasksCatEmojisGet() };
+             categoriaEmojis: _tasksCatEmojisGet(), importancias: TASKS_IMPORTANCIAS,
+             uiState: _tasksUiStateGet() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
     return { ok: false, error: err.message };
@@ -5151,6 +5230,49 @@ function deleteTaskEntry(p) {
     lock.releaseLock();
   }
   return { ok: true, tab: TASKS_TAB, deleted: borrado };
+}
+
+// Borra de un saque las tareas ya COMPLETADAS de una categoría+subcategoría
+// puntual — el botón 🗑 del sub-grupo de la pizarra que ya terminó del todo
+// (ver tarColBodyHtml en el cliente). Como una completada se queda en la
+// pizarra tachada en vez de desaparecer sola, sin esto un sub-grupo terminado
+// quedaba juntando polvo para siempre. Por seguridad solo toca filas
+// COMPLETADAS de esa categoria+subcategoria exacta: si mientras tanto
+// agregaste una pendiente nueva ahí, esa no se borra.
+function deleteCompletedTasksInSubcategory(p) {
+  const categoria = String((p && p.categoria) || '').trim();
+  const subcategoria = String((p && p.subcategoria) || '').trim();
+  if (!categoria || !subcategoria) throw new Error('Falta categoría o subcategoría');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let borradas = 0;
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    const cupo = _tasksCupo(sheet);
+    if (cupo) {
+      const rng = sheet.getRange(TASKS_FIRST_ROW, 1, cupo, TASKS_HEADERS.length);
+      const vals = rng.getValues();
+      for (let i = 0; i < vals.length; i++) {
+        const r = vals[i];
+        if (!String(r[3] || '').trim()) continue;
+        if (r[7] !== true) continue; // solo completadas
+        if (_stripAccents(String(r[2] || '')) !== _stripAccents(categoria)) continue;
+        if (_stripAccents(String(r[14] || '')) !== _stripAccents(subcategoria)) continue;
+        vals[i] = new Array(TASKS_HEADERS.length).fill('');
+        borradas++;
+      }
+      if (borradas) rng.setValues(vals);
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, borradas: borradas };
+}
+function deleteCompletedTasksInSubcategorySafe(data) {
+  try { return deleteCompletedTasksInSubcategory(data || {}); }
+  catch (err) { Logger.log('deleteCompletedTasksInSubcategorySafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 // Suma (o resta, con delta negativo) al contador de una tarea recurrente —
@@ -5396,13 +5518,27 @@ function _comprasRows(sheet) {
   return out;
 }
 
-function getComprasData() {
+function getComprasData(ssOpt) {
   try {
-    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const ss = ssOpt || SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateComprasTab(ss);
     return { ok: true, tab: COMPRAS_TAB, items: _comprasRows(sheet) };
   } catch (err) {
     Logger.log('getComprasData: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// La pestaña Tareas abre "Tareas" + "Compras" juntas (ver loadTareas en el
+// cliente) — antes eran dos google.script.run separadas y cada una abría el
+// spreadsheet entero por su cuenta (SpreadsheetApp.openById de un archivo con
+// varias hojas grandes no es gratis). Una sola llamada, un solo open.
+function getTareasPanelDataSafe() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    return { ok: true, tareas: getTasksData(ss), compras: getComprasData(ss) };
+  } catch (err) {
+    Logger.log('getTareasPanelDataSafe: ' + err.message);
     return { ok: false, error: err.message };
   }
 }
