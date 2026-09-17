@@ -394,26 +394,23 @@
   .task-card .task-check { width: 26px; height: 26px; flex: 0 0 26px; }
   .task-card.dragging { opacity: 0.35; }
   .task-card.done { opacity: 0.85; }
-  /* "Rayón de tiza" en vez del line-through de siempre: una tarjeta
+  /* Tachado "fibrón" en vez del garabato de tiza de antes: una tarjeta
      completada se queda en su columna (ya no se saca de la pizarra) marcada
-     con un garabato torcido, como si la hubieran tachado a mano en un
-     pizarrón — no una línea recta y prolija. Dos trazos de un SVG inline,
-     estirados (no repetidos en mosaico, que quedaba con pinta de patrón
-     mecánico/repetido) para que el garabato sea un solo trazo continuo de
-     punta a punta del texto, cualquiera sea su largo. */
-  .task-card.done .task-text { text-decoration: none; color: #94a3b8; position: relative; display: inline-block; }
-  .task-card.done .task-text::before,
-  .task-card.done .task-text::after {
-    content: ''; position: absolute; left: -4%; right: -4%; top: 42%; height: 18px;
-    background-repeat: no-repeat; background-size: 100% 100%; pointer-events: none;
-  }
-  .task-card.done .task-text::before {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 24' preserveAspectRatio='none'><path d='M3,14 C25,6 45,20 68,11 C95,3 130,21 160,12 C190,4 215,19 240,10 C258,5 275,14 297,11' stroke='%2394a3b8' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
-    transform: rotate(-0.8deg); opacity: 0.9;
+     con un solo trazo derecho y grueso, como pasado con un marcador de
+     verdad sobre el texto — los extremos se desvanecen (no cortan en seco)
+     porque un fibrón real apoya y levanta la punta con la presión pareja
+     recién en el medio del trazo. El texto en sí también se escribe con
+     una tipografía de marcador (Permanent Marker, cargada en form.html)
+     para que la tarjeta completa, no solo la línea, lea como "escrito a
+     mano con fibrón". */
+  .task-card.done .task-text {
+    text-decoration: none; color: #475569; position: relative; display: inline-block;
+    font-family: 'Permanent Marker', cursive; font-size: 0.94em; line-height: 1.4; letter-spacing: 0.2px;
   }
   .task-card.done .task-text::after {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 24' preserveAspectRatio='none'><path d='M2,16 C30,22 55,9 82,17 C115,23 145,7 175,18 C205,23 230,9 258,19 C272,22 285,15 298,17' stroke='%23cbd5e1' stroke-width='3' fill='none' stroke-linecap='round'/></svg>");
-    transform: rotate(0.6deg) translateY(1px); opacity: 0.7;
+    content: ''; position: absolute; left: -3%; right: -3%; top: 48%; height: 7px;
+    transform: translateY(-50%); border-radius: 5px; pointer-events: none;
+    background: linear-gradient(90deg, rgba(71,85,105,0) 0%, rgba(71,85,105,.88) 6%, rgba(71,85,105,.88) 94%, rgba(71,85,105,0) 100%);
   }
   /* Manija para arrastrar la tarjeta a otra columna — separada del check y
      del cuerpo (que abre el modal), así no compite con esos toques. */

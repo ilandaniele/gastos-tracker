@@ -1403,6 +1403,7 @@
         TAR.impNuevo = 'Media';
         for (var ri = 0; ri < tarImpBtns.length; ri++) tarImpBtns[ri].classList.toggle('activo', tarImpBtns[ri].getAttribute('data-imp') === 'Media');
         tarStatus('✓ Agregado', 'ok');
+        tarMoverCategoriaPorImportancia(payload.categoria, payload.importancia);
         loadTareas();
       })
       .withFailureHandler(function(err) {
@@ -1410,6 +1411,16 @@
       })
       .addTaskSafe(payload);
   });
+
+  // Una tarea "Alta" empuja su columna un lugar hacia arriba en la pizarra;
+  // una "Baja" la empuja un lugar hacia abajo — así la categoría con más
+  // urgencia tiende a quedar arriba de todo con el uso. Reutiliza catMover
+  // (mismo endpoint que las flechas del modal de gestión de categorías).
+  function tarMoverCategoriaPorImportancia(categoria, importancia) {
+    if (!categoria) return;
+    if (importancia === 'Alta') catMover(categoria, 'up');
+    else if (importancia === 'Baja') catMover(categoria, 'down');
+  }
 
   if (tarEl('tarRefresh')) tarEl('tarRefresh').addEventListener('click', loadTareas);
 
@@ -1528,9 +1539,14 @@
     // pizarra) — updateTaskEntry no toca esa columna.
     var completadaCambio = TAR.completadaModal !== !!t.completada;
     var completadaNueva = TAR.completadaModal;
+    // Solo empuja la columna si la importancia CAMBIÓ en esta edición — si
+    // no, guardar de nuevo una tarea que ya era "Alta" la seguiría subiendo
+    // cada vez, que no es lo que se espera (ver tarMoverCategoriaPorImportancia).
+    var importanciaCambio = payload.importancia !== (t.importancia || 'Media');
     google.script.run
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        if (importanciaCambio) tarMoverCategoriaPorImportancia(payload.categoria, payload.importancia);
         if (!completadaCambio) {
           tarCerrarModal();
           tarStatus('✓ Actualizado', 'ok');
@@ -1862,11 +1878,15 @@
     }
   }
   function compPintar() {
-    var pend = COMP.items.filter(function(i) { return !i.comprado; });
+    // Un ítem marcado como comprado se queda en su lugar en la lista (solo
+    // se tacha) en vez de saltar de golpe a "Comprado" — igual criterio que
+    // las tareas completadas en la pizarra (ver tarPintar). Los pendientes
+    // primero, los comprados al final, sin reordenar dentro de cada grupo.
     var comprados = COMP.items.filter(function(i) { return i.comprado; });
+    var todos = COMP.items.slice().sort(function(a, b) { return (a.comprado ? 1 : 0) - (b.comprado ? 1 : 0); });
     var list = compEl('compList');
     if (list) {
-      list.innerHTML = pend.length ? pend.map(compRowHtml).join('') : '<div class="task-empty">Lista vacía 🎉</div>';
+      list.innerHTML = todos.length ? todos.map(compRowHtml).join('') : '<div class="task-empty">Lista vacía 🎉</div>';
       compWire(list);
     }
     var listDone = compEl('compListDone');
