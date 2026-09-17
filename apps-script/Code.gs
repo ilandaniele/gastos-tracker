@@ -4476,6 +4476,23 @@ function _tasksCatEmojisSet(obj) {
   _scriptPropSet(TASKS_CAT_EMOJIS_PROP, JSON.stringify(obj));
 }
 
+// Categorías marcadas como "proyecto completado": no desaparecen (las tareas
+// que tengan adentro siguen ahí), pero la columna se tacha y pasa al final de
+// la pizarra — mismo criterio que una tarea o un ítem de compras completado
+// (ver tarPintar/compPintar en el cliente: se queda en su lugar, no salta).
+const TASKS_CAT_COMPLETADAS_PROP = 'TASKS_CAT_COMPLETADAS_V1';
+function _tasksCatCompletadasGet() {
+  try {
+    const raw = _scriptProps()[TASKS_CAT_COMPLETADAS_PROP];
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr)) return arr.map(String);
+  } catch (e) {}
+  return [];
+}
+function _tasksCatCompletadasSet(arr) {
+  _scriptPropSet(TASKS_CAT_COMPLETADAS_PROP, JSON.stringify(arr));
+}
+
 // Qué columnas/sub-grupos de la pizarra y qué desplegables (Completadas,
 // Comprado) están cerrados — antes solo vivía en localStorage del navegador,
 // "por dispositivo". Un browser puede perder ese localStorage sin aviso (iOS
@@ -4532,7 +4549,7 @@ function addTaskCategory(p) {
     const emojis = _tasksCatEmojisGet();
     emojis[nombre] = emoji;
     _tasksCatEmojisSet(emojis);
-    return { ok: true, categorias: lista, categoriaEmojis: emojis };
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: _tasksCatCompletadasGet() };
   } finally {
     lock.releaseLock();
   }
@@ -4574,6 +4591,10 @@ function renameTaskCategory(p) {
       _tasksSubcatsSet(subs);
     }
 
+    const completadas = _tasksCatCompletadasGet();
+    const idxComp = completadas.findIndex(c => _stripAccents(c) === _stripAccents(antes));
+    if (idxComp !== -1) { completadas[idxComp] = despues; _tasksCatCompletadasSet(completadas); }
+
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cupo = _tasksCupo(sheet);
@@ -4590,7 +4611,7 @@ function renameTaskCategory(p) {
       }
       if (tocado) rng.setValues(vals);
     }
-    return { ok: true, categorias: lista, categoriaEmojis: emojis };
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas };
   } finally {
     lock.releaseLock();
   }
@@ -4614,7 +4635,9 @@ function deleteTaskCategory(p) {
     if (subs[nombre] !== undefined) { delete subs[nombre]; _tasksSubcatsSet(subs); }
     const emojis = _tasksCatEmojisGet();
     if (emojis[nombre] !== undefined) { delete emojis[nombre]; _tasksCatEmojisSet(emojis); }
-    return { ok: true, categorias: lista, categoriaEmojis: emojis };
+    const completadas = _tasksCatCompletadasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
+    _tasksCatCompletadasSet(completadas);
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas };
   } finally {
     lock.releaseLock();
   }
@@ -4630,6 +4653,31 @@ function renameTaskCategorySafe(data) {
 }
 function deleteTaskCategorySafe(data) {
   try { return deleteTaskCategory(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+// Marca/desmarca una categoría como "proyecto completado" — no borra nada,
+// solo la tacha y la manda al final de la pizarra (ver tarPintar/catPintarLista
+// en el cliente). "Otros" también se puede marcar: es el catch-all, pero
+// nada impide que en algún momento quede vacío y el usuario lo quiera
+// "cerrado" un rato.
+function toggleTaskCategoryCompleted(p) {
+  const nombre = _tasksCategoriaValida(p && p.nombre);
+  if (!nombre) throw new Error('Esa categoría no existe');
+  const completada = !!(p && p.completada);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const actual = _tasksCatCompletadasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
+    if (completada) actual.push(nombre);
+    _tasksCatCompletadasSet(actual);
+    return { ok: true, categoriaCompletadas: actual };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function toggleTaskCategoryCompletedSafe(data) {
+  try { return toggleTaskCategoryCompleted(data || {}); }
   catch (err) { return { ok: false, error: err.message }; }
 }
 
@@ -5132,8 +5180,8 @@ function getTasksData(ssOpt) {
     const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
              periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories(),
-             categoriaEmojis: _tasksCatEmojisGet(), importancias: TASKS_IMPORTANCIAS,
-             uiState: _tasksUiStateGet() };
+             categoriaEmojis: _tasksCatEmojisGet(), categoriaCompletadas: _tasksCatCompletadasGet(),
+             importancias: TASKS_IMPORTANCIAS, uiState: _tasksUiStateGet() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);
     return { ok: false, error: err.message };

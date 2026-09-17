@@ -606,7 +606,7 @@
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
-  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, hoy: '', editando: null,
+  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [], completadaModal: false,
@@ -634,6 +634,10 @@
     return p[2] + '/' + p[1];
   }
   function tarCatEmoji(cat) { return (TAR.categoriaEmojis && TAR.categoriaEmojis[cat]) || TAR_CAT_EMOJI_FALLBACK[cat] || '📌'; }
+  // "Proyecto" (categoría) marcado como completado: no se borra, se tacha y
+  // se manda al final — de la pizarra y de la lista de gestión (ver
+  // tarPintar/catPintarLista).
+  function tarCatCompletada(cat) { return TAR.categoriaCompletadas.indexOf(cat) !== -1; }
   // Clase CSS por categoría (ninguna tiene tilde ni espacio, así que alcanza con minúscula)
   function tarCatSlug(cat) { return 'cat-' + String(cat || 'otros').toLowerCase(); }
   // Puebla los <select> de categoría una sola vez, con lo que mandó el server
@@ -814,6 +818,7 @@
     TAR.periodos = r.periodos || [];
     TAR.subcategorias = r.subcategorias || {};
     TAR.categoriaEmojis = r.categoriaEmojis || {};
+    TAR.categoriaCompletadas = r.categoriaCompletadas || [];
     TAR.hoy = r.hoy || '';
     tarAplicarUiState(r.uiState);
     tarPoblarCategorias();
@@ -1115,7 +1120,15 @@
         if (TAR.filtroHoy && t.fecha !== hoy) return false;
         return true;
       });
-      var catsHtml = TAR.categorias.map(function(cat) {
+      // Un "proyecto" (categoría) marcado como completado no se saca de la
+      // pizarra: se tacha y se manda al final, igual criterio que una tarea o
+      // un ítem de compras — sort estable, así entre las completadas (y entre
+      // las pendientes) se respeta el orden de siempre.
+      var catsOrdenadas = TAR.categorias.slice().sort(function(a, b) {
+        return (tarCatCompletada(a) ? 1 : 0) - (tarCatCompletada(b) ? 1 : 0);
+      });
+      var catsHtml = catsOrdenadas.map(function(cat) {
+        var completadaCat = tarCatCompletada(cat);
         var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
             if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
@@ -1135,10 +1148,11 @@
         // guardado en localStorage) — así una que cerraste sigue cerrada la
         // próxima vez que entrás, aunque se repinte todo el tablero.
         var colapsado = !!TAR.pizarraColapsadas[cat];
-        return '<div class="task-col ' + tarCatSlug(cat) + (colapsado ? ' colapsado' : '') + '" data-cat="' + esc(cat) + '">' +
+        return '<div class="task-col ' + tarCatSlug(cat) + (colapsado ? ' colapsado' : '') + (completadaCat ? ' completada' : '') + '" data-cat="' + esc(cat) + '">' +
           '<div class="task-col-head" data-colapsar="' + esc(cat) + '">' +
             '<span><span class="task-col-drag-grip" data-drag-col="' + esc(cat) + '" title="Arrastrar para reordenar">⠿</span> ' +
-              '<span class="task-col-chevron">▾</span> ' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span>' +
+              '<span class="task-col-chevron">▾</span> ' +
+              '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span></span>' +
             '<span class="n">' + pendEnCat + '</span></div>' +
           '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
             tarColBodyHtml(items, cat) +
@@ -1301,6 +1315,7 @@
             if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); loadTareas(); return; }
             TAR.categorias = r.categorias || orden;
             tarPoblarCategorias();
+            tarPintar(); // por si había una completada de por medio: vuelve a hundirla al final
           })
           .withFailureHandler(function(err) {
             tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
@@ -1713,17 +1728,30 @@
     if (!cont) return;
     var lista = TAR.categorias || [];
     if (!lista.length) { cont.innerHTML = '<div class="hsubcat-empty">No hay categorías</div>'; return; }
-    cont.innerHTML = lista.map(function(c, i) {
+    // Un "proyecto" completado se tacha y baja al final de la lista (igual que
+    // en la pizarra, ver tarPintar) — ya no se reordena con ▲▼ entre sí, así
+    // que las flechas solo aparecen para las pendientes.
+    var pendientes = lista.filter(function(c) { return !tarCatCompletada(c); });
+    var completadas = lista.filter(function(c) { return tarCatCompletada(c); });
+    function filaHtml(c, i, total, conFlechas) {
       var puedeBorrar = _stripAccentsJs(c) !== 'otros';
-      return '<div class="hsubcat-item"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
-        '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="up"' +
-          (i === 0 ? ' disabled' : '') + '>▲</button>' +
-        '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="down"' +
-          (i === lista.length - 1 ? ' disabled' : '') + '>▼</button>' +
+      var done = tarCatCompletada(c);
+      return '<div class="hsubcat-item' + (done ? ' done' : '') + '"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
+        (conFlechas ?
+          '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="up"' +
+            (i === 0 ? ' disabled' : '') + '>▲</button>' +
+          '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="down"' +
+            (i === total - 1 ? ' disabled' : '') + '>▼</button>'
+          : '') +
+        '<button type="button" class="hsub-done" data-catdone="' + esc(c) + '" data-catdone-a="' + (done ? '0' : '1') + '" ' +
+          'title="' + (done ? 'Marcar como pendiente' : 'Marcar como completado') + '">' + (done ? '↩️' : '✓') + '</button>' +
         '<button type="button" class="hsub-rn" data-catrn="' + esc(c) + '">✎</button>' +
         (puedeBorrar ? '<button type="button" class="hsub-del" data-catdel="' + esc(c) + '">🗑</button>' : '') +
         '</div>';
-    }).join('');
+    }
+    cont.innerHTML =
+      pendientes.map(function(c, i) { return filaHtml(c, i, pendientes.length, true); }).join('') +
+      completadas.map(function(c) { return filaHtml(c, 0, 0, false); }).join('');
     var mvs = cont.querySelectorAll('[data-catmv-n]');
     for (var m = 0; m < mvs.length; m++) {
       (function(el) {
@@ -1731,6 +1759,14 @@
           catMover(el.getAttribute('data-catmv-n'), el.getAttribute('data-catmv-d'));
         });
       })(mvs[m]);
+    }
+    var dones = cont.querySelectorAll('[data-catdone]');
+    for (var d = 0; d < dones.length; d++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          catToggleCompletada(el.getAttribute('data-catdone'), el.getAttribute('data-catdone-a') === '1');
+        });
+      })(dones[d]);
     }
     var rns = cont.querySelectorAll('[data-catrn]');
     for (var i = 0; i < rns.length; i++) {
@@ -1740,6 +1776,30 @@
     for (var j = 0; j < dels.length; j++) {
       (function(el) { el.addEventListener('click', function() { catBorrar(el.getAttribute('data-catdel')); }); })(dels[j]);
     }
+  }
+  // Marca/desmarca un "proyecto" (categoría) como completado — se queda en la
+  // lista, solo cambia de aspecto y de posición (ver catPintarLista/tarPintar).
+  function catToggleCompletada(nombre, nuevoValor) {
+    var prev = TAR.categoriaCompletadas.slice();
+    if (nuevoValor) {
+      if (TAR.categoriaCompletadas.indexOf(nombre) === -1) TAR.categoriaCompletadas.push(nombre);
+    } else {
+      TAR.categoriaCompletadas = TAR.categoriaCompletadas.filter(function(c) { return c !== nombre; });
+    }
+    catPintarLista(); // optimista
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); TAR.categoriaCompletadas = prev; catPintarLista(); tarPintar(); return; }
+        TAR.categoriaCompletadas = r.categoriaCompletadas || [];
+        catPintarLista();
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        TAR.categoriaCompletadas = prev; catPintarLista(); tarPintar();
+      })
+      .toggleTaskCategoryCompletedSafe({ nombre: nombre, completada: nuevoValor });
   }
   // "Otros" no se puede borrar (ver deleteTaskCategory en el server) — acá
   // alcanza con comparar sin tildes/mayúsculas, no hace falta _stripAccents
@@ -1794,6 +1854,7 @@
         if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.categorias = r.categorias || [];
         TAR.categoriaEmojis = r.categoriaEmojis || TAR.categoriaEmojis;
+        TAR.categoriaCompletadas = r.categoriaCompletadas || TAR.categoriaCompletadas;
         if (editando) {
           if (TAR.catNuevo === editando) TAR.catNuevo = nombre;
           if (TAR.catModal === editando) TAR.catModal = nombre;
@@ -1817,6 +1878,7 @@
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.categorias = r.categorias || [];
+        TAR.categoriaCompletadas = r.categoriaCompletadas || TAR.categoriaCompletadas;
         tarPoblarCategorias();
         catStatus('✓ Borrada', 'ok');
         catPintarLista();

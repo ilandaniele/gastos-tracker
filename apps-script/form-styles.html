@@ -370,8 +370,9 @@
      click en el resto del encabezado, que pliega/despliega (ver el módulo
      de drag & drop). touch-action:none para que el navegador no intente
      scrollear la página cuando el arrastre arranca justo ahí. */
-  .task-col-drag-grip { cursor: grab; color: #94a3b8; font-size: 14px; touch-action: none;
-                        padding: 2px 2px 2px 0; }
+  .task-col-drag-grip { cursor: grab; color: #94a3b8; font-size: 18px; touch-action: none;
+                        padding: 6px 8px 6px 0; margin: -6px 0; user-select: none; -webkit-user-select: none;
+                        -webkit-touch-callout: none; }
   /* Flechita que gira al compactar la columna (▾ -> ◂) */
   .task-col-chevron { display: inline-block; transition: transform 0.25s ease; }
   .task-col.colapsado .task-col-chevron { transform: rotate(-90deg); }
@@ -387,35 +388,38 @@
      dónde va a caer si soltás ahí. */
   .task-col.drag-over { box-shadow: 0 0 0 2px #0f766e inset; }
   .task-col.dragging { opacity: 0.35; }
+  /* "Proyecto" (categoría) marcado como completado: no se saca de la
+     pizarra, se tacha (tachado normal, no el fibrón de las tarjetas) y queda
+     al final (ver tarPintar en el cliente). */
+  .task-col.completada { opacity: 0.55; }
+  .task-col.completada .task-col-title { text-decoration: line-through; color: #94a3b8; }
   .task-card { background: white; border-radius: 10px; border: 1px solid #e5e7eb; border-left: 5px solid #94a3b8;
                padding: 11px 13px; display: flex; align-items: flex-start; gap: 10px;
-               box-shadow: 0 1px 2px rgba(0,0,0,.04); position: relative; }
+               box-shadow: 0 1px 2px rgba(0,0,0,.04); position: relative;
+               user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   .task-card .task-text { font-size: 15px; }
   .task-card .task-check { width: 26px; height: 26px; flex: 0 0 26px; }
   .task-card.dragging { opacity: 0.35; }
-  .task-card.done { opacity: 0.85; }
-  /* Tachado "fibrón" en vez del garabato de tiza de antes: una tarjeta
-     completada se queda en su columna (ya no se saca de la pizarra) marcada
-     con un solo trazo derecho y grueso, como pasado con un marcador de
-     verdad sobre el texto — los extremos se desvanecen (no cortan en seco)
-     porque un fibrón real apoya y levanta la punta con la presión pareja
-     recién en el medio del trazo. El texto en sí también se escribe con
-     una tipografía de marcador (Permanent Marker, cargada en form.html)
-     para que la tarjeta completa, no solo la línea, lea como "escrito a
-     mano con fibrón". */
+  /* Una tarjeta completada se queda en su columna (ya no se saca de la
+     pizarra), con un tachado normal (no una barra gruesa) — y la tipografía
+     de marcador (Permanent Marker, cargada en form.html) se aplica a TODA la
+     tarjeta por herencia (badges, subtareas, contador...), no solo al texto
+     principal, para que se lea entera como "terminada", no solo el título. */
+  .task-card.done { opacity: 0.85; font-family: 'Permanent Marker', cursive; }
   .task-card.done .task-text {
     text-decoration: none; color: #475569; position: relative; display: inline-block;
-    font-family: 'Permanent Marker', cursive; font-size: 0.94em; line-height: 1.4; letter-spacing: 0.2px;
+    font-size: 0.94em; line-height: 1.4; letter-spacing: 0.2px;
   }
   .task-card.done .task-text::after {
-    content: ''; position: absolute; left: -3%; right: -3%; top: 48%; height: 7px;
-    transform: translateY(-50%); border-radius: 5px; pointer-events: none;
-    background: linear-gradient(90deg, rgba(71,85,105,0) 0%, rgba(71,85,105,.88) 6%, rgba(71,85,105,.88) 94%, rgba(71,85,105,0) 100%);
+    content: ''; position: absolute; left: -3%; right: -3%; top: 50%; height: 2px;
+    transform: translateY(-50%); border-radius: 2px; pointer-events: none;
+    background: linear-gradient(90deg, rgba(71,85,105,0) 0%, rgba(71,85,105,.8) 8%, rgba(71,85,105,.8) 92%, rgba(71,85,105,0) 100%);
   }
   /* Manija para arrastrar la tarjeta a otra columna — separada del check y
      del cuerpo (que abre el modal), así no compite con esos toques. */
-  .task-card-drag-grip { position: absolute; top: 6px; right: 8px; color: #cbd5e1; font-size: 13px;
-                        cursor: grab; touch-action: none; line-height: 1; padding: 4px; }
+  .task-card-drag-grip { position: absolute; top: 2px; right: 2px; color: #cbd5e1; font-size: 17px;
+                        cursor: grab; touch-action: none; line-height: 1; padding: 9px;
+                        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   /* El "fantasma" que sigue al dedo/mouse mientras se arrastra — clon fijo
      por encima de todo, la tarjeta u columna original se atenúa (.dragging)
      mientras tanto. */
@@ -486,6 +490,11 @@
      aparecen las columnas de la pizarra (ver moveTaskCategory). */
   .hsubcat-item .hsub-mv { color: #64748b; font-size: 11px; padding: 5px 7px; }
   .hsubcat-item .hsub-mv:disabled { opacity: 0.3; }
+  /* Marcar/desmarcar un "proyecto" (categoría) como completado — se queda en
+     la lista, tachado y al final (ver catPintarLista). */
+  .hsubcat-item .hsub-done { color: #0f766e; font-size: 14px; }
+  .hsubcat-item.done { opacity: 0.7; }
+  .hsubcat-item.done span { text-decoration: line-through; color: #9ca3af; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
 
   /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a
