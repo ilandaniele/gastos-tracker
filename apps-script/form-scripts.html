@@ -1116,6 +1116,10 @@
     if (board) {
       var hayFiltro = TAR.filtroTipo !== 'Todas' || TAR.filtroHoy;
       var filtradas = TAR.tareas.filter(function(t) {
+        // Archivada (se completó desde el modal, no desde el check rápido de
+        // la tarjeta): se saca de la pizarra del todo, queda solo abajo en
+        // "Completadas" — ver toggleTaskEntry en el server y tmSave más arriba.
+        if (t.completada && t.archivada) return false;
         if (TAR.filtroTipo !== 'Todas' && t.tipo !== TAR.filtroTipo) return false;
         if (TAR.filtroHoy && t.fecha !== hoy) return false;
         return true;
@@ -1420,11 +1424,27 @@
         tarStatus('✓ Agregado', 'ok');
         tarMoverCategoriaPorImportancia(payload.categoria, payload.importancia);
         loadTareas();
+        tarCerrarAddModal();
       })
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
       .addTaskSafe(payload);
+  });
+
+  // Modal de "Agregar" (ver #tarAddModal en el HTML): antes era una tarjeta
+  // fija arriba de la pizarra, ahora solo aparece al tocar el botón — mismo
+  // patrón show/click-afuera-cierra que el modal de editar (tarAbrirModal).
+  function tarAbrirAddModal() {
+    if (tarEl('tarAddModal')) tarEl('tarAddModal').classList.add('show');
+  }
+  function tarCerrarAddModal() {
+    if (tarEl('tarAddModal')) tarEl('tarAddModal').classList.remove('show');
+  }
+  if (tarEl('tarAddOpenBtn')) tarEl('tarAddOpenBtn').addEventListener('click', tarAbrirAddModal);
+  if (tarEl('tarAddCancel')) tarEl('tarAddCancel').addEventListener('click', tarCerrarAddModal);
+  if (tarEl('tarAddModal')) tarEl('tarAddModal').addEventListener('click', function(ev) {
+    if (ev.target === tarEl('tarAddModal')) tarCerrarAddModal();
   });
 
   // Una tarea "Alta" empuja su columna un lugar hacia arriba en la pizarra;
@@ -1579,7 +1599,7 @@
             tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
             loadTareas();
           })
-          .toggleTaskSafe({ row: t.row, completada: completadaNueva });
+          .toggleTaskSafe({ row: t.row, completada: completadaNueva, archivar: true });
       })
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');

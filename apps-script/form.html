@@ -180,72 +180,8 @@
   <div id="tarHoyList"></div>
 </div>
 
-<!-- AGREGAR -->
-<div class="hcard">
-  <div class="hcard-title">➕ Agregar</div>
-  <div class="argtipos">
-    <button type="button" class="tartipo activo" data-tipo="Tarea">📝 Tarea</button>
-    <button type="button" class="tartipo" data-tipo="Cita">📅 Cita</button>
-  </div>
-
-  <label class="hlabel">Qué es</label>
-  <input type="text" id="tarTexto" placeholder="ej: Turno con el dentista" autocomplete="off">
-
-  <label class="hlabel">Categoría</label>
-  <div class="hsubcat-row">
-    <select id="tarCategoria"></select>
-    <button type="button" id="tarCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
-  </div>
-
-  <label class="hlabel">Subcategoría <span class="hhint">opcional</span></label>
-  <div class="hsubcat-row">
-    <select id="tarSubcategoria"><option value="">Sin subcategoría</option></select>
-    <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
-  </div>
-
-  <label class="hlabel">Importancia</label>
-  <div class="argtipos" id="tarImportancia">
-    <button type="button" class="tarimp" data-imp="Alta">🔴 Alta</button>
-    <button type="button" class="tarimp activo" data-imp="Media">🟡 Media</button>
-    <button type="button" class="tarimp" data-imp="Baja">🟢 Baja</button>
-  </div>
-
-  <div id="tarCampoFechaCita" hidden>
-    <div class="hscan-row">
-      <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
-      <div><label class="hlabel">Hora</label><input type="time" id="tarHoraCita"></div>
-    </div>
-  </div>
-
-  <div id="tarCampoFechaTarea">
-    <label class="hlabel">Fecha límite <span class="hhint">opcional</span></label>
-    <input type="date" id="tarFechaTarea">
-  </div>
-
-  <div id="tarCampoRecurrente">
-    <button type="button" id="tarRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
-    <div id="tarCampoObjetivo" hidden>
-      <div class="hscan-row" id="tarObjetivoRow">
-        <div id="tarCampoObjetivoNum"><label class="hlabel">Cuántas veces</label>
-          <input type="text" id="tarObjetivo" inputmode="numeric" pattern="[0-9]*" placeholder="ej: 10"></div>
-        <div><label class="hlabel" id="tarPeriodoLbl">Cada</label><select id="tarPeriodo"></select></div>
-      </div>
-    </div>
-  </div>
-
-  <label class="hlabel">Notas</label>
-  <input type="text" id="tarNotas" placeholder="opcional" autocomplete="off">
-
-  <label class="hlabel">Subtareas <span class="hhint">opcional</span></label>
-  <div id="tarSubtareasList" class="hsubtask-list"></div>
-  <div class="hsubtask-add">
-    <input type="text" id="tarSubtareaInput" placeholder="Agregar subtarea" autocomplete="off">
-    <button type="button" id="tarSubtareaAddBtn">+</button>
-  </div>
-
-  <button type="button" id="tarAdd">Agregar</button>
-  <div id="tarStatus"></div>
-</div>
+<!-- AGREGAR (dispara el modal #tarAddModal, ver abajo de tareasPanel) -->
+<button type="button" id="tarAddOpenBtn" class="tar-add-trigger">➕ Agregar tarea o cita</button>
 
 <!-- PIZARRA -->
 <div class="hcard">
@@ -289,6 +225,78 @@
   <div id="compStatus"></div>
 </div>
 </div><!-- /tareasPanel -->
+
+<!-- MODAL AGREGAR TAREA/CITA -->
+<div id="tarAddModal">
+  <div class="hmodal-box">
+    <h3>➕ Agregar</h3>
+    <div class="argtipos">
+      <button type="button" class="tartipo activo" data-tipo="Tarea">📝 Tarea</button>
+      <button type="button" class="tartipo" data-tipo="Cita">📅 Cita</button>
+    </div>
+
+    <label class="hlabel">Qué es</label>
+    <input type="text" id="tarTexto" placeholder="ej: Turno con el dentista" autocomplete="off">
+
+    <label class="hlabel">Categoría</label>
+    <div class="hsubcat-row">
+      <select id="tarCategoria"></select>
+      <button type="button" id="tarCatGestionar" class="hsubcat-gear" aria-label="Gestionar categorías">⚙️</button>
+    </div>
+
+    <label class="hlabel">Subcategoría <span class="hhint">opcional</span></label>
+    <div class="hsubcat-row">
+      <select id="tarSubcategoria"><option value="">Sin subcategoría</option></select>
+      <button type="button" id="tarSubcatGestionar" class="hsubcat-gear" aria-label="Gestionar subcategorías">⚙️</button>
+    </div>
+
+    <label class="hlabel">Importancia</label>
+    <div class="argtipos" id="tarImportancia">
+      <button type="button" class="tarimp" data-imp="Alta">🔴 Alta</button>
+      <button type="button" class="tarimp activo" data-imp="Media">🟡 Media</button>
+      <button type="button" class="tarimp" data-imp="Baja">🟢 Baja</button>
+    </div>
+
+    <div id="tarCampoFechaCita" hidden>
+      <div class="hscan-row">
+        <div><label class="hlabel">Fecha</label><input type="date" id="tarFechaCita"></div>
+        <div><label class="hlabel">Hora</label><input type="time" id="tarHoraCita"></div>
+      </div>
+    </div>
+
+    <div id="tarCampoFechaTarea">
+      <label class="hlabel">Fecha límite <span class="hhint">opcional</span></label>
+      <input type="date" id="tarFechaTarea">
+    </div>
+
+    <div id="tarCampoRecurrente">
+      <button type="button" id="tarRecurBtn" class="htoggle">🔁 Hacerla recurrente</button>
+      <div id="tarCampoObjetivo" hidden>
+        <div class="hscan-row" id="tarObjetivoRow">
+          <div id="tarCampoObjetivoNum"><label class="hlabel">Cuántas veces</label>
+            <input type="text" id="tarObjetivo" inputmode="numeric" pattern="[0-9]*" placeholder="ej: 10"></div>
+          <div><label class="hlabel" id="tarPeriodoLbl">Cada</label><select id="tarPeriodo"></select></div>
+        </div>
+      </div>
+    </div>
+
+    <label class="hlabel">Notas</label>
+    <input type="text" id="tarNotas" placeholder="opcional" autocomplete="off">
+
+    <label class="hlabel">Subtareas <span class="hhint">opcional</span></label>
+    <div id="tarSubtareasList" class="hsubtask-list"></div>
+    <div class="hsubtask-add">
+      <input type="text" id="tarSubtareaInput" placeholder="Agregar subtarea" autocomplete="off">
+      <button type="button" id="tarSubtareaAddBtn">+</button>
+    </div>
+
+    <div id="tarStatus"></div>
+    <div class="hmodal-actions" style="grid-template-columns:1fr 1fr">
+      <button type="button" id="tarAddCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="tarAdd">Agregar</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL EDITAR TAREA -->
 <div id="tarModal">

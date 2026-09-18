@@ -4382,7 +4382,7 @@ const TASKS_TAB = 'Tareas';
 // de al lado de Categoría/Notas para no correr los índices de las columnas
 // que ya existían.
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
-                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas', 'Importancia'];
+                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas', 'Importancia', 'Archivada'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
 // Para ordenar la pizarra por importancia (ver tarPintar en el cliente) — el
 // orden de esta lista importa: primero la más urgente. Una tarea sin valor
@@ -5001,6 +5001,11 @@ function _tasksRows(sheet) {
     const dFecha = r[4] ? (Object.prototype.toString.call(r[4]) === '[object Date]' ? r[4] : parseLocalDate(r[4])) : null;
     let completada = r[7] === true;
     let dCompletada = r[8] ? (Object.prototype.toString.call(r[8]) === '[object Date]' ? r[8] : parseLocalDate(r[8])) : null;
+    // Archivada: se completó desde el modal ("Marcar como completada" +
+    // Guardar), así que se saca de la pizarra — a diferencia del check rápido
+    // de la tarjeta, que la tacha pero la deja en su lugar (ver toggleTaskEntry
+    // y tarPintar en el cliente).
+    let archivada = r[17] === true;
     const tipo = TASKS_TIPOS.find(t => _stripAccents(t) === _stripAccents(String(r[1] || ''))) || 'Tarea';
 
     const recurrente = r[9] === true;
@@ -5029,6 +5034,10 @@ function _tasksRows(sheet) {
         resets.push({ row: TASKS_FIRST_ROW + i, contador: contador, ultimoReset: ahora, reactivar: reactivar,
                       completadaPrev: r[7], fechaCompletadaPrev: r[8],
                       recurrentePrev: r[9], objetivoPrev: r[10], periodoPrev: r[12] });
+        // Se reactiva también significa que ya no está archivada (ver
+        // toggleTaskEntry) — si no, quedaría escondida de la pizarra sin
+        // haberla completado nunca en este período nuevo.
+        if (reactivar) archivada = false;
       }
     }
 
@@ -5059,7 +5068,8 @@ function _tasksRows(sheet) {
       ultimoReset: dUltimoReset ? Utilities.formatDate(dUltimoReset, 'America/Montevideo', 'yyyy-MM-dd') : '',
       subcategoria: String(r[14] || '').trim(),
       subtareas: _tasksParseSubtareas(r[15]),
-      importancia: TASKS_IMPORTANCIAS.find(i => _stripAccents(i) === _stripAccents(String(r[16] || ''))) || TASKS_IMPORTANCIA_DEFAULT
+      importancia: TASKS_IMPORTANCIAS.find(i => _stripAccents(i) === _stripAccents(String(r[16] || ''))) || TASKS_IMPORTANCIA_DEFAULT,
+      archivada: archivada
     });
   }
   // Una sola llamada a Sheets por fila (columnas 8 a 14 juntas) en vez de
@@ -5073,6 +5083,7 @@ function _tasksRows(sheet) {
         rs.reactivar ? false : rs.completadaPrev, rs.reactivar ? '' : rs.fechaCompletadaPrev,
         rs.recurrentePrev, rs.objetivoPrev, rs.contador, rs.periodoPrev, rs.ultimoReset
       ]]);
+      if (rs.reactivar) sheet.getRange(rs.row, 18).setValue(false);
     });
   }
   return out;
@@ -5161,7 +5172,8 @@ function _tasksEscribirFila(sheet, row, e, opts) {
     opts.completada || false, opts.fechaCompletada ? parseLocalDate(opts.fechaCompletada) : '',
     e.recurrente, e.recurrente ? e.objetivo : '', e.recurrente ? contador : '',
     e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || '',
-    JSON.stringify(e.subtareas || []), e.importancia || TASKS_IMPORTANCIA_DEFAULT
+    JSON.stringify(e.subtareas || []), e.importancia || TASKS_IMPORTANCIA_DEFAULT,
+    opts.archivada || false
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, 14).setNumberFormat('dd/MM/yyyy');
@@ -5228,7 +5240,8 @@ function updateTaskEntry(p) {
     _tasksEscribirFila(sheet, row, e, {
       creada: cur[0], completada: cur[7] === true, fechaCompletada: cur[8] || '',
       contador: e.contador != null ? e.contador : contadorPrevio,
-      ultimoReset: yaEraRecurrente ? cur[13] : ''
+      ultimoReset: yaEraRecurrente ? cur[13] : '',
+      archivada: cur[17] === true
     });
     if (e.subcategoria) _tasksSubcatRegistrar(e.categoria, e.subcategoria);
     SpreadsheetApp.flush();
@@ -5238,11 +5251,17 @@ function updateTaskEntry(p) {
   return { ok: true, tab: TASKS_TAB, row: row, written: e };
 }
 
-// Marca/desmarca completada — lo que dispara el checkbox, sin pasar por el modal.
+// Marca/desmarca completada — lo que dispara el check rápido de la tarjeta Y
+// el toggle del modal de editar (mismo endpoint, ver tarToggle/tmSave en el
+// cliente). archivar (solo lo manda el modal) saca la tarea de la pizarra y
+// la deja solo en "Completadas"; el check rápido no lo manda, así que
+// completar desde ahí sigue tachando la tarjeta en su lugar, sin moverla.
+// Desmarcar (completada=false) siempre limpia Archivada, venga de donde venga.
 function toggleTaskEntry(p) {
   const row = parseInt(p.row, 10);
   if (!isFinite(row) || row < TASKS_FIRST_ROW) throw new Error('Fila inválida');
   const completada = p.completada === true || String(p.completada) === 'true';
+  const archivar = p.archivar === true || String(p.archivar) === 'true';
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -5253,6 +5272,7 @@ function toggleTaskEntry(p) {
     sheet.getRange(row, 8).setValue(completada);
     sheet.getRange(row, 9).setValue(completada ? new Date() : '');
     if (completada) sheet.getRange(row, 9).setNumberFormat('dd/MM/yyyy');
+    sheet.getRange(row, 18).setValue(completada && archivar);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
