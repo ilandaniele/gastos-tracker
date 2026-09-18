@@ -201,8 +201,22 @@
   #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show, #tarAddModal.show, #subcatModal.show, #catModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
+  .hmodal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .hmodal-head h3 { margin: 0; }
+  .hmodal-x { width: auto; margin: 0; padding: 5px 11px; font-size: 15px; line-height: 1; font-weight: 700;
+    background: #f5f5f5; color: #666; border-radius: 8px; }
+  .hmodal-x:active { background: #e5e5e5; }
   .hmodal-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
   .hmodal-actions button { margin: 0; padding: 12px 4px; font-size: 14px; }
+
+  /* --- botón "Agregar" de Tareas: separado de las tarjetas vecinas y con
+     look de "agregar algo nuevo" (borde punteado) en vez del mismo sólido
+     que un submit de formulario --- */
+  .tar-add-trigger { margin: 18px 0 20px; padding: 14px; background: #f0fdfa; color: #0f766e;
+    border: 2px dashed #5eead4; border-radius: 12px; font-size: 15px;
+    display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .tar-add-trigger:active { background: #ccfbf1; border-color: #2dd4bf; }
+  .tar-add-trigger-icon { font-size: 17px; }
   .hmeal-row { cursor: pointer; }
   .hmeal-row:active { background: #fafafa; }
   .hwater { min-height: 24px; }

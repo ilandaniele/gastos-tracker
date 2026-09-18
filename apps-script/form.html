@@ -181,7 +181,10 @@
 </div>
 
 <!-- AGREGAR (dispara el modal #tarAddModal, ver abajo de tareasPanel) -->
-<button type="button" id="tarAddOpenBtn" class="tar-add-trigger">➕ Agregar tarea o cita</button>
+<button type="button" id="tarAddOpenBtn" class="tar-add-trigger">
+  <span class="tar-add-trigger-icon">➕</span>
+  <span>Agregar tarea o cita</span>
+</button>
 
 <!-- PIZARRA -->
 <div class="hcard">
@@ -229,7 +232,10 @@
 <!-- MODAL AGREGAR TAREA/CITA -->
 <div id="tarAddModal">
   <div class="hmodal-box">
-    <h3>➕ Agregar</h3>
+    <div class="hmodal-head">
+      <h3>➕ Agregar</h3>
+      <button type="button" id="tarAddCloseX" class="hmodal-x" aria-label="Cerrar">✕</button>
+    </div>
     <div class="argtipos">
       <button type="button" class="tartipo activo" data-tipo="Tarea">📝 Tarea</button>
       <button type="button" class="tartipo" data-tipo="Cita">📅 Cita</button>
@@ -291,10 +297,7 @@
     </div>
 
     <div id="tarStatus"></div>
-    <div class="hmodal-actions" style="grid-template-columns:1fr 1fr">
-      <button type="button" id="tarAddCancel" class="hsecondary">Cancelar</button>
-      <button type="button" id="tarAdd">Agregar</button>
-    </div>
+    <button type="button" id="tarAdd">➕ Agregar</button>
   </div>
 </div>
 

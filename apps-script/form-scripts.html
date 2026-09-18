@@ -1442,7 +1442,7 @@
     if (tarEl('tarAddModal')) tarEl('tarAddModal').classList.remove('show');
   }
   if (tarEl('tarAddOpenBtn')) tarEl('tarAddOpenBtn').addEventListener('click', tarAbrirAddModal);
-  if (tarEl('tarAddCancel')) tarEl('tarAddCancel').addEventListener('click', tarCerrarAddModal);
+  if (tarEl('tarAddCloseX')) tarEl('tarAddCloseX').addEventListener('click', tarCerrarAddModal);
   if (tarEl('tarAddModal')) tarEl('tarAddModal').addEventListener('click', function(ev) {
     if (ev.target === tarEl('tarAddModal')) tarCerrarAddModal();
   });
