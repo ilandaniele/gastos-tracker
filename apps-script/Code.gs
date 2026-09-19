@@ -4382,7 +4382,8 @@ const TASKS_TAB = 'Tareas';
 // de al lado de Categoría/Notas para no correr los índices de las columnas
 // que ya existían.
 const TASKS_HEADERS = ['Fecha creada', 'Tipo', 'Categoría', 'Texto', 'Fecha', 'Hora', 'Notas', 'Completada', 'Fecha completada',
-                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas', 'Importancia', 'Archivada'];
+                       'Recurrente', 'Objetivo', 'Contador', 'Periodo', 'Último reset', 'Subcategoría', 'Subtareas', 'Importancia', 'Archivada',
+                       'Orden'];
 const TASKS_TIPOS = ['Tarea', 'Cita'];
 // Para ordenar la pizarra por importancia (ver tarPintar en el cliente) — el
 // orden de esta lista importa: primero la más urgente. Una tarea sin valor
@@ -4756,6 +4757,10 @@ function moveTaskToCategory(p) {
     const cur = sheet.getRange(row, 1, 1, TASKS_HEADERS.length).getValues()[0];
     if (!String(cur[3] || '').trim()) throw new Error('Esa fila está vacía — recargá las tareas e intentá de nuevo');
     sheet.getRange(row, 3).setValue(categoria);
+    // El orden manual era relativo a la columna vieja — sin sentido en la
+    // nueva, así que se limpia y cae al orden por defecto (importancia/fecha,
+    // ver tarPintar) hasta que se arrastre de nuevo ahí adentro.
+    sheet.getRange(row, TASKS_HEADERS.length).setValue('');
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -4765,6 +4770,43 @@ function moveTaskToCategory(p) {
 function moveTaskToCategorySafe(data) {
   try { return moveTaskToCategory(data || {}); }
   catch (err) { Logger.log('moveTaskToCategorySafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+// Reordena las tarjetas DENTRO de una misma categoría — arrastrar una
+// tarjeta a otra posición en su propia columna (no a otra categoría, eso es
+// moveTaskToCategory). El cliente manda las filas en el orden final visible;
+// se les pisa la columna Orden con 1, 2, 3... Antes de esto, el orden dentro
+// de una columna era siempre automático (importancia + vencimiento, ver
+// tarPintar); la primera vez que se arrastra en una categoría, esa columna
+// pasa a ordenarse manualmente a partir de ahí.
+function reorderTasksInCategory(p) {
+  const categoria = _tasksCategoriaValida(p && p.categoria);
+  if (!categoria) throw new Error('Categoría inválida');
+  const filas = Array.isArray(p && p.filas) ? p.filas.map(x => parseInt(x, 10)) : null;
+  if (!filas || !filas.length || filas.some(r => !isFinite(r) || r < TASKS_FIRST_ROW)) throw new Error('Falta el orden');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateTasksTab(ss);
+    filas.forEach(function(row, i) {
+      const cur = sheet.getRange(row, 3, 1, 2).getValues()[0];
+      const catActual = String(cur[0] || '').trim();
+      const texto = String(cur[1] || '').trim();
+      // Fila vacía, o ya no es de esta categoría (se movió a otra mientras
+      // este arrastre estaba en vuelo) — se la salta en vez de pisarla.
+      if (!texto || _stripAccents(catActual) !== _stripAccents(categoria)) return;
+      sheet.getRange(row, TASKS_HEADERS.length).setValue(i + 1);
+    });
+    SpreadsheetApp.flush();
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function reorderTasksInCategorySafe(data) {
+  try { return reorderTasksInCategory(data || {}); }
+  catch (err) { Logger.log('reorderTasksInCategorySafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 function getTaskSubcategories() {
@@ -5069,7 +5111,11 @@ function _tasksRows(sheet) {
       subcategoria: String(r[14] || '').trim(),
       subtareas: _tasksParseSubtareas(r[15]),
       importancia: TASKS_IMPORTANCIAS.find(i => _stripAccents(i) === _stripAccents(String(r[16] || ''))) || TASKS_IMPORTANCIA_DEFAULT,
-      archivada: archivada
+      archivada: archivada,
+      // null hasta que se arrastre una vez en su columna (ver
+      // reorderTasksInCategory) — recién ahí tiene un valor y pasa a mandar
+      // por encima del orden automático (ver tarPintar en el cliente).
+      orden: toNumber(r[18])
     });
   }
   // Una sola llamada a Sheets por fila (columnas 8 a 14 juntas) en vez de
@@ -5173,7 +5219,7 @@ function _tasksEscribirFila(sheet, row, e, opts) {
     e.recurrente, e.recurrente ? e.objetivo : '', e.recurrente ? contador : '',
     e.recurrente ? e.periodo : '', ultimoReset ? parseLocalDate(ultimoReset) : '', e.subcategoria || '',
     JSON.stringify(e.subtareas || []), e.importancia || TASKS_IMPORTANCIA_DEFAULT,
-    opts.archivada || false
+    opts.archivada || false, opts.orden != null ? opts.orden : ''
   ]]);
   sheet.getRange(row, 1).setNumberFormat('dd/MM/yyyy');
   sheet.getRange(row, 14).setNumberFormat('dd/MM/yyyy');
@@ -5241,7 +5287,10 @@ function updateTaskEntry(p) {
       creada: cur[0], completada: cur[7] === true, fechaCompletada: cur[8] || '',
       contador: e.contador != null ? e.contador : contadorPrevio,
       ultimoReset: yaEraRecurrente ? cur[13] : '',
-      archivada: cur[17] === true
+      archivada: cur[17] === true,
+      // Se conserva salvo que la categoría haya cambiado — ahí no tiene
+      // sentido en la columna nueva (mismo criterio que moveTaskToCategory).
+      orden: (_stripAccents(e.categoria) === _stripAccents(String(cur[2] || ''))) ? cur[18] : ''
     });
     if (e.subcategoria) _tasksSubcatRegistrar(e.categoria, e.subcategoria);
     SpreadsheetApp.flush();

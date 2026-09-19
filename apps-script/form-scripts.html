@@ -1136,6 +1136,11 @@
         var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
             if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
+            // Una vez que se arrastró una tarjeta en esta columna, el orden
+            // manual (ver reorderTasksInCategorySafe) manda por sobre el
+            // automático — hasta entonces, ninguna tarea de la categoría
+            // tiene "orden" seteado y se sigue con el criterio de siempre.
+            if (a.orden != null && b.orden != null) return a.orden - b.orden;
             // Entre pendientes, primero la más importante; a igual importancia,
             // vencidas antes que nada para que no se pierdan de vista.
             var ai = TAR_IMPORTANCIA_RANGO[a.importancia] || 2, bi = TAR_IMPORTANCIA_RANGO[b.importancia] || 2;
@@ -1206,7 +1211,18 @@
         var dragging = board.querySelectorAll('.dragging');
         for (var j = 0; j < dragging.length; j++) dragging[j].classList.remove('dragging');
       }
+      document.body.classList.remove('tar-arrastrando');
       arr = null;
+    }
+
+    // Filas (en orden) de las tarjetas que hay ahora en una lista — se usa
+    // dos veces: para saber de dónde se salió (y así detectar un arrastre
+    // que termina sin reordenar nada, ver pointerup) y para el orden final.
+    function filasDeCuerpo(cuerpo) {
+      if (!cuerpo) return [];
+      return Array.prototype.slice.call(cuerpo.querySelectorAll('.task-card'))
+        .map(function(c) { var g = c.querySelector('[data-drag-row]'); return g ? parseInt(g.getAttribute('data-drag-row'), 10) : null; })
+        .filter(function(r) { return r != null; });
     }
 
     function clonarComoGhost(el, ev) {
@@ -1240,6 +1256,7 @@
       if (!arr.movido) {
         if (Math.abs(dx) < UMBRAL && Math.abs(dy) < UMBRAL) return; // todavía podría ser un tap
         arr.movido = true;
+        document.body.classList.add('tar-arrastrando');
         // Recién ahora se arma el ghost — un tap que no se convierte en
         // arrastre nunca crea ni mueve nada.
         if (arr.tipo === 'card') {
@@ -1248,6 +1265,14 @@
           card.classList.add('dragging');
           var g = clonarComoGhost(card, ev);
           arr.card = card; arr.clon = g.clon; arr.offsetX = g.offsetX; arr.offsetY = g.offsetY;
+          // Se guardan la columna y la lista (".task-col-body": el mismo
+          // contenedor da también cada sub-grupo por subcategoría, ver
+          // tarColBodyHtml) de origen — el reordenamiento en vivo de más
+          // abajo solo mueve la tarjeta REAL dentro de esa misma lista;
+          // cruzar a otra categoría se resuelve recién al soltar.
+          arr.colOriginal = card.closest('.task-col');
+          arr.cuerpoOriginal = card.closest('.task-col-body');
+          arr.ordenInicial = filasDeCuerpo(arr.cuerpoOriginal);
         } else {
           var col = arr.grip.closest('.task-col');
           if (!col) { arr = null; return; }
@@ -1270,6 +1295,19 @@
         var colDebajo = debajo.closest('.task-col');
         if (colDebajo) colDebajo.classList.add('drag-over');
         arr.colDestino = colDebajo;
+        // Reordenar en vivo: solo mientras se sigue dentro de la MISMA lista
+        // de origen (misma columna y mismo sub-grupo) — cruzar a otra
+        // categoría no adelanta el DOM, se resuelve al soltar con
+        // moveTaskToCategorySafe (ver pointerup).
+        var cuerpoDebajo = debajo.closest('.task-col-body');
+        if (cuerpoDebajo === arr.cuerpoOriginal) {
+          var cardDebajo = debajo.closest('.task-card');
+          if (cardDebajo && cardDebajo !== arr.card) {
+            var rect3 = cardDebajo.getBoundingClientRect();
+            var antesCard = ev.clientY < rect3.top + rect3.height / 2;
+            cuerpoDebajo.insertBefore(arr.card, antesCard ? cardDebajo : cardDebajo.nextSibling);
+          }
+        }
       } else {
         var colDebajo2 = debajo.closest('.task-col');
         if (colDebajo2 && colDebajo2 !== arr.col) {
@@ -1296,18 +1334,45 @@
         var t = TAR.tareas.find(function(x) { return x.row === arr.row; });
         var catNueva = arr.colDestino ? arr.colDestino.getAttribute('data-cat') : null;
         if (t && catNueva && t.categoria !== catNueva) {
-          var catAnterior = t.categoria;
-          t.categoria = catNueva; // optimista
+          var catAnterior = t.categoria, ordenAnterior = t.orden;
+          t.categoria = catNueva; t.orden = null; // optimista — el server también lo limpia (ver moveTaskToCategory)
           tarPintar();
           google.script.run
             .withSuccessHandler(function(r) {
-              if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.categoria = catAnterior; tarPintar(); }
+              if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); t.categoria = catAnterior; t.orden = ordenAnterior; tarPintar(); }
             })
             .withFailureHandler(function(err) {
               tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-              t.categoria = catAnterior; tarPintar();
+              t.categoria = catAnterior; t.orden = ordenAnterior; tarPintar();
             })
             .moveTaskToCategorySafe({ row: arr.row, categoria: catNueva });
+        } else if (t && arr.cuerpoOriginal) {
+          // Se soltó en la misma categoría (o afuera de cualquier columna):
+          // lo que importa es dónde quedó la tarjeta DENTRO de su propia
+          // lista, ya reordenada en vivo (ver pointermove) — se manda ese
+          // orden final tal cual quedó en el DOM. Si terminó en el mismo
+          // lugar de donde salió (un tap que cruzó el umbral sin de verdad
+          // reordenar nada), no se manda nada — así un roce accidental no le
+          // fija de golpe un orden manual a toda la columna.
+          var filasOrden = filasDeCuerpo(arr.cuerpoOriginal);
+          var sinCambios = arr.ordenInicial && arr.ordenInicial.length === filasOrden.length &&
+            arr.ordenInicial.every(function(r, idx) { return r === filasOrden[idx]; });
+          if (filasOrden.length > 1 && !sinCambios) {
+            filasOrden.forEach(function(row, i) {
+              var tt = TAR.tareas.find(function(x) { return x.row === row; });
+              if (tt) tt.orden = i + 1; // optimista
+            });
+            tarPintar();
+            google.script.run
+              .withSuccessHandler(function(r) {
+                if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); loadTareas(); }
+              })
+              .withFailureHandler(function(err) {
+                tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+                loadTareas();
+              })
+              .reorderTasksInCategorySafe({ categoria: t.categoria, filas: filasOrden });
+          }
         }
       } else if (fueArrastre && arr.tipo === 'col') {
         var board2 = tarEl('tarBoard');

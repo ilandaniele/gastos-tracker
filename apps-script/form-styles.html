@@ -410,7 +410,12 @@
   .task-card { background: white; border-radius: 10px; border: 1px solid #e5e7eb; border-left: 5px solid #94a3b8;
                padding: 11px 13px; display: flex; align-items: flex-start; gap: 10px;
                box-shadow: 0 1px 2px rgba(0,0,0,.04); position: relative;
-               user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+               user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+               transition: opacity 0.15s ease; }
+  /* Mientras se arrastra algo (tarjeta o columna), el cursor es "grabbing" en
+     toda la pantalla — sin esto, al pasar por arriba de texto u otro
+     elemento el cursor volvía a la flecha normal a mitad de un arrastre. */
+  body.tar-arrastrando, body.tar-arrastrando * { cursor: grabbing !important; }
   .task-card .task-text { font-size: 15px; }
   .task-card .task-check { width: 26px; height: 26px; flex: 0 0 26px; }
   .task-card.dragging { opacity: 0.35; }
