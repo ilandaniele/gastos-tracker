@@ -609,7 +609,7 @@
   var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
-              subtareasNuevas: [], subtareasModal: [], completadaModal: false,
+              subtareasNuevas: [], subtareasModal: [],
               impNuevo: 'Media', impModal: 'Media', uiStateAplicado: false,
               filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas(),
               pizarraSubColapsadas: tarCargarSubColapsadas() };
@@ -1582,22 +1582,38 @@
     for (var ki = 0; ki < tmImpBtns.length; ki++) {
       tmImpBtns[ki].classList.toggle('activo', tmImpBtns[ki].getAttribute('data-imp') === TAR.impModal);
     }
-    TAR.completadaModal = !!t.completada;
     tarPintarCompletadaBtn();
     if (tarEl('tarModal')) tarEl('tarModal').classList.add('show');
   }
   // El botón dice la ACCIÓN a tomar (lo que va a pasar si lo tocás), no el
   // estado actual — así "completada" no se puede confundir con "está
-  // marcada como completada" cuando en realidad haría lo contrario.
+  // marcada como completada" cuando en realidad haría lo contrario. A
+  // diferencia del check rápido de la tarjeta (que tacha y la deja en su
+  // lugar), esto es una acción directa: al tocarlo ya manda la tarea a
+  // "Completadas" (o la reabre), sin esperar a que se toque Guardar.
   function tarPintarCompletadaBtn() {
     var b = tarEl('tmCompletadaBtn');
     if (!b) return;
-    b.textContent = TAR.completadaModal ? '↩️ Marcar como pendiente' : '✓ Marcar como completada';
-    b.classList.toggle('activo', TAR.completadaModal);
+    var completada = !!(TAR.editando && TAR.editando.completada);
+    b.textContent = completada ? '↩️ Marcar como pendiente' : '✓ Enviar a completada';
+    b.classList.toggle('activo', completada);
   }
   if (tarEl('tmCompletadaBtn')) tarEl('tmCompletadaBtn').addEventListener('click', function() {
-    TAR.completadaModal = !TAR.completadaModal;
-    tarPintarCompletadaBtn();
+    var t = TAR.editando;
+    if (!t) return;
+    var completadaNueva = !t.completada;
+    tarStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+        tarCerrarModal();
+        tarStatus(completadaNueva ? '✓ Enviada a completadas' : '✓ Reabierta', 'ok');
+        loadTareas();
+      })
+      .withFailureHandler(function(err) {
+        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+      })
+      .toggleTaskSafe({ row: t.row, completada: completadaNueva, archivar: completadaNueva });
   });
   function tarCerrarModal() {
     TAR.editando = null;
@@ -1634,11 +1650,6 @@
       }
     }
     tarStatus('Guardando...', 'loading');
-    // Si tocaron "Marcar como completada/pendiente" en el modal, eso viaja
-    // aparte con toggleTaskSafe (mismo endpoint que usa el check de la
-    // pizarra) — updateTaskEntry no toca esa columna.
-    var completadaCambio = TAR.completadaModal !== !!t.completada;
-    var completadaNueva = TAR.completadaModal;
     // Solo empuja la columna si la importancia CAMBIÓ en esta edición — si
     // no, guardar de nuevo una tarea que ya era "Alta" la seguiría subiendo
     // cada vez, que no es lo que se espera (ver tarMoverCategoriaPorImportancia).
@@ -1647,24 +1658,9 @@
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         if (importanciaCambio) tarMoverCategoriaPorImportancia(payload.categoria, payload.importancia);
-        if (!completadaCambio) {
-          tarCerrarModal();
-          tarStatus('✓ Actualizado', 'ok');
-          loadTareas();
-          return;
-        }
-        google.script.run
-          .withSuccessHandler(function() {
-            tarCerrarModal();
-            tarStatus('✓ Actualizado', 'ok');
-            loadTareas();
-          })
-          .withFailureHandler(function(err) {
-            tarCerrarModal();
-            tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-            loadTareas();
-          })
-          .toggleTaskSafe({ row: t.row, completada: completadaNueva, archivar: true });
+        tarCerrarModal();
+        tarStatus('✓ Actualizado', 'ok');
+        loadTareas();
       })
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
