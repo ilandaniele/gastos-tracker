@@ -611,7 +611,7 @@
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [],
               impNuevo: 'Media', impModal: 'Media', uiStateAplicado: false,
-              filtroTipo: 'Todas', filtroHoy: false, pizarraColapsadas: tarCargarColapsadas(),
+              filtroTipo: 'Todas', filtroHoy: false, ordenFechaCitas: 'asc', pizarraColapsadas: tarCargarColapsadas(),
               pizarraSubColapsadas: tarCargarSubColapsadas() };
   // Orden de importancia para el sorting de la pizarra (ver tarPintar) — más
   // alto va primero. Una tarea vieja sin valor guardado llega como 'Media'
@@ -1136,6 +1136,13 @@
         var items = filtradas.filter(function(t) { return t.categoria === cat; })
           .sort(function(a, b) {
             if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
+            // Viendo solo Citas, el orden por fecha elegido con
+            // tarOrdenFechaBtn manda por sobre todo lo demás — es lo único
+            // que tiene sentido pedir ahí ("¿cuál es primero?").
+            if (TAR.filtroTipo === 'Cita') {
+              var ck = (a.fecha || '9999') + (a.hora || ''), dk = (b.fecha || '9999') + (b.hora || '');
+              return TAR.ordenFechaCitas === 'desc' ? dk.localeCompare(ck) : ck.localeCompare(dk);
+            }
             // Una vez que se arrastró una tarjeta en esta columna, el orden
             // manual (ver reorderTasksInCategorySafe) manda por sobre el
             // automático — hasta entonces, ninguna tarea de la categoría
@@ -1533,6 +1540,10 @@
         b.addEventListener('click', function() {
           TAR.filtroTipo = b.getAttribute('data-filtro-tipo');
           for (var k = 0; k < tipoBtns.length; k++) tipoBtns[k].classList.toggle('activo', tipoBtns[k] === b);
+          // El botón de ordenar por fecha solo tiene sentido viendo solo
+          // Citas (con Tareas mezcladas, la mayoría no tiene fecha) — se
+          // muestra/esconde junto con el filtro, no queda flotando de más.
+          if (tarEl('tarOrdenFechaBtn')) tarEl('tarOrdenFechaBtn').hidden = TAR.filtroTipo !== 'Cita';
           tarPintar();
         });
       })(tipoBtns[i]);
@@ -1543,6 +1554,21 @@
     this.classList.toggle('activo', TAR.filtroHoy);
     tarPintar();
   });
+  // Viendo solo Citas, se puede elegir el orden por fecha (antes primero o
+  // después primero) en vez del criterio de siempre (importancia/orden
+  // manual) — un vistazo típico a "qué citas tengo" quiere la más próxima
+  // arriba, no la más importante.
+  function tarPintarOrdenFechaBtn() {
+    var b = tarEl('tarOrdenFechaBtn');
+    if (!b) return;
+    b.textContent = TAR.ordenFechaCitas === 'desc' ? '📅 Fecha: más lejos primero' : '📅 Fecha: más cerca primero';
+  }
+  if (tarEl('tarOrdenFechaBtn')) tarEl('tarOrdenFechaBtn').addEventListener('click', function() {
+    TAR.ordenFechaCitas = TAR.ordenFechaCitas === 'desc' ? 'asc' : 'desc';
+    tarPintarOrdenFechaBtn();
+    tarPintar();
+  });
+  tarPintarOrdenFechaBtn();
 
   function tarAbrirModal(row) {
     var t = TAR.tareas.find(function(x) { return x.row === row; });
