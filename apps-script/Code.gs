@@ -3740,7 +3740,10 @@ function deleteSavingsEntry(p) {
 
 const ARG_TITLE = '🇦🇷 ARGENTINA';
 const ARG_HEADERS = ['Fecha', 'Tipo', 'Detalle', 'USD', 'Cotización', 'ARS', 'De quién', 'Categoría'];
-const ARG_TIPOS = ['Carga', 'Gasto', 'Pago'];
+// Transferencia: plata que te mandó un tercero (un amigo, no mamá) desde
+// afuera — no es un gasto ni mueve la deuda con mamá para ningún lado, queda
+// aparte como algo que tenés a favor (ver _argTotales/recibidoUsd).
+const ARG_TIPOS = ['Carga', 'Gasto', 'Pago', 'Transferencia'];
 const ARG_QUIENES = ['Mía', 'Mamá'];
 const ARG_NEW_TITLE_ROW = 1;   // solo para bloques nuevos; los existentes se buscan
 const ARG_MAX_ROWS = 300;
@@ -3861,7 +3864,7 @@ function _argRows(sheet, blk) {
 // romper meses viejos que las tengan cargadas.
 function _argTotales(entradas, deudaAntesOpt) {
   const deudaAntes = Math.round((toNumber(deudaAntesOpt) || 0) * 100) / 100;
-  let gastadoArs = 0, gastadoUsd = 0, mamaUsd = 0, mioUsd = 0, pagadoUsd = 0;
+  let gastadoArs = 0, gastadoUsd = 0, mamaUsd = 0, mioUsd = 0, pagadoUsd = 0, recibidoUsd = 0;
   for (const e of entradas) {
     const t = _stripAccents(e.tipo).toLowerCase();
     const esMama = _stripAccents(e.quien).toLowerCase().indexOf('mama') >= 0;
@@ -3873,6 +3876,10 @@ function _argTotales(entradas, deudaAntesOpt) {
       if (esMama) mamaUsd += e.usd || 0; else mioUsd += e.usd || 0;
     } else if (t === 'pago') {
       pagadoUsd += e.usd || 0;
+    } else if (t === 'transferencia') {
+      // Plata de un tercero, no de mamá — no toca mamaUsd/pagadoUsd/deudaUsd,
+      // solo se acumula aparte para mostrarla (ver ARG_LBL_RECIBIDO).
+      recibidoUsd += e.usd || 0;
     }
   }
   const r2 = n => Math.round(n * 100) / 100;
@@ -3882,6 +3889,7 @@ function _argTotales(entradas, deudaAntesOpt) {
     pusoMamaUsd: r2(mamaUsd),
     pusoMioUsd: r2(mioUsd),
     pagadoUsd: r2(pagadoUsd),
+    recibidoUsd: r2(recibidoUsd),
     deudaAntesUsd: deudaAntes,
     deudaUsd: r2(deudaAntes + mamaUsd - pagadoUsd)
   };
@@ -3892,7 +3900,7 @@ function _argTotales(entradas, deudaAntesOpt) {
 // código la lee y nunca la pisa.
 const ARG_LBL_DEUDA_ANTES = 'Deuda de antes (USD)';
 const ARG_TOTAL_LABELS = ['Gasté (ARS)', 'Gasté (USD)', ARG_LBL_DEUDA_ANTES,
-                          'Le debo a mamá (USD)', 'Puse de lo mío (USD)'];
+                          'Le debo a mamá (USD)', 'Puse de lo mío (USD)', 'Me transfirieron (USD)'];
 const ARG_IDX_DEUDA_ANTES = ARG_TOTAL_LABELS.indexOf(ARG_LBL_DEUDA_ANTES);
 
 // Cuántas filas de totales entran entre el título y el header. En bloques que
@@ -3926,7 +3934,7 @@ function _argEscribirEtiquetas(sheet, blk) {
 
 function _argPintarTotales(sheet, blk, t) {
   _argEscribirEtiquetas(sheet, blk);
-  const valores = [t.gastadoArs, t.gastadoUsd, t.deudaUsd, t.pusoMioUsd];
+  const valores = [t.gastadoArs, t.gastadoUsd, t.deudaUsd, t.pusoMioUsd, t.recibidoUsd];
   // Se escriben todas menos "Deuda de antes", que es del usuario
   const n = _argFilasTotales(blk);
   let vi = 0;
@@ -3969,11 +3977,14 @@ function getArgentinaData(monthOpt) {
 // - Pago:  lo que le devolviste a mamá — en USD directo, o en ARS + cotización
 //          (los USD salen de dividir, igual que un Gasto). La deuda se lleva
 //          siempre en USD, así que acá también hace falta convertir.
+// - Transferencia: plata que te mandó un tercero desde afuera (no mamá) — se
+//          carga igual que un Pago (USD directo o ARS+cotización) pero no
+//          mueve la deuda con mamá para ningún lado (ver _argTotales).
 // - Carga: legacy, ya no se ofrece en la app.
 function addArgentinaEntry(p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = ARG_TIPOS.find(t => _stripAccents(t).toLowerCase() === _stripAccents(tipoRaw).toLowerCase());
-  if (!tipo) throw new Error('Tipo inválido: usá Carga, Gasto o Pago');
+  if (!tipo) throw new Error('Tipo inválido: usá Carga, Gasto, Pago o Transferencia');
 
   const num = v => (v === undefined || v === '' || v === null) ? null : toNumber(String(v).replace(',', '.'));
   let usd = num(p.usd), cotiz = num(p.cotiz), ars = num(p.ars);
@@ -3987,13 +3998,17 @@ function addArgentinaEntry(p) {
     if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
     if (usd == null) usd = Math.round((ars / cotiz) * 100) / 100;
   } else {
-    // Pago: si mandaron pesos, esos mandan (recalcula los USD); si no, el
-    // USD que hayan puesto directo.
+    // Pago y Transferencia: si mandaron pesos, esos mandan (recalcula los
+    // USD); si no, el USD que hayan puesto directo.
     if (ars != null && ars > 0) {
       if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
       usd = Math.round((ars / cotiz) * 100) / 100;
     }
-    if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto, en pesos (+ cotización) o en USD');
+    if (usd == null || usd <= 0) {
+      throw new Error(tipo === 'Pago'
+        ? 'Un pago necesita el monto, en pesos (+ cotización) o en USD'
+        : 'Una transferencia necesita el monto, en pesos (+ cotización) o en USD');
+    }
   }
 
   const fecha = p.fecha || Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
@@ -4062,20 +4077,20 @@ function updateArgentinaEntry(p) {
     : String(cur[1]);
 
   let usd, cotiz, ars;
-  // Un pago manda la moneda elegida de forma explícita (p.monedaPago, ver
-  // cliente): se resuelve entero desde lo que mandaron, sin heredar nada de
-  // la fila vieja — así cambiar de pesos a dólares (o al revés) no deja
-  // pesos/cotización viejos pisando el monto nuevo.
-  if (tipo === 'Pago' && (p.monedaPago === 'ARS' || p.monedaPago === 'USD')) {
+  // Un pago o una transferencia mandan la moneda elegida de forma explícita
+  // (p.monedaPago, ver cliente): se resuelve entero desde lo que mandaron,
+  // sin heredar nada de la fila vieja — así cambiar de pesos a dólares (o al
+  // revés) no deja pesos/cotización viejos pisando el monto nuevo.
+  if ((tipo === 'Pago' || tipo === 'Transferencia') && (p.monedaPago === 'ARS' || p.monedaPago === 'USD')) {
     if (p.monedaPago === 'ARS') {
       ars = num(p.ars);
       cotiz = num(p.cotiz);
-      if (ars == null || ars <= 0) throw new Error('Un pago necesita el monto en pesos');
+      if (ars == null || ars <= 0) throw new Error('Falta el monto en pesos');
       if (cotiz == null || cotiz <= 0) throw new Error('Falta la cotización del dólar');
       usd = Math.round((ars / cotiz) * 100) / 100;
     } else {
       usd = num(p.usd);
-      if (usd == null || usd <= 0) throw new Error('Un pago necesita el monto en USD');
+      if (usd == null || usd <= 0) throw new Error('Falta el monto en USD');
       ars = null;
       cotiz = null;
     }

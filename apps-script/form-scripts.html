@@ -4103,18 +4103,19 @@
 
     var esGasto = (t === 'Gasto');
     var esPago = (t === 'Pago');
+    var esTransferencia = (t === 'Transferencia');
+    var usaMoneda = esPago || esTransferencia; // ambos se anotan en pesos o en dólares directo
     var show = function(id, on) { var e = hEl(id); if (e) e.style.display = on ? '' : 'none'; };
-    // Un pago también se puede anotar en pesos (ver ARG.monedaPago) — el
-    // gasto siempre es en pesos, así que a él ni le pregunta.
-    var enArs = esGasto || (esPago && ARG.monedaPago !== 'USD');
-    show('argCampoMonedaPago', esPago);
+    // El gasto siempre es en pesos, así que a él ni le pregunta la moneda.
+    var enArs = esGasto || (usaMoneda && ARG.monedaPago !== 'USD');
+    show('argCampoMonedaPago', usaMoneda);
     show('argCampoArs', enArs);              // pesos + cotización
-    show('argCampoUsd', esPago && ARG.monedaPago === 'USD');  // dólares directo
+    show('argCampoUsd', usaMoneda && ARG.monedaPago === 'USD');  // dólares directo
     show('argCampoCat', esGasto);
-    show('argCampoQuien', esGasto);   // un pago siempre es a mamá
+    show('argCampoQuien', esGasto);   // un pago siempre es a mamá; una transferencia no es de nadie
     show('argCampoDetalle', true);
     var d = hEl('argDetalle');
-    if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : 'ej: le transferí';
+    if (d) d.placeholder = esGasto ? '¿En qué gastaste?' : (esTransferencia ? '¿Quién te transfirió?' : 'ej: le transferí');
     var b = hEl('argAdd');
     if (b) b.textContent = esGasto ? 'Guardar gasto' : 'Guardar';
 
@@ -4122,7 +4123,9 @@
     if (hint) {
       hint.textContent = esGasto
         ? 'Pagaste algo en pesos. Con la cotización se anota cuántos dólares fueron.'
-        : 'Le diste plata a tu madre. Baja lo que le debés.';
+        : (esTransferencia
+          ? 'Plata que te mandó alguien desde afuera — no es un gasto ni mueve la deuda con mamá, queda a tu favor.'
+          : 'Le diste plata a tu madre. Baja lo que le debés.');
     }
     argCalc();
   }
@@ -4157,7 +4160,7 @@
   function argCalc() {
     var el = hEl('argCalc');
     if (!el) return;
-    var enArs = ARG.tipo === 'Gasto' || (ARG.tipo === 'Pago' && ARG.monedaPago !== 'USD');
+    var enArs = ARG.tipo === 'Gasto' || ((ARG.tipo === 'Pago' || ARG.tipo === 'Transferencia') && ARG.monedaPago !== 'USD');
     if (!enArs) { el.textContent = ''; return; }
     var a = nArg(hEl('argArs') && hEl('argArs').value);
     var c = nArg(hEl('argCotiz') && hEl('argCotiz').value);
@@ -4198,6 +4201,11 @@
     set('argMio',      fmtUsd(t.pusoMioUsd));
     set('argMama',     fmtUsd(t.pusoMamaUsd));
     set('argPagado',   fmtUsd(t.pagadoUsd));
+    // Plata de terceros — solo aparece si hay algo, igual que la deuda de
+    // antes: en un mes sin transferencias es ruido.
+    set('argRecibido', fmtUsd(t.recibidoUsd));
+    var rowRecibido = hEl('argRowRecibido');
+    if (rowRecibido) rowRecibido.style.display = (t.recibidoUsd || 0) ? '' : 'none';
     // La deuda arrastrada solo aparece si existe; en un mes que arranca de cero
     // es ruido.
     set('argAntes',    fmtUsd(t.deudaAntesUsd));
@@ -4229,9 +4237,10 @@
       var tipoL = e.tipo.toLowerCase();
       // El sheet guarda Carga/Gasto/Pago; en pantalla se muestran en primera
       // persona, que es como el usuario piensa lo que hizo.
-      var etiqueta = tipoL === 'carga' ? 'Cambié' : (tipoL === 'pago' ? 'Le di' : 'Gasté');
-      var monto = (tipoL === 'pago') ? fmtUsd(e.usd) : fmtArs(e.ars);
-      var extra = (tipoL !== 'pago' && e.usd) ? (' · ' + fmtUsd(e.usd)) : '';
+      var esUsdDirecto = tipoL === 'pago' || tipoL === 'transferencia';
+      var etiqueta = tipoL === 'carga' ? 'Cambié' : (tipoL === 'pago' ? 'Le di' : (tipoL === 'transferencia' ? 'Me transfirieron' : 'Gasté'));
+      var monto = esUsdDirecto ? fmtUsd(e.usd) : fmtArs(e.ars);
+      var extra = (!esUsdDirecto && e.usd) ? (' · ' + fmtUsd(e.usd)) : '';
       var fecha = e.fecha ? e.fecha.slice(8) + '/' + e.fecha.slice(5, 7) : '';
       html += '<div class="argmov" data-row="' + e.row + '">' +
         '<span class="at ' + tipoL + '">' + etiqueta + '</span>' +
@@ -4266,19 +4275,33 @@
       payload.cotiz = c;
       payload.quien = ARG.quien;
       payload.categoria = (hEl('argCat') && hEl('argCat').value) || '';
-    } else if (ARG.monedaPago === 'USD') {
-      var u = nArg(hEl('argUsd') && hEl('argUsd').value);
-      if (!u) { argStatus('¿Cuántos dólares le diste?', 'err'); return; }
-      payload.usd = u;
+    } else if (ARG.tipo === 'Pago') {
+      if (ARG.monedaPago === 'USD') {
+        var u = nArg(hEl('argUsd') && hEl('argUsd').value);
+        if (!u) { argStatus('¿Cuántos dólares le diste?', 'err'); return; }
+        payload.usd = u;
+      } else {
+        var a2 = nArg(hEl('argArs') && hEl('argArs').value);
+        if (!a2) { argStatus('¿Cuántos pesos le diste?', 'err'); return; }
+        var c2 = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+        if (!c2) { argStatus('Falta la cotización del dólar', 'err'); return; }
+        payload.ars = a2;
+        payload.cotiz = c2;
+      }
       payload.quien = 'Mamá';
-    } else {
-      var a2 = nArg(hEl('argArs') && hEl('argArs').value);
-      if (!a2) { argStatus('¿Cuántos pesos le diste?', 'err'); return; }
-      var c2 = nArg(hEl('argCotiz') && hEl('argCotiz').value);
-      if (!c2) { argStatus('Falta la cotización del dólar', 'err'); return; }
-      payload.ars = a2;
-      payload.cotiz = c2;
-      payload.quien = 'Mamá';
+    } else { // Transferencia
+      if (ARG.monedaPago === 'USD') {
+        var u2 = nArg(hEl('argUsd') && hEl('argUsd').value);
+        if (!u2) { argStatus('¿Cuántos dólares te transfirieron?', 'err'); return; }
+        payload.usd = u2;
+      } else {
+        var a3 = nArg(hEl('argArs') && hEl('argArs').value);
+        if (!a3) { argStatus('¿Cuántos pesos te transfirieron?', 'err'); return; }
+        var c3 = nArg(hEl('argCotiz') && hEl('argCotiz').value);
+        if (!c3) { argStatus('Falta la cotización del dólar', 'err'); return; }
+        payload.ars = a3;
+        payload.cotiz = c3;
+      }
     }
     argStatus('Guardando...', 'loading');
     google.script.run
@@ -4290,7 +4313,8 @@
             var e = hEl(id); if (e) e.value = '';
           });
           argCalc();
-          var dicho = ARG.tipo === 'Pago' ? 'Anotado: le diste plata a tu madre' : 'Gasto guardado';
+          var dicho = ARG.tipo === 'Pago' ? 'Anotado: le diste plata a tu madre'
+            : (ARG.tipo === 'Transferencia' ? 'Anotado: te transfirieron plata' : 'Gasto guardado');
           argStatus('✓ ' + dicho, 'ok');
           loadArg();
         } else { argStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
@@ -4307,16 +4331,17 @@
     ARG.editRow = row;
     ARG.editTipo = e.tipo || 'Gasto';
     ARG.editQuien = (String(e.quien || '').toLowerCase().indexOf('mam') >= 0) ? 'Mamá' : 'Mía';
-    var esPago = String(e.tipo || '').toLowerCase() === 'pago';
-    // Un pago viejo puede estar en pesos (tiene ars) o en dólares directo
-    // (no tiene ars) — se adivina la moneda con la que se cargó para abrir
-    // en el campo correcto.
+    var tipoLE = String(e.tipo || '').toLowerCase();
+    var usaMonedaE = tipoLE === 'pago' || tipoLE === 'transferencia';
+    // Un pago o transferencia viejos pueden estar en pesos (tiene ars) o en
+    // dólares directo (no tiene ars) — se adivina la moneda con la que se
+    // cargó para abrir en el campo correcto.
     ARG.editMoneda = (e.ars != null && e.ars > 0) ? 'ARS' : 'USD';
     var showM = function(id, on) { var el = hEl(id); if (el) el.style.display = on ? '' : 'none'; };
-    showM('agCampoMonedaPago', esPago);
-    showM('agCampoQuien', !esPago);
-    showM('agCampoArs', !esPago || ARG.editMoneda === 'ARS');
-    showM('agCampoUsd', esPago && ARG.editMoneda === 'USD');
+    showM('agCampoMonedaPago', usaMonedaE);
+    showM('agCampoQuien', !usaMonedaE);
+    showM('agCampoArs', !usaMonedaE || ARG.editMoneda === 'ARS');
+    showM('agCampoUsd', usaMonedaE && ARG.editMoneda === 'USD');
     var ms = document.querySelectorAll('.agmoneda');
     for (var m = 0; m < ms.length; m++) ms[m].classList.toggle('activo', ms[m].getAttribute('data-moneda') === ARG.editMoneda);
     var qs = document.querySelectorAll('.agquien');
@@ -4393,10 +4418,10 @@
         ars:   (hEl('agArs')   && hEl('agArs').value.trim())   || '',
         quien: ARG.editQuien || '',
         fecha: (hEl('agFecha') && hEl('agFecha').value) || '',
-        // Le dice al server con qué moneda quedarse — si no, un pago que
-        // tenía pesos+cotización viejos podría pisar un dólar nuevo (o
-        // viceversa). Ver updateArgentinaEntry.
-        monedaPago: ARG.editTipo === 'Pago' ? ARG.editMoneda : undefined
+        // Le dice al server con qué moneda quedarse — si no, un pago o
+        // transferencia que tenía pesos+cotización viejos podría pisar un
+        // dólar nuevo (o viceversa). Ver updateArgentinaEntry.
+        monedaPago: (ARG.editTipo === 'Pago' || ARG.editTipo === 'Transferencia') ? ARG.editMoneda : undefined
       });
   });
 
