@@ -961,6 +961,42 @@
   </div>
 </div>
 
+<!-- MODAL EDITAR GASTO -->
+<div id="expModal">
+  <div class="hmodal-box">
+    <h3>Editar gasto</h3>
+    <label class="hlabel">Ítem</label>
+    <input type="text" id="expItem" autocomplete="off">
+    <div class="row">
+      <div><label class="hlabel">Monto</label><input type="text" id="expAmount" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
+      <div><label class="hlabel">Medio de pago</label>
+        <select id="expCard">
+          <option>Débito UYU</option>
+          <option>Crédito OCA</option>
+          <option>Crédito Itaú UYU</option>
+          <option>Crédito Itaú USD</option>
+          <option>Débito USD</option>
+          <option>Efectivo UYU</option>
+          <option>Efectivo USD</option>
+        </select>
+      </div>
+    </div>
+    <label class="hlabel">Categoría</label>
+    <select id="expCat"><?!= categoryOptions ?></select>
+    <div class="row">
+      <div><label class="hlabel">Fecha</label><input type="date" id="expFecha"></div>
+      <div><label class="hlabel">Cotización USD</label><input type="text" id="expCotiz" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="opcional" autocomplete="off"></div>
+    </div>
+    <label class="hlabel">Notas</label>
+    <input type="text" id="expNotas" autocomplete="off">
+    <div class="hmodal-actions">
+      <button type="button" id="expDelete" class="hdanger">Borrar</button>
+      <button type="button" id="expCancel" class="hsecondary">Cancelar</button>
+      <button type="button" id="expSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div id="loadingOverlay">
   <div class="spinner"></div>
   <div class="spinner-text" id="loadingText">Guardando...</div>

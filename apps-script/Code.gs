@@ -1302,13 +1302,18 @@ function getDashboardData() {
     const headerRow = findHeaderRow(range);
     const headers = headerRow >= 0 ? range[headerRow].map(h => String(h || '').trim()) : [];
     const cardCols = []; // {col: idx, name: header}
-    let cotizCol = -1, catCol = -1;
+    let cotizCol = -1, catCol = -1, fechaCol = -1;
     for (let c = 1; c < headers.length; c++) {
       const h = headers[c];
       if (/cotizaci[oó]n/i.test(h)) { cotizCol = c; continue; }
       if (/categor/i.test(h)) { catCol = c; continue; }
+      if (/^fecha$/i.test(h)) { fechaCol = c; continue; }
       if (h && !/lugar|notas|notes/i.test(h)) cardCols.push({ col: c, name: h });
     }
+    // Notas: por convención se escribe justo después de Categoría (ver
+    // _doAddExpense/updateExpenseEntry), no por nombre de header — así de
+    // cargado está en el sheet.
+    const notesCol = catCol >= 0 ? catCol + 1 : -1;
 
     // 3. Walk variable rows until boundary
     const varRows = [];
@@ -1338,12 +1343,19 @@ function getDashboardData() {
           if (isFinite(c) && c > 20) lastCotiz = c;
         }
         if (rowAmount) {
+          const fechaVal = fechaCol >= 0 ? range[i][fechaCol] : null;
+          const rowCotiz = cotizCol >= 0 ? toNumber(range[i][cotizCol]) : null;
           varRows.push({
+            row: i + 1, // 1-indexed: fila real de la hoja, para editar/borrar
             item: cellA,
             amount: rowAmount,
             currency: rowCurrency,
             card: rowCardName,
-            category: catCol >= 0 ? String(range[i][catCol] || '').trim() : ''
+            category: catCol >= 0 ? String(range[i][catCol] || '').trim() : '',
+            fecha: fechaVal instanceof Date && !isNaN(fechaVal.getTime())
+              ? Utilities.formatDate(fechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
+            cotizacion: rowCotiz,
+            notas: notesCol >= 0 ? String(range[i][notesCol] || '').trim() : ''
           });
         }
       }
@@ -1404,8 +1416,11 @@ function getDashboardData() {
     }
     const byCard = Object.values(cardSums).sort((a, b) => b.amount - a.amount);
 
-    // 7. Last 8 expenses (reverse order)
-    const recent = varRows.slice(-8).reverse();
+    // 7. Todos los gastos variables del mes, más reciente primero — se
+    // muestran en el dashboard como una lista para ver/editar/borrar
+    // cualquiera (ver renderDashboard/abrirExpModal en el cliente), no solo
+    // los últimos.
+    const expenses = varRows.slice().reverse();
 
     return {
       ok: true,
@@ -1424,7 +1439,7 @@ function getDashboardData() {
       },
       byCategory: byCategory,
       byCard: byCard,
-      recent: recent
+      expenses: expenses
     };
   } catch (err) {
     Logger.log('getDashboardData error: ' + err.message);
@@ -1677,6 +1692,106 @@ function deleteExpenseRow(p) {
     lock.releaseLock();
   }
   return { ok: true, tab: tabName, row: row, deleted: actual };
+}
+function deleteExpenseSafe(data) {
+  try { return deleteExpenseRow(data || {}); }
+  catch (err) { Logger.log('deleteExpenseSafe: ' + err.message); return { ok: false, error: err.message }; }
+}
+
+// Edita un gasto YA CARGADO de la tabla variable (no toca la tabla fija — un
+// gasto fijo se "edita" simplemente re-cargándolo, que pisa la celda en el
+// lugar, ver _doAddExpense). p: { row, month, expectedItem, item, amount,
+// card, category, date, cotizacion, notes }. expectedItem es la misma
+// verificación de seguridad que deleteExpenseRow: un número de fila
+// desincronizado (otra pestaña ya movió/borró filas) no debe pisar un gasto
+// que no es el que el usuario tiene en pantalla.
+function updateExpenseEntry(p) {
+  const row = parseInt(p.row, 10);
+  if (!isFinite(row)) throw new Error('Fila inválida');
+  const expectedItem = String(p.expectedItem || '').trim();
+  if (!expectedItem) throw new Error('Falta el ítem esperado (seguridad)');
+  const item = String(p.item || '').trim();
+  const amt = toNumber(p.amount);
+  if (!item || amt === null || amt <= 0) throw new Error('Faltan campos requeridos o monto inválido');
+  const card = String(p.card || '').trim();
+  if (!card) throw new Error('Falta el medio de pago');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabName = p.month || currentMonthTab();
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('No existe la hoja "' + tabName + '"');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const range = sheet.getDataRange().getValues();
+    const headerRow = findHeaderRow(range);
+    if (headerRow < 0) throw new Error('No se encontró la tabla variable');
+    const primera = headerRow + 2;
+    if (row < primera) throw new Error('Esa fila no es de la tabla variable');
+
+    const actual = String(range[row - 1][0] || '').trim();
+    if (_stripAccents(actual) !== _stripAccents(expectedItem)) {
+      throw new Error('La fila ' + row + ' dice "' + actual + '", no "' + expectedItem + '" — recargá e intentá de nuevo');
+    }
+
+    // Mismo orden que _doAddExpense: resolver (y de ser necesario CREAR) la
+    // columna de la tarjeta ANTES de buscar cotización/categoría — si
+    // ensureCardColumn inserta una columna física, muta este mismo array
+    // `headers` en el lugar, así los índices que se calculan después ya
+    // quedan corridos para el layout nuevo.
+    const headers = range[headerRow].map(h => String(h || '').trim());
+    const targetCard = _stripAccents(card);
+    let cardCol = headers.findIndex(h => _stripAccents(h) === targetCard);
+    if (cardCol < 0) {
+      if (!CARDS.some(c => _stripAccents(c) === targetCard)) {
+        throw new Error('Medio de pago "' + card + '" no encontrado');
+      }
+      cardCol = ensureCardColumn(sheet, headers, headerRow + 1, card);
+    }
+    const cotizCol = headers.findIndex(h => /cotizaci[oó]n/i.test(h));
+    const catCol = headers.findIndex(h => /categor/i.test(h));
+    const notesCol = catCol >= 0 ? catCol + 1 : -1;
+    const dateCol = ensureDateColumn(sheet, headers, headerRow + 1);
+
+    // Si cambió el medio de pago, hay que vaciar la celda VIEJA — si no, el
+    // gasto quedaría contado dos veces (una en la columna nueva, otra en la
+    // vieja que nadie tocó). Se relee la fila FRESCA (no la del `range` de
+    // arriba) porque ensureCardColumn puede haber corrido las columnas.
+    const numCols = headers.length;
+    const rowValsNow = sheet.getRange(row, 1, 1, numCols).getValues()[0];
+    for (let c = 1; c < numCols; c++) {
+      if (c === cardCol || c === cotizCol || c === catCol || c === notesCol || c === dateCol) continue;
+      const h = headers[c];
+      if (!h || /lugar|notas|notes/i.test(h)) continue;
+      const v = rowValsNow[c];
+      if (typeof v === 'number' && v !== 0) sheet.getRange(row, c + 1).setValue('');
+    }
+
+    sheet.getRange(row, 1).setValue(item);
+    sheet.getRange(row, cardCol + 1).setValue(amt);
+    const cotiz = toNumber(p.cotizacion);
+    if (cotizCol >= 0) sheet.getRange(row, cotizCol + 1).setValue(cotiz != null ? cotiz : '');
+    if (catCol >= 0) sheet.getRange(row, catCol + 1).setValue(String(p.category || '').trim());
+    if (notesCol >= 0) sheet.getRange(row, notesCol + 1).setValue(String(p.notes || '').trim());
+    if (dateCol >= 0 && p.date) {
+      const dateObj = parseLocalDate(p.date);
+      if (dateObj && !isNaN(dateObj.getTime())) {
+        sheet.getRange(row, dateCol + 1).setValue(dateObj).setNumberFormat('dd/MM/yyyy');
+      }
+    }
+    SpreadsheetApp.flush();
+    return {
+      ok: true, tab: tabName, row: row,
+      written: { item: item, amount: amt, card: card, category: p.category || '', cotizacion: cotiz, notes: p.notes || '', date: p.date || '' }
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function updateExpenseSafe(data) {
+  try { return updateExpenseEntry(data || {}); }
+  catch (err) { Logger.log('updateExpenseSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
 
 // Total de la tabla fija. Prioridad a la fila "Total fijos" de la propia hoja:

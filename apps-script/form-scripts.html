@@ -415,6 +415,12 @@
 
   // === Tabs ===
   var dashLoadedOnce = false;
+  // Gastos del mes mostrados en el dashboard (ver renderDashboard) — se
+  // guardan para poder abrir el modal de editar/borrar sin pedirle la lista
+  // de nuevo al server.
+  var DASH_EXPENSES = [];
+  var DASH_TAB = '';
+  var DASH_EDIT_ROW = null;
   function switchTab(panelId) {
     var tabs = document.querySelectorAll('.tab');
     for (var i = 0; i < tabs.length; i++) {
@@ -2803,18 +2809,108 @@
       html += '</div></div>';
     }
 
-    // Últimos gastos
-    if (data.recent && data.recent.length) {
-      html += '<div class="dash-section"><h2>Últimos gastos</h2><div class="dash-list">';
-      for (var r = 0; r < data.recent.length; r++) {
-        var e = data.recent[r];
-        html += '<div class="dash-list-row"><div style="flex:1;min-width:0"><div class="name">' + e.item + '</div><div class="sub">' + (e.card || '') + (e.category ? ' · ' + e.category : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
+    // Gastos del mes — todos, no solo los últimos (ver Code.gs getDashboardData
+    // /expenses), tocando uno se abre para editarlo o borrarlo, mismo patrón
+    // que "Movimientos" en Argentina (ver abrirArgModal).
+    DASH_EXPENSES = data.expenses || [];
+    DASH_TAB = data.tab || '';
+    if (DASH_EXPENSES.length) {
+      html += '<div class="dash-section"><h2>Gastos del mes <span class="hhint">tocá uno para editarlo</span></h2><div class="dash-list">';
+      for (var r = 0; r < DASH_EXPENSES.length; r++) {
+        var e = DASH_EXPENSES[r];
+        var fechaCorta = e.fecha ? esc(e.fecha.slice(8) + '/' + e.fecha.slice(5, 7)) : '';
+        html += '<div class="dash-list-row editable" data-row="' + e.row + '"><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + esc(e.card || '') + (e.category ? ' · ' + esc(e.category) : '') + (fechaCorta ? ' · ' + fechaCorta : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
       }
       html += '</div></div>';
     }
 
     content.innerHTML = html;
+    var expRows = content.querySelectorAll('.dash-list-row.editable');
+    for (var er = 0; er < expRows.length; er++) {
+      (function(el) {
+        el.addEventListener('click', function() { abrirExpModal(parseInt(el.getAttribute('data-row'), 10)); });
+      })(expRows[er]);
+    }
   }
+
+  // ---- Editar / borrar un gasto (ver DASH_EXPENSES, cargado en renderDashboard) ----
+  function abrirExpModal(row) {
+    var e = null;
+    for (var i = 0; i < DASH_EXPENSES.length; i++) if (DASH_EXPENSES[i].row === row) { e = DASH_EXPENSES[i]; break; }
+    if (!e) return;
+    DASH_EDIT_ROW = row;
+    if (hEl('expItem'))   hEl('expItem').value   = e.item || '';
+    if (hEl('expAmount')) hEl('expAmount').value = e.amount != null ? e.amount : '';
+    if (hEl('expCard'))   hEl('expCard').value   = e.card || 'Débito UYU';
+    if (hEl('expCat'))    hEl('expCat').value    = e.category || '';
+    if (hEl('expFecha'))  hEl('expFecha').value  = e.fecha || '';
+    if (hEl('expCotiz'))  hEl('expCotiz').value  = e.cotizacion != null ? e.cotizacion : '';
+    if (hEl('expNotas'))  hEl('expNotas').value  = e.notas || '';
+    if (hEl('expModal'))  hEl('expModal').classList.add('show');
+  }
+  function cerrarExpModal() {
+    DASH_EDIT_ROW = null;
+    if (hEl('expModal')) hEl('expModal').classList.remove('show');
+  }
+  if (hEl('expCancel')) hEl('expCancel').addEventListener('click', cerrarExpModal);
+  if (hEl('expModal')) hEl('expModal').addEventListener('click', function(ev) {
+    if (ev.target === hEl('expModal')) cerrarExpModal();
+  });
+
+  if (hEl('expSave')) hEl('expSave').addEventListener('click', function() {
+    if (DASH_EDIT_ROW == null) return;
+    var e = null;
+    for (var i = 0; i < DASH_EXPENSES.length; i++) if (DASH_EXPENSES[i].row === DASH_EDIT_ROW) { e = DASH_EXPENSES[i]; break; }
+    if (!e) return;
+    var item = (hEl('expItem') && hEl('expItem').value.trim()) || '';
+    if (!item) { setStatus('Falta el ítem', 'err'); return; }
+    // normDec (no nArg, que es de la pantalla de Argentina y asume puntos de
+    // miles): acá el monto usa el mismo formato decimal simple que el
+    // formulario de Agregar (ver fillQuick/normDec).
+    var amount = parseFloat(normDec(hEl('expAmount') && hEl('expAmount').value)) || 0;
+    if (!amount) { setStatus('¿Cuánto fue?', 'err'); return; }
+    setStatus('Guardando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          cerrarExpModal();
+          setStatus('✓ Actualizado', 'ok');
+          loadDashboard();
+        } else { setStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { setStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .updateExpenseSafe({
+        row: DASH_EDIT_ROW,
+        month: DASH_TAB,
+        expectedItem: e.item,
+        item: item,
+        amount: amount,
+        card: (hEl('expCard') && hEl('expCard').value) || '',
+        category: (hEl('expCat') && hEl('expCat').value) || '',
+        date: (hEl('expFecha') && hEl('expFecha').value) || '',
+        cotizacion: normDec(hEl('expCotiz') && hEl('expCotiz').value),
+        notes: (hEl('expNotas') && hEl('expNotas').value.trim()) || ''
+      });
+  });
+
+  if (hEl('expDelete')) hEl('expDelete').addEventListener('click', function() {
+    if (DASH_EDIT_ROW == null) return;
+    var e = null;
+    for (var i = 0; i < DASH_EXPENSES.length; i++) if (DASH_EXPENSES[i].row === DASH_EDIT_ROW) { e = DASH_EXPENSES[i]; break; }
+    if (!e) return;
+    if (!confirm('¿Borrar "' + e.item + '"?')) return;
+    setStatus('Borrando...', 'loading');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) {
+          cerrarExpModal();
+          setStatus('✓ Borrado: ' + r.deleted, 'ok');
+          loadDashboard();
+        } else { setStatus('✗ ' + ((r && r.error) || 'error'), 'err'); }
+      })
+      .withFailureHandler(function(err) { setStatus('✗ ' + (err && err.message ? err.message : err), 'err'); })
+      .deleteExpenseSafe({ row: DASH_EDIT_ROW, month: DASH_TAB, item: e.item });
+  });
 
 
   // ==========================================================
