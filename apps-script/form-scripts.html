@@ -2062,6 +2062,7 @@
   // modal) como suspendido — mismo criterio que catToggleSuspendida pero a
   // nivel de sub-grupo, ver toggleTaskSubcategorySuspended en el server.
   function catToggleSubcatSuspendida(categoria, subcategoria, nuevoValor) {
+    if (nuevoValor && !confirm('¿Suspender "' + subcategoria + '"? Sale de "Hacer" y pasa a Suspendidos.')) return;
     var clave = categoria + '|' + subcategoria;
     var prev = TAR.subcatSuspendidas.slice();
     if (nuevoValor) {
@@ -2200,6 +2201,9 @@
   // propia sección, siempre colapsada (ver #tarBoardSuspendidas en tarPintar).
   // Mutuamente excluyente con completada.
   function catToggleSuspendida(nombre, nuevoValor) {
+    // Confirmación solo al suspender, no al reanudar (esa es la dirección
+    // "segura", no hace falta frenarla).
+    if (nuevoValor && !confirm('¿Suspender el proyecto "' + nombre + '"? Sale de "Hacer" y pasa a Suspendidos.')) return;
     var prevSusp = TAR.categoriaSuspendidas.slice();
     var prevComp = TAR.categoriaCompletadas.slice();
     if (nuevoValor) {

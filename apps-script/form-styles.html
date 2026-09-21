@@ -503,10 +503,12 @@
                         background: #fef2f2; color: #b91c1c; border-radius: 999px; line-height: 1.4; }
   .task-subgroup-del:active { background: #fee2e2; }
   /* Suspender el sub-grupo directo desde su encabezado (ver tarColBodyHtml) —
-     mismo margin-left:0 que 🗑, ambos pegados al badge de cantidad. */
+     mismo margin-left:0 que 🗑, ambos pegados al badge de cantidad. Rojo en
+     vez de ámbar: pide confirmación antes de disparar (ver
+     catToggleSubcatSuspendida), mismo peso visual que borrar. */
   .task-subgroup-susp { margin: 0 0 0 6px; width: auto; padding: 2px 7px; font-size: 12px;
-                         background: #fef3c7; color: #b45309; border-radius: 999px; line-height: 1.4; }
-  .task-subgroup-susp:active { background: #fde68a; }
+                         background: #fef2f2; color: #b91c1c; border-radius: 999px; line-height: 1.4; }
+  .task-subgroup-susp:active { background: #fee2e2; }
   .task-subgroup.sin .task-subgroup-head { color: #94a3b8; }
   .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #94a3b8; }
   .task-subgroup .task-col-body { gap: 9px; }
@@ -546,9 +548,12 @@
   .hsubcat-item .hsub-done { color: #0f766e; font-size: 14px; }
   .hsubcat-item.done { opacity: 0.7; }
   .hsubcat-item.done span { text-decoration: line-through; color: #9ca3af; }
-  /* Suspender/reanudar un "proyecto" (categoría) — ver catToggleSuspendida.
-     Ámbar en vez del teal de completado: en pausa, no tachado (no terminó). */
-  .hsubcat-item .hsub-susp { color: #b45309; font-size: 14px; }
+  /* Suspender/reanudar un "proyecto" (categoría o sub-grupo) — ver
+     catToggleSuspendida/catToggleSubcatSuspendida. Botón rojo sólido (no solo
+     ícono coloreado, como sus vecinos ✎/🗑/✓): pide confirmación antes de
+     disparar, mismo peso visual que borrar. */
+  .hsubcat-item .hsub-susp { background: #fef2f2; color: #b91c1c; font-size: 13px; border-radius: 6px; }
+  .hsubcat-item .hsub-susp:active { background: #fee2e2; }
   .hsubcat-item.susp { opacity: 0.7; }
   .hsubcat-item.susp span { font-style: italic; color: #b45309; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
