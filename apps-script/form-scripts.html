@@ -947,9 +947,12 @@
   // juntas como siempre — no se agrega un grupo por nada. Cada grupo se puede
   // compactar/expandir igual que una columna entera (misma animación de
   // grid-template-rows), y también se acuerda en localStorage.
-  function tarColBodyHtml(items, cat, sinArrastre) {
+  function tarColBodyHtml(items, cat, sinArrastre, hoy) {
     var conSub = items.some(function(t) { return t.subcategoria; });
-    if (!conSub) return '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t, false, sinArrastre); }).join('') + '</div>';
+    if (!conSub) {
+      var ordenadas = tarOrdenarItemsCat(items, hoy);
+      return '<div class="task-col-body">' + ordenadas.map(function(t) { return tarCardHtml(t, false, sinArrastre); }).join('') + '</div>';
+    }
     var orden = [], grupos = {};
     items.forEach(function(t) {
       var key = t.subcategoria || '';
@@ -961,12 +964,20 @@
     orden.sort(function(a, b) { return (a ? 0 : 1) - (b ? 0 : 1); });
     return orden.map(function(key) {
       var esSinSub = !key;
+      // Cada sub-grupo se ordena por su cuenta, no como parte de la
+      // categoría entera — si se ordenara todo junto antes de agrupar, el
+      // "orden" manual de un arrastre (ver reorderTasksInCategorySafe) solo
+      // tiene sentido puesto contra las tarjetas de SU MISMO sub-grupo; mezclado
+      // con tarjetas de otros sub-grupos que no tienen ese campo, el
+      // comparador deja de ser transitivo y el sort podía devolver cualquier
+      // cosa — se veía como que el arrastre "no pegaba" y volvía a su lugar.
+      var grupoOrdenado = tarOrdenarItemsCat(grupos[key], hoy);
       var claveColapso = cat + '|' + key;
       var colapsado = !!TAR.pizarraSubColapsadas[claveColapso];
       // Un sub-grupo real (con subcategoría) que ya terminó del todo se queda
       // igual en la pizarra, con todas sus tarjetas tachadas — sin esto no
       // había forma de sacarlo de encima salvo borrar tarjeta por tarjeta.
-      var todasHechas = !esSinSub && grupos[key].every(function(t) { return t.completada; });
+      var todasHechas = !esSinSub && grupoOrdenado.every(function(t) { return t.completada; });
       var borrarBtn = todasHechas
         ? '<button type="button" class="task-subgroup-del" data-borrar-subgrupo="' + esc(cat) + '|' + esc(key) + '" ' +
           'title="Ya terminaste todo acá — borrar estas tareas">🗑</button>'
@@ -974,9 +985,9 @@
       return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + (colapsado ? ' colapsado' : '') + '">' +
         '<div class="task-subgroup-head" data-colapsar-sub="' + esc(claveColapso) + '">' +
           '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
-          '<span class="n">' + grupos[key].length + '</span>' + borrarBtn + '</div>' +
+          '<span class="n">' + grupoOrdenado.length + '</span>' + borrarBtn + '</div>' +
         '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
-          '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true, sinArrastre); }).join('') + '</div>' +
+          '<div class="task-col-body">' + grupoOrdenado.map(function(t) { return tarCardHtml(t, true, sinArrastre); }).join('') + '</div>' +
         '</div></div>' +
       '</div>';
     }).join('');
@@ -1087,6 +1098,19 @@
         });
       })(reanudars[re]);
     }
+    // Botón "⋮" visible en el encabezado de cada columna — atajo directo a
+    // suspender/reanudar o borrar el proyecto, mismo menú que abre mantener
+    // apretado el grip de arrastre (ver tarAbrirMenuColumna). El botón existe
+    // porque el gesto de mantener apretado solo no era fácil de encontrar.
+    var colMenuBtns = cont.querySelectorAll('[data-col-menu]');
+    for (var cm = 0; cm < colMenuBtns.length; cm++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation(); // que no dispare también el colapsar del encabezado
+          tarAbrirMenuColumna(el.getAttribute('data-col-menu'));
+        });
+      })(colMenuBtns[cm]);
+    }
   }
 
   function tarBump(row) {
@@ -1191,7 +1215,7 @@
       });
       var catsHtml = catsOrdenadas.map(function(cat) {
         var completadaCat = tarCatCompletada(cat);
-        var items = tarOrdenarItemsCat(filtradas.filter(function(t) { return t.categoria === cat; }), hoy);
+        var items = filtradas.filter(function(t) { return t.categoria === cat; });
         if (!items.length) return '';
         var pendEnCat = items.filter(function(t) { return !t.completada; }).length;
         // Colapsada: se acuerda por categoría (ver TAR.pizarraColapsadas,
@@ -1203,9 +1227,11 @@
             '<span><span class="task-col-drag-grip" data-drag-col="' + esc(cat) + '" title="Arrastrar para reordenar">⠿</span> ' +
               '<span class="task-col-chevron">▾</span> ' +
               '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span></span>' +
-            '<span class="n">' + pendEnCat + '</span></div>' +
+            '<span class="n">' + pendEnCat + '</span>' +
+            '<button type="button" class="task-col-menu-btn" data-col-menu="' + esc(cat) + '" title="Suspender o borrar proyecto">⋮</button>' +
+          '</div>' +
           '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
-            tarColBodyHtml(items, cat) +
+            tarColBodyHtml(items, cat, false, hoy) +
           '</div></div>' +
         '</div>';
       }).join('');
@@ -1223,7 +1249,7 @@
       if (boardSusp) {
         var catsSuspendidas = TAR.categorias.filter(function(c) { return tarCatSuspendida(c); });
         var catsSuspHtml = catsSuspendidas.map(function(cat) {
-          var items = tarOrdenarItemsCat(filtradas.filter(function(t) { return t.categoria === cat; }), hoy);
+          var items = filtradas.filter(function(t) { return t.categoria === cat; });
           if (!items.length) return '';
           var claveColapso = 'susp:' + cat;
           var colapsado = !!TAR.pizarraColapsadas[claveColapso];
@@ -1232,9 +1258,10 @@
               '<span><span class="task-col-chevron">▾</span> ' +
                 '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span></span>' +
               '<button type="button" class="task-col-resume" data-reanudar="' + esc(cat) + '" title="Reanudar proyecto">▶️ Reanudar</button>' +
+              '<button type="button" class="task-col-menu-btn" data-col-menu="' + esc(cat) + '" title="Suspender o borrar proyecto">⋮</button>' +
             '</div>' +
             '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
-              tarColBodyHtml(items, cat, true) +
+              tarColBodyHtml(items, cat, true, hoy) +
             '</div></div>' +
           '</div>';
         }).join('');
