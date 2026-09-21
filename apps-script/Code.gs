@@ -4588,6 +4588,30 @@ function _tasksSubcatsSet(obj) {
   _scriptPropSet(TASKS_SUBCATS_PROP, JSON.stringify(obj));
 }
 
+// Sub-grupos suspendidos: mismo criterio que una categoría suspendida (ver
+// TASKS_CAT_SUSPENDIDAS_PROP), pero a nivel de sub-grupo dentro de una
+// categoría que sigue activa — ej. "Proyectos" queda visible en "Hacer" pero
+// su sub-grupo "Modelo IA" en particular sale de la pizarra y pasa a
+// Suspendidos, sin afectar los otros sub-grupos de esa misma categoría. Clave
+// "categoria|subcategoria" (mismo formato que ya usan colapsar-sub/
+// borrar-subgrupo en el cliente) porque el mismo nombre de subcategoría puede
+// repetirse bajo categorías distintas.
+const TASKS_SUBCAT_SUSPENDIDAS_PROP = 'TASKS_SUBCAT_SUSPENDIDAS_V1';
+function _tasksSubcatSuspendidasGet() {
+  try {
+    const raw = _scriptProps()[TASKS_SUBCAT_SUSPENDIDAS_PROP];
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr)) return arr.map(String);
+  } catch (e) {}
+  return [];
+}
+function _tasksSubcatSuspendidasSet(arr) {
+  _scriptPropSet(TASKS_SUBCAT_SUSPENDIDAS_PROP, JSON.stringify(arr));
+}
+function _tasksSubcatClave(categoria, subcategoria) {
+  return String(categoria || '') + '|' + String(subcategoria || '');
+}
+
 function _tasksCategoriasGet() {
   try {
     const raw = _scriptProps()[TASKS_CATEGORIAS_PROP];
@@ -5090,6 +5114,11 @@ function renameTaskSubcategory(p) {
     obj[cat] = lista;
     _tasksSubcatsSet(obj);
 
+    const claveAntes = _tasksSubcatClave(cat, antes);
+    const suspendidas = _tasksSubcatSuspendidasGet();
+    const idxSusp = suspendidas.indexOf(claveAntes);
+    if (idxSusp !== -1) { suspendidas[idxSusp] = _tasksSubcatClave(cat, despues); _tasksSubcatSuspendidasSet(suspendidas); }
+
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cupo = _tasksCupo(sheet);
@@ -5107,7 +5136,7 @@ function renameTaskSubcategory(p) {
       }
       if (tocado) rng.setValues(vals);
     }
-    return { ok: true, subcategorias: obj };
+    return { ok: true, subcategorias: obj, subcatSuspendidas: suspendidas };
   } finally {
     lock.releaseLock();
   }
@@ -5126,11 +5155,41 @@ function deleteTaskSubcategory(p) {
     const obj = _tasksSubcatsGet();
     const lista = obj[cat] || [];
     obj[cat] = lista.filter(x => _stripAccents(x) !== _stripAccents(nombre));
+    const suspendidas = _tasksSubcatSuspendidasGet().filter(c => c !== _tasksSubcatClave(cat, nombre));
+    _tasksSubcatSuspendidasSet(suspendidas);
     _tasksSubcatsSet(obj);
-    return { ok: true, subcategorias: obj };
+    return { ok: true, subcategorias: obj, subcatSuspendidas: suspendidas };
   } finally {
     lock.releaseLock();
   }
+}
+
+// Marca/desmarca un sub-grupo (categoria|subcategoria) como suspendido — ver
+// TASKS_SUBCAT_SUSPENDIDAS_PROP. La categoría no necesita estar en la lista
+// de subcategorías conocidas para poder suspenderse (igual que una tarea
+// puede tener un texto de subcategoría suelto sin haber pasado por "agregar
+// subcategoría", ver _tasksSubcatRegistrar).
+function toggleTaskSubcategorySuspended(p) {
+  const cat = _tasksCategoriaValida(p && p.categoria);
+  if (!cat) throw new Error('Categoría inválida');
+  const sub = String((p && p.subcategoria) || '').trim();
+  if (!sub) throw new Error('Falta la subcategoría');
+  const suspendida = !!(p && p.suspendida);
+  const clave = _tasksSubcatClave(cat, sub);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const actual = _tasksSubcatSuspendidasGet().filter(c => c !== clave);
+    if (suspendida) actual.push(clave);
+    _tasksSubcatSuspendidasSet(actual);
+    return { ok: true, subcatSuspendidas: actual };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function toggleTaskSubcategorySuspendedSafe(data) {
+  try { return toggleTaskSubcategorySuspended(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
 }
 
 function addTaskSubcategorySafe(data) {
@@ -5454,7 +5513,7 @@ function getTasksData(ssOpt) {
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
              periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories(),
              categoriaEmojis: _tasksCatEmojisGet(), categoriaCompletadas: _tasksCatCompletadasGet(),
-             categoriaSuspendidas: _tasksCatSuspendidasGet(),
+             categoriaSuspendidas: _tasksCatSuspendidasGet(), subcatSuspendidas: _tasksSubcatSuspendidasGet(),
              importancias: TASKS_IMPORTANCIAS, uiState: _tasksUiStateGet() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);

@@ -502,6 +502,11 @@
   .task-subgroup-del { margin: 0 0 0 6px; width: auto; padding: 2px 7px; font-size: 12px;
                         background: #fef2f2; color: #b91c1c; border-radius: 999px; line-height: 1.4; }
   .task-subgroup-del:active { background: #fee2e2; }
+  /* Suspender el sub-grupo directo desde su encabezado (ver tarColBodyHtml) —
+     mismo margin-left:0 que 🗑, ambos pegados al badge de cantidad. */
+  .task-subgroup-susp { margin: 0 0 0 6px; width: auto; padding: 2px 7px; font-size: 12px;
+                         background: #fef3c7; color: #b45309; border-radius: 999px; line-height: 1.4; }
+  .task-subgroup-susp:active { background: #fde68a; }
   .task-subgroup.sin .task-subgroup-head { color: #94a3b8; }
   .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #94a3b8; }
   .task-subgroup .task-col-body { gap: 9px; }

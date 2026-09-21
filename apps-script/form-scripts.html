@@ -616,7 +616,7 @@
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
-  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], categoriaSuspendidas: [], hoy: '', editando: null,
+  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], categoriaSuspendidas: [], subcatSuspendidas: [], hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [],
@@ -652,6 +652,9 @@
   // saca del todo de la pizarra de "Hacer" y pasa a su propia sección, ver
   // #tarBoardSuspendidas en tarPintar.
   function tarCatSuspendida(cat) { return TAR.categoriaSuspendidas.indexOf(cat) !== -1; }
+  // Mismo criterio a nivel de sub-grupo dentro de una categoría que sigue
+  // activa — ver toggleTaskSubcategorySuspended en el server.
+  function tarSubcatSuspendida(cat, sub) { return !!sub && TAR.subcatSuspendidas.indexOf(cat + '|' + sub) !== -1; }
   // Clase CSS por categoría (ninguna tiene tilde ni espacio, así que alcanza con minúscula)
   function tarCatSlug(cat) { return 'cat-' + String(cat || 'otros').toLowerCase(); }
   // Puebla los <select> de categoría una sola vez, con lo que mandó el server
@@ -834,6 +837,7 @@
     TAR.categoriaEmojis = r.categoriaEmojis || {};
     TAR.categoriaCompletadas = r.categoriaCompletadas || [];
     TAR.categoriaSuspendidas = r.categoriaSuspendidas || [];
+    TAR.subcatSuspendidas = r.subcatSuspendidas || [];
     TAR.hoy = r.hoy || '';
     tarAplicarUiState(r.uiState);
     tarPoblarCategorias();
@@ -982,10 +986,18 @@
         ? '<button type="button" class="task-subgroup-del" data-borrar-subgrupo="' + esc(cat) + '|' + esc(key) + '" ' +
           'title="Ya terminaste todo acá — borrar estas tareas">🗑</button>'
         : '';
+      // Suspender el sub-grupo directo desde acá — solo tiene sentido en el
+      // tablero activo (sinArrastre=false): dentro de una categoría YA
+      // suspendida (sinArrastre=true) todo está parado igual, un toggle acá
+      // sería ruido. "Sin subcategoría" tampoco es un grupo real, no aplica.
+      var suspSubBtn = (!esSinSub && !sinArrastre)
+        ? '<button type="button" class="task-subgroup-susp" data-susp-sub="' + esc(cat) + '|' + esc(key) + '" ' +
+          'title="Suspender este sub-grupo">⏸</button>'
+        : '';
       return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + (colapsado ? ' colapsado' : '') + '">' +
         '<div class="task-subgroup-head" data-colapsar-sub="' + esc(claveColapso) + '">' +
           '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
-          '<span class="n">' + grupoOrdenado.length + '</span>' + borrarBtn + '</div>' +
+          '<span class="n">' + grupoOrdenado.length + '</span>' + borrarBtn + suspSubBtn + '</div>' +
         '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
           '<div class="task-col-body">' + grupoOrdenado.map(function(t) { return tarCardHtml(t, true, sinArrastre); }).join('') + '</div>' +
         '</div></div>' +
@@ -1086,6 +1098,19 @@
         });
       })(borrarSubgrupos[bs]);
     }
+    // Suspender un sub-grupo directo desde su propio encabezado (ver
+    // tarColBodyHtml) — mismo toggle que el ⏸ del modal de subcategorías.
+    var suspSubs = cont.querySelectorAll('[data-susp-sub]');
+    for (var ss = 0; ss < suspSubs.length; ss++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var clave = el.getAttribute('data-susp-sub');
+          var idx = clave.indexOf('|');
+          catToggleSubcatSuspendida(clave.slice(0, idx), clave.slice(idx + 1), true);
+        });
+      })(suspSubs[ss]);
+    }
     // Reanudar un proyecto suspendido directo desde su columna (ver sección
     // #tarBoardSuspendidas en tarPintar) — atajo al mismo toggle que hay en
     // el modal de gestión de categorías (⚙️, ver catToggleSuspendida).
@@ -1097,6 +1122,19 @@
           catToggleSuspendida(el.getAttribute('data-reanudar'), false);
         });
       })(reanudars[re]);
+    }
+    // Mismo botón pero para un sub-grupo suspendido (ver
+    // #tarBoardSuspendidas en tarPintar) — clave "categoria|subcategoria".
+    var reanudarsSub = cont.querySelectorAll('[data-reanudar-sub]');
+    for (var res = 0; res < reanudarsSub.length; res++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var clave = el.getAttribute('data-reanudar-sub');
+          var idx = clave.indexOf('|');
+          catToggleSubcatSuspendida(clave.slice(0, idx), clave.slice(idx + 1), false);
+        });
+      })(reanudarsSub[res]);
     }
     // Botón "⋮" visible en el encabezado de cada columna — atajo directo a
     // suspender/reanudar o borrar el proyecto, mismo menú que abre mantener
@@ -1215,7 +1253,10 @@
       });
       var catsHtml = catsOrdenadas.map(function(cat) {
         var completadaCat = tarCatCompletada(cat);
-        var items = filtradas.filter(function(t) { return t.categoria === cat; });
+        // Una tarea cuyo sub-grupo está suspendido sale de acá igual que si
+        // fuera de una categoría entera suspendida (ver tarSubcatSuspendida)
+        // — vive en Suspendidos, más abajo.
+        var items = filtradas.filter(function(t) { return t.categoria === cat && !tarSubcatSuspendida(cat, t.subcategoria); });
         if (!items.length) return '';
         var pendEnCat = items.filter(function(t) { return !t.completada; }).length;
         // Colapsada: se acuerda por categoría (ver TAR.pizarraColapsadas,
@@ -1265,12 +1306,36 @@
             '</div></div>' +
           '</div>';
         }).join('');
-        boardSusp.innerHTML = catsSuspHtml || '<div class="task-empty">No hay proyectos suspendidos</div>';
+        // Sub-grupos suspendidos de una categoría que sigue activa (ver
+        // tarSubcatSuspendida) — si la categoría entera ya está suspendida no
+        // se repite acá, ya quedó cubierta arriba con todos sus sub-grupos.
+        var subcatsSuspendidas = TAR.subcatSuspendidas.filter(function(clave) {
+          return !tarCatSuspendida(clave.slice(0, clave.indexOf('|')));
+        });
+        var subcatsSuspHtml = subcatsSuspendidas.map(function(clave) {
+          var idx = clave.indexOf('|');
+          var cat = clave.slice(0, idx), sub = clave.slice(idx + 1);
+          var items = tarOrdenarItemsCat(filtradas.filter(function(t) { return t.categoria === cat && t.subcategoria === sub; }), hoy);
+          if (!items.length) return '';
+          var claveColapso = 'susp:' + clave;
+          var colapsado = !!TAR.pizarraColapsadas[claveColapso];
+          return '<div class="task-col suspendida' + (colapsado ? ' colapsado' : '') + '" data-cat="' + esc(cat) + '">' +
+            '<div class="task-col-head" data-colapsar="' + esc(claveColapso) + '">' +
+              '<span><span class="task-col-chevron">▾</span> ' +
+                '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + ' · ' + esc(sub) + '</span></span>' +
+              '<button type="button" class="task-col-resume" data-reanudar-sub="' + esc(clave) + '" title="Reanudar sub-grupo">▶️ Reanudar</button>' +
+            '</div>' +
+            '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
+              '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t, true, true); }).join('') + '</div>' +
+            '</div></div>' +
+          '</div>';
+        }).join('');
+        boardSusp.innerHTML = (catsSuspHtml + subcatsSuspHtml) || '<div class="task-empty">No hay proyectos suspendidos</div>';
         tarWireRows(boardSusp);
-      }
-      if (tarEl('tarSuspendidasSummary')) {
-        var nSusp = TAR.categoriaSuspendidas.length;
-        tarEl('tarSuspendidasSummary').textContent = '⏸ Suspendidos (' + nSusp + ')';
+        if (tarEl('tarSuspendidasSummary')) {
+          var nSusp = catsSuspendidas.length + subcatsSuspendidas.length;
+          tarEl('tarSuspendidasSummary').textContent = '⏸ Suspendidos (' + nSusp + ')';
+        }
       }
     }
 
@@ -1890,11 +1955,23 @@
       cont.innerHTML = '<div class="hsubcat-empty">Todavía no hay subcategorías acá</div>';
       return;
     }
+    var catAbierta = TAR.subcatCategoriaAbierta;
     cont.innerHTML = lista.map(function(s) {
-      return '<div class="hsubcat-item"><span>' + esc(s) + '</span>' +
+      var susp = tarSubcatSuspendida(catAbierta, s);
+      return '<div class="hsubcat-item' + (susp ? ' susp' : '') + '"><span>' + esc(s) + '</span>' +
+        '<button type="button" class="hsub-susp" data-susp="' + esc(s) + '" data-susp-a="' + (susp ? '0' : '1') + '" ' +
+          'title="' + (susp ? 'Reanudar sub-grupo' : 'Suspender sub-grupo') + '">' + (susp ? '▶️' : '⏸') + '</button>' +
         '<button type="button" class="hsub-rn" data-rn="' + esc(s) + '">✎</button>' +
         '<button type="button" class="hsub-del" data-del="' + esc(s) + '">🗑</button></div>';
     }).join('');
+    var susps = cont.querySelectorAll('[data-susp]');
+    for (var su = 0; su < susps.length; su++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          catToggleSubcatSuspendida(catAbierta, el.getAttribute('data-susp'), el.getAttribute('data-susp-a') === '1');
+        });
+      })(susps[su]);
+    }
     var rns = cont.querySelectorAll('[data-rn]');
     for (var i = 0; i < rns.length; i++) {
       (function(el) { el.addEventListener('click', function() { subcatRenombrar(el.getAttribute('data-rn')); }); })(rns[i]);
@@ -1971,13 +2048,41 @@
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { subcatStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.subcategorias = r.subcategorias || {};
+        TAR.subcatSuspendidas = r.subcatSuspendidas || TAR.subcatSuspendidas;
         subcatStatus('✓ Borrada', 'ok');
         subcatPintarLista();
+        tarPintar(); // por si esa subcategoría estaba suspendida y colgando en Suspendidos
       })
       .withFailureHandler(function(err) {
         subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
       })
       .deleteTaskSubcategorySafe({ categoria: TAR.subcatCategoriaAbierta, nombre: nombre });
+  }
+  // Marca/desmarca un sub-grupo (dentro de la categoría abierta en este
+  // modal) como suspendido — mismo criterio que catToggleSuspendida pero a
+  // nivel de sub-grupo, ver toggleTaskSubcategorySuspended en el server.
+  function catToggleSubcatSuspendida(categoria, subcategoria, nuevoValor) {
+    var clave = categoria + '|' + subcategoria;
+    var prev = TAR.subcatSuspendidas.slice();
+    if (nuevoValor) {
+      if (TAR.subcatSuspendidas.indexOf(clave) === -1) TAR.subcatSuspendidas.push(clave);
+    } else {
+      TAR.subcatSuspendidas = TAR.subcatSuspendidas.filter(function(c) { return c !== clave; });
+    }
+    subcatPintarLista(); // optimista
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) { subcatStatus('✗ ' + ((r && r.error) || 'error'), 'err'); TAR.subcatSuspendidas = prev; subcatPintarLista(); tarPintar(); return; }
+        TAR.subcatSuspendidas = r.subcatSuspendidas || [];
+        subcatPintarLista();
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        subcatStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        TAR.subcatSuspendidas = prev; subcatPintarLista(); tarPintar();
+      })
+      .toggleTaskSubcategorySuspendedSafe({ categoria: categoria, subcategoria: subcategoria, suspendida: nuevoValor });
   }
 
   // === CATEGORÍAS (gestión) ================================================
