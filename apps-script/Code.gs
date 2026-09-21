@@ -1416,11 +1416,11 @@ function getDashboardData() {
     }
     const byCard = Object.values(cardSums).sort((a, b) => b.amount - a.amount);
 
-    // 7. Todos los gastos variables del mes, más reciente primero — se
-    // muestran en el dashboard como una lista para ver/editar/borrar
-    // cualquiera (ver renderDashboard/abrirExpModal en el cliente), no solo
-    // los últimos.
-    const expenses = varRows.slice().reverse();
+    // 7. Todos los gastos variables del mes, ordenados por fecha (más
+    // reciente primero) — se muestran como lista para ver/editar/borrar
+    // cualquiera, tanto en el dashboard como en "Agregar Gasto" (ver
+    // renderDashboard/pintarGastosRecientes/abrirExpModal en el cliente).
+    const expenses = _ordenarPorFechaDesc(varRows);
 
     return {
       ok: true,
@@ -1546,6 +1546,20 @@ function _stripAccents(s) {
 }
 
 function toNumber(x) { const n = parseFloat(x); return isFinite(n) ? n : null; }
+
+// Ordena filas con {fecha, row} por fecha descendente (más reciente primero,
+// comparación de string ISO yyyy-mm-dd alcanza) — a igual fecha, por fila
+// descendente (lo cargado más tarde queda arriba). Antes las listas de gastos
+// y movimientos de Argentina se mostraban en orden de carga (última fila
+// primero); con esto quedan ordenadas por fecha de verdad, aunque se haya
+// cargado algo atrasado o se le haya editado la fecha después.
+function _ordenarPorFechaDesc(filas) {
+  return filas.slice().sort((a, b) => {
+    const fa = a.fecha || '', fb = b.fecha || '';
+    if (fa !== fb) return fb.localeCompare(fa);
+    return (b.row || 0) - (a.row || 0);
+  });
+}
 
 // Parsea fechas como LOCAL en vez de UTC — evita el bug de timezone donde
 // `new Date('2026-06-01')` se interpreta como UTC midnight y rola al día anterior
@@ -4074,9 +4088,13 @@ function getArgentinaData(monthOpt) {
                totales: _argTotales([]), tipos: ARG_TIPOS, quienes: ARG_QUIENES,
                categorias: categoriasOrdenadas() };
     }
-    const entradas = _argRows(sheet, blk);
+    // Los totales se calculan sobre las filas tal cual vienen (una suma no
+    // depende del orden); lo que se manda al cliente para pintar la lista sí
+    // va ordenado por fecha (ver _ordenarPorFechaDesc).
+    const entradasRaw = _argRows(sheet, blk);
+    const entradas = _ordenarPorFechaDesc(entradasRaw);
     return { ok: true, tab: tabName, exists: true, col: blk.col, bloque: blk, entradas: entradas,
-             totales: _argTotales(entradas, _argLeerDeudaAntes(sheet, blk)),
+             totales: _argTotales(entradasRaw, _argLeerDeudaAntes(sheet, blk)),
              tipos: ARG_TIPOS, quienes: ARG_QUIENES,
              categorias: categoriasOrdenadas() };
   } catch (err) {
@@ -4624,6 +4642,27 @@ function _tasksCatCompletadasSet(arr) {
   _scriptPropSet(TASKS_CAT_COMPLETADAS_PROP, JSON.stringify(arr));
 }
 
+// Categorías marcadas como "proyecto suspendido": a diferencia de completada
+// (que se queda tachada en su lugar en la pizarra), esta SÍ se saca del todo
+// de "Hacer" y pasa a su propia sección, siempre colapsada al entrar (ver
+// #tarBoardSuspendidas/tarPintar en el cliente) — para proyectos en pausa que
+// no se quieren ver mezclados con lo activo pero tampoco perder del todo.
+// Mutuamente excluyente con completada (ver toggleTaskCategorySuspended /
+// toggleTaskCategoryCompleted): no tiene sentido que un proyecto esté
+// "terminado" y "en pausa" a la vez.
+const TASKS_CAT_SUSPENDIDAS_PROP = 'TASKS_CAT_SUSPENDIDAS_V1';
+function _tasksCatSuspendidasGet() {
+  try {
+    const raw = _scriptProps()[TASKS_CAT_SUSPENDIDAS_PROP];
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr)) return arr.map(String);
+  } catch (e) {}
+  return [];
+}
+function _tasksCatSuspendidasSet(arr) {
+  _scriptPropSet(TASKS_CAT_SUSPENDIDAS_PROP, JSON.stringify(arr));
+}
+
 // Qué columnas/sub-grupos de la pizarra y qué desplegables (Completadas,
 // Comprado) están cerrados — antes solo vivía en localStorage del navegador,
 // "por dispositivo". Un browser puede perder ese localStorage sin aviso (iOS
@@ -4680,7 +4719,8 @@ function addTaskCategory(p) {
     const emojis = _tasksCatEmojisGet();
     emojis[nombre] = emoji;
     _tasksCatEmojisSet(emojis);
-    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: _tasksCatCompletadasGet() };
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: _tasksCatCompletadasGet(),
+             categoriaSuspendidas: _tasksCatSuspendidasGet() };
   } finally {
     lock.releaseLock();
   }
@@ -4726,6 +4766,10 @@ function renameTaskCategory(p) {
     const idxComp = completadas.findIndex(c => _stripAccents(c) === _stripAccents(antes));
     if (idxComp !== -1) { completadas[idxComp] = despues; _tasksCatCompletadasSet(completadas); }
 
+    const suspendidas = _tasksCatSuspendidasGet();
+    const idxSusp = suspendidas.findIndex(c => _stripAccents(c) === _stripAccents(antes));
+    if (idxSusp !== -1) { suspendidas[idxSusp] = despues; _tasksCatSuspendidasSet(suspendidas); }
+
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = getOrCreateTasksTab(ss);
     const cupo = _tasksCupo(sheet);
@@ -4742,7 +4786,8 @@ function renameTaskCategory(p) {
       }
       if (tocado) rng.setValues(vals);
     }
-    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas };
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas,
+             categoriaSuspendidas: suspendidas };
   } finally {
     lock.releaseLock();
   }
@@ -4768,7 +4813,10 @@ function deleteTaskCategory(p) {
     if (emojis[nombre] !== undefined) { delete emojis[nombre]; _tasksCatEmojisSet(emojis); }
     const completadas = _tasksCatCompletadasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
     _tasksCatCompletadasSet(completadas);
-    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas };
+    const suspendidas = _tasksCatSuspendidasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
+    _tasksCatSuspendidasSet(suspendidas);
+    return { ok: true, categorias: lista, categoriaEmojis: emojis, categoriaCompletadas: completadas,
+             categoriaSuspendidas: suspendidas };
   } finally {
     lock.releaseLock();
   }
@@ -4802,13 +4850,50 @@ function toggleTaskCategoryCompleted(p) {
     const actual = _tasksCatCompletadasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
     if (completada) actual.push(nombre);
     _tasksCatCompletadasSet(actual);
-    return { ok: true, categoriaCompletadas: actual };
+    // Mutuamente excluyente con suspendida — completar un proyecto en pausa
+    // lo reactiva primero (ver toggleTaskCategorySuspended).
+    let suspendidas = _tasksCatSuspendidasGet();
+    if (completada && suspendidas.some(c => _stripAccents(c) === _stripAccents(nombre))) {
+      suspendidas = suspendidas.filter(c => _stripAccents(c) !== _stripAccents(nombre));
+      _tasksCatSuspendidasSet(suspendidas);
+    }
+    return { ok: true, categoriaCompletadas: actual, categoriaSuspendidas: suspendidas };
   } finally {
     lock.releaseLock();
   }
 }
 function toggleTaskCategoryCompletedSafe(data) {
   try { return toggleTaskCategoryCompleted(data || {}); }
+  catch (err) { return { ok: false, error: err.message }; }
+}
+
+// Marca/desmarca una categoría como "proyecto suspendido" — a diferencia de
+// completada, esta SÍ se saca de la pizarra de "Hacer" (ver tarPintar en el
+// cliente: catsOrdenadas filtra las suspendidas) y pasa a su propia sección,
+// siempre colapsada al entrar. Mutuamente excluyente con completada: no tiene
+// sentido pausar un proyecto que ya se marcó como terminado.
+function toggleTaskCategorySuspended(p) {
+  const nombre = _tasksCategoriaValida(p && p.nombre);
+  if (!nombre) throw new Error('Esa categoría no existe');
+  const suspendida = !!(p && p.suspendida);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const actual = _tasksCatSuspendidasGet().filter(c => _stripAccents(c) !== _stripAccents(nombre));
+    if (suspendida) actual.push(nombre);
+    _tasksCatSuspendidasSet(actual);
+    let completadas = _tasksCatCompletadasGet();
+    if (suspendida && completadas.some(c => _stripAccents(c) === _stripAccents(nombre))) {
+      completadas = completadas.filter(c => _stripAccents(c) !== _stripAccents(nombre));
+      _tasksCatCompletadasSet(completadas);
+    }
+    return { ok: true, categoriaSuspendidas: actual, categoriaCompletadas: completadas };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function toggleTaskCategorySuspendedSafe(data) {
+  try { return toggleTaskCategorySuspended(data || {}); }
   catch (err) { return { ok: false, error: err.message }; }
 }
 
@@ -5369,6 +5454,7 @@ function getTasksData(ssOpt) {
     return { ok: true, tab: TASKS_TAB, tareas: filas, tipos: TASKS_TIPOS, categorias: _tasksCategoriasGet(),
              periodos: TASKS_PERIODOS, hoy: hoy, subcategorias: getTaskSubcategories(),
              categoriaEmojis: _tasksCatEmojisGet(), categoriaCompletadas: _tasksCatCompletadasGet(),
+             categoriaSuspendidas: _tasksCatSuspendidasGet(),
              importancias: TASKS_IMPORTANCIAS, uiState: _tasksUiStateGet() };
   } catch (err) {
     Logger.log('getTasksData: ' + err.message);

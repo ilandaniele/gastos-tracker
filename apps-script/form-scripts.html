@@ -198,6 +198,7 @@
       var iso = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
       var dateField = getField('date');
       if (dateField) dateField.value = iso;
+      loadDashboard(); // refresca "Gastos de este mes" con el que se acaba de cargar
     } else {
       setStatus('✗ Error: ' + (result && result.error ? result.error : 'desconocido'), 'err');
     }
@@ -402,6 +403,7 @@
           setStatus('✓ ' + result.saved + ' guardados · ' + result.failed + ' fallaron · ' + result.tab, 'ok');
           scannedItems = [];
           document.getElementById('scanPreview').style.display = 'none';
+          loadDashboard(); // refresca "Gastos de este mes" con lo que se acaba de cargar
         } else {
           setStatus('✗ Batch: ' + (result && result.error || 'error'), 'err');
         }
@@ -447,7 +449,9 @@
       else if (!H.dirty) loadDay(H.date || todayISO());
     }
     // Cada vez que se abre la pestaña de agregar, refrescar la fecha a "hoy"
-    if (panelId === 'addPanel') refreshDateToToday();
+    // y recargar "Gastos de este mes" (mismo criterio que Argentina/Ahorros:
+    // recargar siempre al entrar, ver más arriba en este switch).
+    if (panelId === 'addPanel') { refreshDateToToday(); loadDashboard(); }
   }
   var tabBtns = document.querySelectorAll('.tab');
   for (var t = 0; t < tabBtns.length; t++) {
@@ -612,7 +616,7 @@
   // Una sola lista con Tipo Tarea|Cita. La tarjeta "Hoy" es la versión visual
   // del mismo cálculo que arma el mail de la mañana (_tasksDigestHoy en el
   // server) — lo que ves al abrir la app es lo que te llega por mail.
-  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], hoy: '', editando: null,
+  var TAR = { tareas: [], categorias: [], periodos: [], subcategorias: {}, categoriaEmojis: {}, categoriaCompletadas: [], categoriaSuspendidas: [], hoy: '', editando: null,
               tipoNuevo: 'Tarea', tipoModal: 'Tarea', catNuevo: 'Otros', catModal: 'Otros',
               recurNuevo: false, recurModal: false, subcatCategoriaAbierta: '', catEditando: null,
               subtareasNuevas: [], subtareasModal: [],
@@ -644,6 +648,10 @@
   // se manda al final — de la pizarra y de la lista de gestión (ver
   // tarPintar/catPintarLista).
   function tarCatCompletada(cat) { return TAR.categoriaCompletadas.indexOf(cat) !== -1; }
+  // "Proyecto" (categoría) suspendido: a diferencia de completada, este SÍ se
+  // saca del todo de la pizarra de "Hacer" y pasa a su propia sección, ver
+  // #tarBoardSuspendidas en tarPintar.
+  function tarCatSuspendida(cat) { return TAR.categoriaSuspendidas.indexOf(cat) !== -1; }
   // Clase CSS por categoría (ninguna tiene tilde ni espacio, así que alcanza con minúscula)
   function tarCatSlug(cat) { return 'cat-' + String(cat || 'otros').toLowerCase(); }
   // Puebla los <select> de categoría una sola vez, con lo que mandó el server
@@ -825,6 +833,7 @@
     TAR.subcategorias = r.subcategorias || {};
     TAR.categoriaEmojis = r.categoriaEmojis || {};
     TAR.categoriaCompletadas = r.categoriaCompletadas || [];
+    TAR.categoriaSuspendidas = r.categoriaSuspendidas || [];
     TAR.hoy = r.hoy || '';
     tarAplicarUiState(r.uiState);
     tarPoblarCategorias();
@@ -919,7 +928,7 @@
     '</div>';
   }
 
-  function tarCardHtml(t, hideSubcat) {
+  function tarCardHtml(t, hideSubcat, sinArrastre) {
     return '<div class="task-card' + (t.completada ? ' done' : '') + ' ' + tarCatSlug(t.categoria) + '">' +
       '<div class="task-check' + (t.completada ? ' on' : '') + '" data-check="' + t.row + '">' + (t.completada ? '✓' : '') + '</div>' +
       '<div class="task-body" data-open="' + t.row + '">' +
@@ -928,7 +937,7 @@
         tarCounterHtml(t) +
         tarSubtareasHtml(t) +
       '</div>' +
-      '<span class="task-card-drag-grip" data-drag-row="' + t.row + '" title="Arrastrar para mover de categoría">⠿</span>' +
+      (sinArrastre ? '' : '<span class="task-card-drag-grip" data-drag-row="' + t.row + '" title="Arrastrar para mover de categoría">⠿</span>') +
     '</div>';
   }
 
@@ -938,9 +947,9 @@
   // juntas como siempre — no se agrega un grupo por nada. Cada grupo se puede
   // compactar/expandir igual que una columna entera (misma animación de
   // grid-template-rows), y también se acuerda en localStorage.
-  function tarColBodyHtml(items, cat) {
+  function tarColBodyHtml(items, cat, sinArrastre) {
     var conSub = items.some(function(t) { return t.subcategoria; });
-    if (!conSub) return '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t); }).join('') + '</div>';
+    if (!conSub) return '<div class="task-col-body">' + items.map(function(t) { return tarCardHtml(t, false, sinArrastre); }).join('') + '</div>';
     var orden = [], grupos = {};
     items.forEach(function(t) {
       var key = t.subcategoria || '';
@@ -967,7 +976,7 @@
           '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
           '<span class="n">' + grupos[key].length + '</span>' + borrarBtn + '</div>' +
         '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
-          '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true); }).join('') + '</div>' +
+          '<div class="task-col-body">' + grupos[key].map(function(t) { return tarCardHtml(t, true, sinArrastre); }).join('') + '</div>' +
         '</div></div>' +
       '</div>';
     }).join('');
@@ -1066,6 +1075,18 @@
         });
       })(borrarSubgrupos[bs]);
     }
+    // Reanudar un proyecto suspendido directo desde su columna (ver sección
+    // #tarBoardSuspendidas en tarPintar) — atajo al mismo toggle que hay en
+    // el modal de gestión de categorías (⚙️, ver catToggleSuspendida).
+    var reanudars = cont.querySelectorAll('[data-reanudar]');
+    for (var re = 0; re < reanudars.length; re++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation(); // que no dispare también el colapsar del encabezado
+          catToggleSuspendida(el.getAttribute('data-reanudar'), false);
+        });
+      })(reanudars[re]);
+    }
   }
 
   function tarBump(row) {
@@ -1085,6 +1106,36 @@
         t.contador = prev; tarPintar();
       })
       .bumpTaskSafe({ row: row, delta: 1 });
+  }
+
+  // Orden de las tarjetas dentro de una columna (pizarra o sección de
+  // suspendidos, ver tarPintar) — factorizado porque las dos secciones
+  // necesitan exactamente el mismo criterio.
+  function tarOrdenarItemsCat(items, hoy) {
+    return items.slice().sort(function(a, b) {
+      if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
+      // Viendo solo Citas, el orden por fecha elegido con tarOrdenFechaBtn
+      // manda por sobre todo lo demás — es lo único que tiene sentido pedir
+      // ahí ("¿cuál es primero?").
+      if (TAR.filtroTipo === 'Cita') {
+        var ck = (a.fecha || '9999') + (a.hora || ''), dk = (b.fecha || '9999') + (b.hora || '');
+        return TAR.ordenFechaCitas === 'desc' ? dk.localeCompare(ck) : ck.localeCompare(dk);
+      }
+      // Una vez que se arrastró una tarjeta en esta columna, el orden manual
+      // (ver reorderTasksInCategorySafe) manda por sobre el automático —
+      // hasta entonces, ninguna tarea de la categoría tiene "orden" seteado
+      // y se sigue con el criterio de siempre.
+      if (a.orden != null && b.orden != null) return a.orden - b.orden;
+      // Entre pendientes, primero la más importante; a igual importancia,
+      // vencidas antes que nada para que no se pierdan de vista.
+      var ai = TAR_IMPORTANCIA_RANGO[a.importancia] || 2, bi = TAR_IMPORTANCIA_RANGO[b.importancia] || 2;
+      if (ai !== bi) return bi - ai;
+      var av = !!(a.fecha && a.fecha < hoy), bv = !!(b.fecha && b.fecha < hoy);
+      if (av !== bv) return av ? -1 : 1;
+      var ak = a.fecha ? a.fecha + (a.hora || '') : '9999';
+      var bk = b.fecha ? b.fecha + (b.hora || '') : '9999';
+      return ak.localeCompare(bk);
+    });
   }
 
   function tarPintar() {
@@ -1133,37 +1184,14 @@
       // Un "proyecto" (categoría) marcado como completado no se saca de la
       // pizarra: se tacha y se manda al final, igual criterio que una tarea o
       // un ítem de compras — sort estable, así entre las completadas (y entre
-      // las pendientes) se respeta el orden de siempre.
-      var catsOrdenadas = TAR.categorias.slice().sort(function(a, b) {
+      // las pendientes) se respeta el orden de siempre. Uno suspendido SÍ se
+      // saca del todo de acá — vive en su propia sección, ver más abajo.
+      var catsOrdenadas = TAR.categorias.filter(function(c) { return !tarCatSuspendida(c); }).sort(function(a, b) {
         return (tarCatCompletada(a) ? 1 : 0) - (tarCatCompletada(b) ? 1 : 0);
       });
       var catsHtml = catsOrdenadas.map(function(cat) {
         var completadaCat = tarCatCompletada(cat);
-        var items = filtradas.filter(function(t) { return t.categoria === cat; })
-          .sort(function(a, b) {
-            if (!!a.completada !== !!b.completada) return a.completada ? 1 : -1;
-            // Viendo solo Citas, el orden por fecha elegido con
-            // tarOrdenFechaBtn manda por sobre todo lo demás — es lo único
-            // que tiene sentido pedir ahí ("¿cuál es primero?").
-            if (TAR.filtroTipo === 'Cita') {
-              var ck = (a.fecha || '9999') + (a.hora || ''), dk = (b.fecha || '9999') + (b.hora || '');
-              return TAR.ordenFechaCitas === 'desc' ? dk.localeCompare(ck) : ck.localeCompare(dk);
-            }
-            // Una vez que se arrastró una tarjeta en esta columna, el orden
-            // manual (ver reorderTasksInCategorySafe) manda por sobre el
-            // automático — hasta entonces, ninguna tarea de la categoría
-            // tiene "orden" seteado y se sigue con el criterio de siempre.
-            if (a.orden != null && b.orden != null) return a.orden - b.orden;
-            // Entre pendientes, primero la más importante; a igual importancia,
-            // vencidas antes que nada para que no se pierdan de vista.
-            var ai = TAR_IMPORTANCIA_RANGO[a.importancia] || 2, bi = TAR_IMPORTANCIA_RANGO[b.importancia] || 2;
-            if (ai !== bi) return bi - ai;
-            var av = !!(a.fecha && a.fecha < hoy), bv = !!(b.fecha && b.fecha < hoy);
-            if (av !== bv) return av ? -1 : 1;
-            var ak = a.fecha ? a.fecha + (a.hora || '') : '9999';
-            var bk = b.fecha ? b.fecha + (b.hora || '') : '9999';
-            return ak.localeCompare(bk);
-          });
+        var items = tarOrdenarItemsCat(filtradas.filter(function(t) { return t.categoria === cat; }), hoy);
         if (!items.length) return '';
         var pendEnCat = items.filter(function(t) { return !t.completada; }).length;
         // Colapsada: se acuerda por categoría (ver TAR.pizarraColapsadas,
@@ -1183,6 +1211,40 @@
       }).join('');
       board.innerHTML = catsHtml || '<div class="task-empty">' +
         (hayFiltro ? 'Nada que coincida con el filtro' : 'No tenés tareas pendientes') + '</div>';
+
+      // Suspendidos: sección aparte, siempre colapsada al entrar (no se
+      // acuerda entre sesiones como Completadas, ver #tarSuspendidasDetails
+      // en form.html — a propósito, para que un proyecto en pausa no quede
+      // "abierto" ocupando pantalla sin querer). Mismo armado de columna que
+      // la pizarra, pero sin manija de arrastre (no tiene sentido reordenar
+      // ni mover tarjetas hacia/desde algo que no está en el tablero activo)
+      // y con un botón directo para reanudar sin tener que ir al modal ⚙️.
+      var boardSusp = tarEl('tarBoardSuspendidas');
+      if (boardSusp) {
+        var catsSuspendidas = TAR.categorias.filter(function(c) { return tarCatSuspendida(c); });
+        var catsSuspHtml = catsSuspendidas.map(function(cat) {
+          var items = tarOrdenarItemsCat(filtradas.filter(function(t) { return t.categoria === cat; }), hoy);
+          if (!items.length) return '';
+          var claveColapso = 'susp:' + cat;
+          var colapsado = !!TAR.pizarraColapsadas[claveColapso];
+          return '<div class="task-col suspendida' + (colapsado ? ' colapsado' : '') + '" data-cat="' + esc(cat) + '">' +
+            '<div class="task-col-head" data-colapsar="' + esc(claveColapso) + '">' +
+              '<span><span class="task-col-chevron">▾</span> ' +
+                '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span></span>' +
+              '<button type="button" class="task-col-resume" data-reanudar="' + esc(cat) + '" title="Reanudar proyecto">▶️ Reanudar</button>' +
+            '</div>' +
+            '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
+              tarColBodyHtml(items, cat, true) +
+            '</div></div>' +
+          '</div>';
+        }).join('');
+        boardSusp.innerHTML = catsSuspHtml || '<div class="task-empty">No hay proyectos suspendidos</div>';
+        tarWireRows(boardSusp);
+      }
+      if (tarEl('tarSuspendidasSummary')) {
+        var nSusp = TAR.categoriaSuspendidas.length;
+        tarEl('tarSuspendidasSummary').textContent = '⏸ Suspendidos (' + nSusp + ')';
+      }
     }
 
     completadas.sort(function(a, b) { return (b.fechaCompletada || '').localeCompare(a.fechaCompletada || ''); });
@@ -1212,10 +1274,12 @@
   // sigue funcionando igual que siempre.
   (function() {
     var UMBRAL = 6; // px antes de considerar que es un arrastre y no un tap
+    var MANTENER_MS = 550; // mantener apretado el grip de una columna sin moverla
     var arr = null;
 
     function limpiar() {
       if (!arr) return;
+      if (arr.holdTimer) { clearTimeout(arr.holdTimer); arr.holdTimer = null; }
       if (arr.clon && arr.clon.parentNode) arr.clon.parentNode.removeChild(arr.clon);
       var board = tarEl('tarBoard');
       if (board) {
@@ -1260,6 +1324,16 @@
       } else if (gripCol) {
         arr = { tipo: 'col', cat: gripCol.getAttribute('data-drag-col'),
                 startX: ev.clientX, startY: ev.clientY, movido: false, grip: gripCol };
+        // Mantener apretado el grip sin moverlo abre un menú rápido
+        // (suspender/borrar el proyecto) en vez de arrastrarlo — se cancela
+        // solo si el gesto se convierte en arrastre o se suelta antes de
+        // tiempo (ver pointermove/limpiar).
+        arr.holdTimer = setTimeout(function() {
+          if (!arr || arr.movido) return;
+          var cat = arr.cat;
+          limpiar();
+          tarAbrirMenuColumna(cat);
+        }, MANTENER_MS);
       }
     });
 
@@ -1269,6 +1343,7 @@
       if (!arr.movido) {
         if (Math.abs(dx) < UMBRAL && Math.abs(dy) < UMBRAL) return; // todavía podría ser un tap
         arr.movido = true;
+        if (arr.holdTimer) { clearTimeout(arr.holdTimer); arr.holdTimer = null; } // ya es arrastre, no long-press
         document.body.classList.add('tar-arrastrando');
         // Recién ahora se arma el ghost — un tap que no se convierte en
         // arrastre nunca crea ni mueve nada.
@@ -1312,14 +1387,30 @@
         // de origen (misma columna y mismo sub-grupo) — cruzar a otra
         // categoría no adelanta el DOM, se resuelve al soltar con
         // moveTaskToCategorySafe (ver pointerup).
+        // "Dentro de la lista" ya no exige que elementFromPoint devuelva
+        // justo el .task-col-body: eso fallaba pasado el borde de la última
+        // tarjeta (o antes de la primera), que cae en el padding de .task-col
+        // y no en el body — el fantasma se veía ahí pero la tarjeta real
+        // nunca se movía. Ahora alcanza con un margen vertical alrededor del
+        // rect propio de la lista, en la misma columna.
+        var cuerpo = arr.cuerpoOriginal;
         var cuerpoDebajo = debajo.closest('.task-col-body');
-        if (cuerpoDebajo === arr.cuerpoOriginal) {
-          var cardDebajo = debajo.closest('.task-card');
-          if (cardDebajo && cardDebajo !== arr.card) {
-            var rect3 = cardDebajo.getBoundingClientRect();
-            var antesCard = ev.clientY < rect3.top + rect3.height / 2;
-            cuerpoDebajo.insertBefore(arr.card, antesCard ? cardDebajo : cardDebajo.nextSibling);
+        var enLaLista = cuerpoDebajo === cuerpo || (colDebajo === arr.colOriginal && (function() {
+          var r = cuerpo.getBoundingClientRect();
+          return ev.clientY >= r.top - 24 && ev.clientY <= r.bottom + 24;
+        })());
+        if (enLaLista) {
+          // Contra el rect de cada tarjeta de la lista (no solo la que está
+          // justo bajo el puntero): la primera cuya mitad vertical quedó por
+          // debajo del puntero es donde se inserta; si ninguna, va al final
+          // (insertBefore con null = appendChild).
+          var cards = Array.prototype.slice.call(cuerpo.querySelectorAll('.task-card')).filter(function(c) { return c !== arr.card; });
+          var destino = null;
+          for (var ci = 0; ci < cards.length; ci++) {
+            var r2 = cards[ci].getBoundingClientRect();
+            if (ev.clientY < r2.top + r2.height / 2) { destino = cards[ci]; break; }
           }
+          cuerpo.insertBefore(arr.card, destino);
         }
       } else {
         var colDebajo2 = debajo.closest('.task-col');
@@ -1422,6 +1513,42 @@
     });
     document.addEventListener('pointercancel', limpiar);
   })();
+
+  // === PIZARRA: menú de columna (mantener apretado el grip sin arrastrar) ===
+  // Atajo a las mismas acciones que ya vivían en el modal ⚙️ de gestión de
+  // categorías (catToggleSuspendida/catBorrar) — no duplica lógica, solo la
+  // dispara desde la pizarra misma.
+  var TAR_MENU_COL_CAT = null;
+  function tarAbrirMenuColumna(cat) {
+    TAR_MENU_COL_CAT = cat;
+    if (tarEl('colMenuTitle')) tarEl('colMenuTitle').textContent = tarCatEmoji(cat) + ' ' + cat;
+    var susp = tarCatSuspendida(cat);
+    if (tarEl('colMenuSusp')) tarEl('colMenuSusp').textContent = susp ? '▶️ Reanudar proyecto' : '⏸ Suspender proyecto';
+    // "Otros" es el catch-all: no se puede borrar (ver deleteTaskCategory en
+    // el server), así que ese botón ni se muestra para esa columna.
+    if (tarEl('colMenuDel')) tarEl('colMenuDel').hidden = (_stripAccentsJs(cat) === 'otros');
+    if (tarEl('colMenuModal')) tarEl('colMenuModal').classList.add('show');
+  }
+  function tarCerrarMenuColumna() {
+    TAR_MENU_COL_CAT = null;
+    if (tarEl('colMenuModal')) tarEl('colMenuModal').classList.remove('show');
+  }
+  if (tarEl('colMenuCancel')) tarEl('colMenuCancel').addEventListener('click', tarCerrarMenuColumna);
+  if (tarEl('colMenuModal')) tarEl('colMenuModal').addEventListener('click', function(ev) {
+    if (ev.target === tarEl('colMenuModal')) tarCerrarMenuColumna();
+  });
+  if (tarEl('colMenuSusp')) tarEl('colMenuSusp').addEventListener('click', function() {
+    if (!TAR_MENU_COL_CAT) return;
+    var cat = TAR_MENU_COL_CAT, nuevo = !tarCatSuspendida(cat);
+    tarCerrarMenuColumna();
+    catToggleSuspendida(cat, nuevo);
+  });
+  if (tarEl('colMenuDel')) tarEl('colMenuDel').addEventListener('click', function() {
+    if (!TAR_MENU_COL_CAT) return;
+    var cat = TAR_MENU_COL_CAT;
+    tarCerrarMenuColumna();
+    catBorrar(cat);
+  });
 
   function tarToggle(row) {
     var t = TAR.tareas.find(function(x) { return x.row === row; });
@@ -1841,21 +1968,25 @@
     if (!cont) return;
     var lista = TAR.categorias || [];
     if (!lista.length) { cont.innerHTML = '<div class="hsubcat-empty">No hay categorías</div>'; return; }
-    // Un "proyecto" completado se tacha y baja al final de la lista (igual que
-    // en la pizarra, ver tarPintar) — ya no se reordena con ▲▼ entre sí, así
-    // que las flechas solo aparecen para las pendientes.
-    var pendientes = lista.filter(function(c) { return !tarCatCompletada(c); });
+    // Un "proyecto" completado o suspendido se tacha/atenúa y baja al final de
+    // la lista (igual que en la pizarra, ver tarPintar) — ya no se reordena
+    // con ▲▼ entre sí, así que las flechas solo aparecen para las pendientes.
+    var pendientes = lista.filter(function(c) { return !tarCatCompletada(c) && !tarCatSuspendida(c); });
+    var suspendidas = lista.filter(function(c) { return tarCatSuspendida(c); });
     var completadas = lista.filter(function(c) { return tarCatCompletada(c); });
     function filaHtml(c, i, total, conFlechas) {
       var puedeBorrar = _stripAccentsJs(c) !== 'otros';
       var done = tarCatCompletada(c);
-      return '<div class="hsubcat-item' + (done ? ' done' : '') + '"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
+      var susp = tarCatSuspendida(c);
+      return '<div class="hsubcat-item' + (done ? ' done' : '') + (susp ? ' susp' : '') + '"><span>' + esc(tarCatEmoji(c)) + ' ' + esc(c) + '</span>' +
         (conFlechas ?
           '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="up"' +
             (i === 0 ? ' disabled' : '') + '>▲</button>' +
           '<button type="button" class="hsub-mv" data-catmv-n="' + esc(c) + '" data-catmv-d="down"' +
             (i === total - 1 ? ' disabled' : '') + '>▼</button>'
           : '') +
+        '<button type="button" class="hsub-susp" data-catsusp="' + esc(c) + '" data-catsusp-a="' + (susp ? '0' : '1') + '" ' +
+          'title="' + (susp ? 'Reanudar proyecto' : 'Suspender proyecto') + '">' + (susp ? '▶️' : '⏸') + '</button>' +
         '<button type="button" class="hsub-done" data-catdone="' + esc(c) + '" data-catdone-a="' + (done ? '0' : '1') + '" ' +
           'title="' + (done ? 'Marcar como pendiente' : 'Marcar como completado') + '">' + (done ? '↩️' : '✓') + '</button>' +
         '<button type="button" class="hsub-rn" data-catrn="' + esc(c) + '">✎</button>' +
@@ -1864,6 +1995,7 @@
     }
     cont.innerHTML =
       pendientes.map(function(c, i) { return filaHtml(c, i, pendientes.length, true); }).join('') +
+      suspendidas.map(function(c) { return filaHtml(c, 0, 0, false); }).join('') +
       completadas.map(function(c) { return filaHtml(c, 0, 0, false); }).join('');
     var mvs = cont.querySelectorAll('[data-catmv-n]');
     for (var m = 0; m < mvs.length; m++) {
@@ -1872,6 +2004,14 @@
           catMover(el.getAttribute('data-catmv-n'), el.getAttribute('data-catmv-d'));
         });
       })(mvs[m]);
+    }
+    var susps = cont.querySelectorAll('[data-catsusp]');
+    for (var su = 0; su < susps.length; su++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          catToggleSuspendida(el.getAttribute('data-catsusp'), el.getAttribute('data-catsusp-a') === '1');
+        });
+      })(susps[su]);
     }
     var dones = cont.querySelectorAll('[data-catdone]');
     for (var d = 0; d < dones.length; d++) {
@@ -1892,10 +2032,14 @@
   }
   // Marca/desmarca un "proyecto" (categoría) como completado — se queda en la
   // lista, solo cambia de aspecto y de posición (ver catPintarLista/tarPintar).
+  // Mutuamente excluyente con suspendida: completar reactiva primero (ver
+  // toggleTaskCategoryCompleted en el server).
   function catToggleCompletada(nombre, nuevoValor) {
     var prev = TAR.categoriaCompletadas.slice();
+    var prevSusp = TAR.categoriaSuspendidas.slice();
     if (nuevoValor) {
       if (TAR.categoriaCompletadas.indexOf(nombre) === -1) TAR.categoriaCompletadas.push(nombre);
+      TAR.categoriaSuspendidas = TAR.categoriaSuspendidas.filter(function(c) { return c !== nombre; });
     } else {
       TAR.categoriaCompletadas = TAR.categoriaCompletadas.filter(function(c) { return c !== nombre; });
     }
@@ -1903,16 +2047,54 @@
     tarPintar();
     google.script.run
       .withSuccessHandler(function(r) {
-        if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); TAR.categoriaCompletadas = prev; catPintarLista(); tarPintar(); return; }
+        if (!r || !r.ok) {
+          catStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+          TAR.categoriaCompletadas = prev; TAR.categoriaSuspendidas = prevSusp; catPintarLista(); tarPintar();
+          return;
+        }
         TAR.categoriaCompletadas = r.categoriaCompletadas || [];
+        TAR.categoriaSuspendidas = r.categoriaSuspendidas || TAR.categoriaSuspendidas;
         catPintarLista();
         tarPintar();
       })
       .withFailureHandler(function(err) {
         catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
-        TAR.categoriaCompletadas = prev; catPintarLista(); tarPintar();
+        TAR.categoriaCompletadas = prev; TAR.categoriaSuspendidas = prevSusp; catPintarLista(); tarPintar();
       })
       .toggleTaskCategoryCompletedSafe({ nombre: nombre, completada: nuevoValor });
+  }
+  // Marca/desmarca una categoría como "proyecto suspendido" — a diferencia de
+  // completada, esta SÍ se saca del todo de la pizarra de "Hacer" y pasa a su
+  // propia sección, siempre colapsada (ver #tarBoardSuspendidas en tarPintar).
+  // Mutuamente excluyente con completada.
+  function catToggleSuspendida(nombre, nuevoValor) {
+    var prevSusp = TAR.categoriaSuspendidas.slice();
+    var prevComp = TAR.categoriaCompletadas.slice();
+    if (nuevoValor) {
+      if (TAR.categoriaSuspendidas.indexOf(nombre) === -1) TAR.categoriaSuspendidas.push(nombre);
+      TAR.categoriaCompletadas = TAR.categoriaCompletadas.filter(function(c) { return c !== nombre; });
+    } else {
+      TAR.categoriaSuspendidas = TAR.categoriaSuspendidas.filter(function(c) { return c !== nombre; });
+    }
+    catPintarLista(); // optimista
+    tarPintar();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) {
+          catStatus('✗ ' + ((r && r.error) || 'error'), 'err');
+          TAR.categoriaSuspendidas = prevSusp; TAR.categoriaCompletadas = prevComp; catPintarLista(); tarPintar();
+          return;
+        }
+        TAR.categoriaSuspendidas = r.categoriaSuspendidas || [];
+        TAR.categoriaCompletadas = r.categoriaCompletadas || TAR.categoriaCompletadas;
+        catPintarLista();
+        tarPintar();
+      })
+      .withFailureHandler(function(err) {
+        catStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        TAR.categoriaSuspendidas = prevSusp; TAR.categoriaCompletadas = prevComp; catPintarLista(); tarPintar();
+      })
+      .toggleTaskCategorySuspendedSafe({ nombre: nombre, suspendida: nuevoValor });
   }
   // "Otros" no se puede borrar (ver deleteTaskCategory en el server) — acá
   // alcanza con comparar sin tildes/mayúsculas, no hace falta _stripAccents
@@ -1968,6 +2150,7 @@
         TAR.categorias = r.categorias || [];
         TAR.categoriaEmojis = r.categoriaEmojis || TAR.categoriaEmojis;
         TAR.categoriaCompletadas = r.categoriaCompletadas || TAR.categoriaCompletadas;
+        TAR.categoriaSuspendidas = r.categoriaSuspendidas || TAR.categoriaSuspendidas;
         if (editando) {
           if (TAR.catNuevo === editando) TAR.catNuevo = nombre;
           if (TAR.catModal === editando) TAR.catModal = nombre;
@@ -1992,6 +2175,7 @@
         if (!r || !r.ok) { catStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         TAR.categorias = r.categorias || [];
         TAR.categoriaCompletadas = r.categoriaCompletadas || TAR.categoriaCompletadas;
+        TAR.categoriaSuspendidas = r.categoriaSuspendidas || TAR.categoriaSuspendidas;
         tarPoblarCategorias();
         catStatus('✓ Borrada', 'ok');
         catPintarLista();
@@ -2810,27 +2994,49 @@
     }
 
     // Gastos del mes — todos, no solo los últimos (ver Code.gs getDashboardData
-    // /expenses), tocando uno se abre para editarlo o borrarlo, mismo patrón
-    // que "Movimientos" en Argentina (ver abrirArgModal).
+    // /expenses, ya ordenados por fecha), tocando uno se abre para editarlo o
+    // borrarlo, mismo patrón que "Movimientos" en Argentina (ver
+    // abrirArgModal). La misma lista se repite en "Agregar Gasto" (ver
+    // pintarGastosRecientes), así que ambas comparten DASH_EXPENSES/DASH_TAB
+    // y la fila se arma una sola vez (ver gastoRowHtml).
     DASH_EXPENSES = data.expenses || [];
     DASH_TAB = data.tab || '';
     if (DASH_EXPENSES.length) {
-      html += '<div class="dash-section"><h2>Gastos del mes <span class="hhint">tocá uno para editarlo</span></h2><div class="dash-list">';
-      for (var r = 0; r < DASH_EXPENSES.length; r++) {
-        var e = DASH_EXPENSES[r];
-        var fechaCorta = e.fecha ? esc(e.fecha.slice(8) + '/' + e.fecha.slice(5, 7)) : '';
-        html += '<div class="dash-list-row editable" data-row="' + e.row + '"><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + esc(e.card || '') + (e.category ? ' · ' + esc(e.category) : '') + (fechaCorta ? ' · ' + fechaCorta : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
-      }
-      html += '</div></div>';
+      html += '<div class="dash-section"><h2>Gastos del mes <span class="hhint">tocá uno para editarlo</span></h2><div class="dash-list">' +
+        DASH_EXPENSES.map(gastoRowHtml).join('') + '</div></div>';
     }
 
     content.innerHTML = html;
-    var expRows = content.querySelectorAll('.dash-list-row.editable');
+    wireGastoRows(content);
+    pintarGastosRecientes();
+  }
+
+  // Una fila de gasto — compartida entre el dashboard ("Gastos del mes") y
+  // "Agregar Gasto" (#addGastosList, ver pintarGastosRecientes), mismos datos
+  // (DASH_EXPENSES), mismo click-to-editar (abrirExpModal).
+  function gastoRowHtml(e) {
+    var fechaCorta = e.fecha ? esc(e.fecha.slice(8) + '/' + e.fecha.slice(5, 7)) : '';
+    return '<div class="dash-list-row editable" data-row="' + e.row + '"><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + esc(e.card || '') + (e.category ? ' · ' + esc(e.category) : '') + (fechaCorta ? ' · 📅 ' + fechaCorta : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
+  }
+  function wireGastoRows(cont) {
+    var expRows = cont.querySelectorAll('.dash-list-row.editable');
     for (var er = 0; er < expRows.length; er++) {
       (function(el) {
         el.addEventListener('click', function() { abrirExpModal(parseInt(el.getAttribute('data-row'), 10)); });
       })(expRows[er]);
     }
+  }
+  // Misma lista de DASH_EXPENSES, pintada debajo del form de "Agregar Gasto"
+  // (ver #addGastosList en form.html) — se llama siempre que se recarga el
+  // dashboard (loadDashboard), así que se actualiza sola sin importar desde
+  // qué pestaña se disparó la carga.
+  function pintarGastosRecientes() {
+    var box = document.getElementById('addGastosList');
+    if (!box) return;
+    box.innerHTML = DASH_EXPENSES.length
+      ? DASH_EXPENSES.map(gastoRowHtml).join('')
+      : '<div class="task-empty">Todavía no cargaste gastos este mes</div>';
+    wireGastoRows(box);
   }
 
   // ---- Editar / borrar un gasto (ver DASH_EXPENSES, cargado en renderDashboard) ----
@@ -4328,7 +4534,9 @@
       return;
     }
     var html = '';
-    for (var i = ARG.entradas.length - 1; i >= 0; i--) {
+    // ARG.entradas ya viene ordenado por fecha descendente desde el server
+    // (ver _ordenarPorFechaDesc en getArgentinaData) — acá se pinta tal cual.
+    for (var i = 0; i < ARG.entradas.length; i++) {
       var e = ARG.entradas[i];
       var tipoL = e.tipo.toLowerCase();
       // El sheet guarda Carga/Gasto/Pago; en pantalla se muestran en primera

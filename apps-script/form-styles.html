@@ -98,6 +98,16 @@
   .scan-actions button { margin: 0; }
   .scan-actions .cancel { flex: 1; }
   .scan-actions .save { flex: 2; }
+  /* Agregar Gasto — secciones en .hcard, igual que el resto de la app
+     (Tareas/Hábitos/Ahorros/Argentina); este panel era el único que no lo
+     hacía, con el form flotando suelto sobre el fondo. */
+  #ingresoSummary { cursor: pointer; list-style: none; }
+  #ingresoSummary::-webkit-details-marker { display: none; }
+  /* Verde en vez del teal de "Guardar gasto": un ingreso es plata que entra,
+     no que sale — dos botones idénticos apilados (gasto arriba, ingreso
+     abajo) se leían como si cualquiera fuera "el" botón principal. */
+  #ingAdd { background: #10b981; }
+  #ingAdd:active { background: #059669; }
 
   /* === HABITOS === */
   .hdate { font-size: 13px; color: #888; font-weight: 400; }
@@ -199,8 +209,8 @@
   #clearHabit { margin-top: 8px; font-size: 14px; padding: 11px; }
 
   /* --- modal editar comida --- */
-  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal, #tarAddModal, #subcatModal, #catModal, #expModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
-  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show, #tarAddModal.show, #subcatModal.show, #catModal.show, #expModal.show { display: flex; }
+  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal, #tarAddModal, #subcatModal, #catModal, #expModal, #colMenuModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9998; align-items: center; justify-content: center; padding: 18px; }
+  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show, #tarAddModal.show, #subcatModal.show, #catModal.show, #expModal.show, #colMenuModal.show { display: flex; }
   .hmodal-box { background: white; border-radius: 14px; padding: 18px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .hmodal-box h3 { margin: 0 0 4px; font-size: 17px; }
   .hmodal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -410,6 +420,14 @@
      al final (ver tarPintar en el cliente). */
   .task-col.completada { opacity: 0.55; }
   .task-col.completada .task-col-title { text-decoration: line-through; color: #94a3b8; }
+  /* "Proyecto" suspendido: vive fuera de la pizarra, en su propia sección
+     (#tarBoardSuspendidas) — tono apagado distinto del completado (acá no
+     hay tachado, el proyecto no terminó, solo está en pausa) + botón directo
+     para reanudar en vez de la manija de arrastre (no aplica acá). */
+  .task-col.suspendida { opacity: 0.75; border-top-color: #d97706; }
+  .task-col-resume { margin: 0; width: auto; font-size: 12px; font-weight: 700; color: #b45309;
+                      background: #fef3c7; border: none; border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+  .task-col-resume:active { background: #fde68a; }
   .task-card { background: white; border-radius: 10px; border: 1px solid #e5e7eb; border-left: 5px solid #94a3b8;
                padding: 11px 13px; display: flex; align-items: flex-start; gap: 10px;
                box-shadow: 0 1px 2px rgba(0,0,0,.04); position: relative;
@@ -517,6 +535,11 @@
   .hsubcat-item .hsub-done { color: #0f766e; font-size: 14px; }
   .hsubcat-item.done { opacity: 0.7; }
   .hsubcat-item.done span { text-decoration: line-through; color: #9ca3af; }
+  /* Suspender/reanudar un "proyecto" (categoría) — ver catToggleSuspendida.
+     Ámbar en vez del teal de completado: en pausa, no tachado (no terminó). */
+  .hsubcat-item .hsub-susp { color: #b45309; font-size: 14px; }
+  .hsubcat-item.susp { opacity: 0.7; }
+  .hsubcat-item.susp span { font-style: italic; color: #b45309; }
   .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
 
   /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a

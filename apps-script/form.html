@@ -58,117 +58,138 @@
 
 <div id="addPanel" class="panel">
 <h1>Agregar Gasto</h1>
-<div class="quick-section">
-  <div class="quick-label">Variables — scroll →</div>
-  <div class="quick-scroll" id="quickVar">
-    <button type="button" data-key="bus52">🚌52</button>
-    <button type="button" data-key="cafe">☕</button>
-    <button type="button" data-key="frog">🍺Frog</button>
-    <button type="button" data-key="disco">🛒Disco</button>
-    <button type="button" data-key="devoto">🛒Devoto</button>
-    <button type="button" data-key="tata">🛒Tata</button>
-    <button type="button" data-key="claude">🤖Claude</button>
-    <button type="button" data-key="uber">🚕Uber</button>
-    <button type="button" data-key="cabify">🚕Cabify</button>
-    <button type="button" data-key="taxi">🚖Taxi</button>
-    <button type="button" data-key="agua140">💧140</button>
-    <button type="button" data-key="futbol350">⚽350</button>
-    <button type="button" data-key="farma">💊Farma</button>
-    <button type="button" data-key="medic">💉Medic</button>
-    <button type="button" data-key="cine">🎬Cine</button>
-    <button type="button" data-key="regalo">🎁Regalo</button>
-    <button type="button" data-key="ropa">👕Ropa</button>
-    <button type="button" data-key="pelu">💇Pelu</button>
-    <button type="button" data-key="powerade">🥤Pwr</button>
-    <button type="button" data-key="empanadas">🥟Empa</button>
-    <button type="button" data-key="pizza">🍕Pizza</button>
-    <button type="button" data-key="fernet">🍸Fernet</button>
-    <button type="button" data-key="nafta">⛽Nafta</button>
-    <button type="button" data-key="otros">📦Otros</button>
-  </div>
-</div>
-<div class="quick-section">
-  <div class="quick-label">Fijos — scroll →</div>
-  <div class="quick-scroll fijos" id="quickFijo">
-    <button type="button" data-key="fijo_alquiler">🏠Alq</button>
-    <button type="button" data-key="fijo_gc">🏢GC</button>
-    <button type="button" data-key="fijo_trib">🧾Trib</button>
-    <button type="button" data-key="fijo_antel_int">📶Net</button>
-    <button type="button" data-key="fijo_antel_mov">📱Móvil</button>
-    <button type="button" data-key="fijo_luz">💡Luz</button>
-    <button type="button" data-key="fijo_itau">🏦Itau pq</button>
-    <button type="button" data-key="fijo_sandra">🧠Sandra</button>
-    <button type="button" data-key="fijo_viandas">🍱Vianda</button>
-    <button type="button" data-key="fijo_ble">📞Ble</button>
-    <button type="button" data-key="fijo_bluecross">⚕️Blue</button>
-    <button type="button" data-key="fijo_gimnasio">🏋️Gym</button>
-    <button type="button" data-key="fijo_itau_cred">💳Itaú cr</button>
-    <button type="button" data-key="fijo_oca">💳Oca</button>
-  </div>
-</div>
-<div class="scan-section">
-  <input type="file" id="ticketFile" accept="image/*" style="display:none">
-  <button type="button" id="scanBtn" class="scan-btn">📷 Escanear ticket</button>
-</div>
-<div id="scanPreview" style="display:none">
-  <h3>Items detectados — revisá antes de guardar</h3>
-  <div id="scanItems"></div>
-  <div class="scan-total"><span>Total</span><span class="v" id="scanTotal">—</span></div>
-  <div class="scan-actions">
-    <button type="button" id="cancelScan" class="scan-btn cancel">Cancelar</button>
-    <button type="button" id="saveAll" class="scan-btn save">Guardar todos</button>
-  </div>
-</div>
-<form id="f">
-  <label>Ítem</label>
-  <input name="item" required>
-  <div class="row">
-    <div><label>Monto</label><input name="amount" type="text" required inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
-    <div><label>Moneda</label><select name="currency" required>
-      <option value="UYU">UYU</option><option value="USD">USD</option><option value="ARS">ARS</option>
-    </select></div>
-  </div>
-  <label>Medio de pago</label>
-  <select name="card" required>
-    <option selected>Débito UYU</option>
-    <option>Crédito OCA</option>
-    <option>Crédito Itaú UYU</option>
-    <option>Crédito Itaú USD</option>
-    <option>Débito USD</option>
-    <option>Efectivo UYU</option>
-    <option>Efectivo USD</option>
-  </select>
-  <label>Categoría</label>
-  <select name="category" required><?!= categoryOptions ?></select>
-  <div class="row">
-    <div><label>Fecha</label><input name="date" type="date" value="<?= today ?>"></div>
-    <div><label>Cotización USD</label><input name="cotizacion" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="auto (BCU)" autocomplete="off"></div>
-  </div>
-  <label>Notas (opcional)</label>
-  <input name="notes" placeholder="">
-  <button type="submit" id="submitBtn">Guardar gasto</button>
-  <div id="status"></div>
-</form>
 
-<details id="ingresoSection" style="margin-top:12px">
-  <summary style="font-size:15px;font-weight:600;cursor:pointer;padding:8px 4px;list-style:none;display:flex;align-items:center;gap:6px">
-    <span>💵</span><span>Registrar ingreso</span>
-  </summary>
-  <div style="padding:10px 4px 4px">
-    <label>Concepto</label>
-    <input id="ingConcepto" placeholder="ej: Sueldo, freelance" autocomplete="off">
-    <div class="row">
-      <div><label>Monto</label><input id="ingMonto" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
-      <div><label>Moneda</label><select id="ingMoneda"><option value="UYU">UYU</option><option value="USD">USD</option></select></div>
+<div class="hcard">
+  <div class="hcard-title">⚡ Accesos rápidos</div>
+  <div class="quick-section">
+    <div class="quick-label">Variables — scroll →</div>
+    <div class="quick-scroll" id="quickVar">
+      <button type="button" data-key="bus52">🚌52</button>
+      <button type="button" data-key="cafe">☕</button>
+      <button type="button" data-key="frog">🍺Frog</button>
+      <button type="button" data-key="disco">🛒Disco</button>
+      <button type="button" data-key="devoto">🛒Devoto</button>
+      <button type="button" data-key="tata">🛒Tata</button>
+      <button type="button" data-key="claude">🤖Claude</button>
+      <button type="button" data-key="uber">🚕Uber</button>
+      <button type="button" data-key="cabify">🚕Cabify</button>
+      <button type="button" data-key="taxi">🚖Taxi</button>
+      <button type="button" data-key="agua140">💧140</button>
+      <button type="button" data-key="futbol350">⚽350</button>
+      <button type="button" data-key="farma">💊Farma</button>
+      <button type="button" data-key="medic">💉Medic</button>
+      <button type="button" data-key="cine">🎬Cine</button>
+      <button type="button" data-key="regalo">🎁Regalo</button>
+      <button type="button" data-key="ropa">👕Ropa</button>
+      <button type="button" data-key="pelu">💇Pelu</button>
+      <button type="button" data-key="powerade">🥤Pwr</button>
+      <button type="button" data-key="empanadas">🥟Empa</button>
+      <button type="button" data-key="pizza">🍕Pizza</button>
+      <button type="button" data-key="fernet">🍸Fernet</button>
+      <button type="button" data-key="nafta">⛽Nafta</button>
+      <button type="button" data-key="otros">📦Otros</button>
     </div>
-    <label>Fecha</label>
-    <input id="ingFecha" type="date">
-    <label>Notas (opcional)</label>
-    <input id="ingNotas" placeholder="" autocomplete="off">
-    <button type="button" id="ingAdd">Guardar ingreso</button>
-    <div id="ingStatus"></div>
   </div>
-</details>
+  <div class="quick-section" style="margin-bottom:0">
+    <div class="quick-label">Fijos — scroll →</div>
+    <div class="quick-scroll fijos" id="quickFijo">
+      <button type="button" data-key="fijo_alquiler">🏠Alq</button>
+      <button type="button" data-key="fijo_gc">🏢GC</button>
+      <button type="button" data-key="fijo_trib">🧾Trib</button>
+      <button type="button" data-key="fijo_antel_int">📶Net</button>
+      <button type="button" data-key="fijo_antel_mov">📱Móvil</button>
+      <button type="button" data-key="fijo_luz">💡Luz</button>
+      <button type="button" data-key="fijo_itau">🏦Itau pq</button>
+      <button type="button" data-key="fijo_sandra">🧠Sandra</button>
+      <button type="button" data-key="fijo_viandas">🍱Vianda</button>
+      <button type="button" data-key="fijo_ble">📞Ble</button>
+      <button type="button" data-key="fijo_bluecross">⚕️Blue</button>
+      <button type="button" data-key="fijo_gimnasio">🏋️Gym</button>
+      <button type="button" data-key="fijo_itau_cred">💳Itaú cr</button>
+      <button type="button" data-key="fijo_oca">💳Oca</button>
+    </div>
+  </div>
+</div>
+
+<div class="hcard">
+  <div class="hcard-title">📷 Ticket</div>
+  <div class="scan-section" style="margin:0">
+    <input type="file" id="ticketFile" accept="image/*" style="display:none">
+    <button type="button" id="scanBtn" class="scan-btn">📷 Escanear ticket</button>
+  </div>
+  <div id="scanPreview" style="display:none">
+    <h3>Items detectados — revisá antes de guardar</h3>
+    <div id="scanItems"></div>
+    <div class="scan-total"><span>Total</span><span class="v" id="scanTotal">—</span></div>
+    <div class="scan-actions">
+      <button type="button" id="cancelScan" class="scan-btn cancel">Cancelar</button>
+      <button type="button" id="saveAll" class="scan-btn save">Guardar todos</button>
+    </div>
+  </div>
+</div>
+
+<div class="hcard">
+  <div class="hcard-title">➕ Agregar gasto</div>
+  <form id="f">
+    <label>Ítem</label>
+    <input name="item" required>
+    <div class="row">
+      <div><label>Monto</label><input name="amount" type="text" required inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
+      <div><label>Moneda</label><select name="currency" required>
+        <option value="UYU">UYU</option><option value="USD">USD</option><option value="ARS">ARS</option>
+      </select></div>
+    </div>
+    <label>Medio de pago</label>
+    <select name="card" required>
+      <option selected>Débito UYU</option>
+      <option>Crédito OCA</option>
+      <option>Crédito Itaú UYU</option>
+      <option>Crédito Itaú USD</option>
+      <option>Débito USD</option>
+      <option>Efectivo UYU</option>
+      <option>Efectivo USD</option>
+    </select>
+    <label>Categoría</label>
+    <select name="category" required><?!= categoryOptions ?></select>
+    <div class="row">
+      <div><label>Fecha</label><input name="date" type="date" value="<?= today ?>"></div>
+      <div><label>Cotización USD</label><input name="cotizacion" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="auto (BCU)" autocomplete="off"></div>
+    </div>
+    <label>Notas (opcional)</label>
+    <input name="notes" placeholder="">
+    <button type="submit" id="submitBtn">Guardar gasto</button>
+    <div id="status"></div>
+  </form>
+</div>
+
+<div class="hcard">
+  <details id="ingresoSection">
+    <summary id="ingresoSummary" class="hcard-title" style="margin-bottom:0"><span>💵 Registrar ingreso</span></summary>
+    <div style="padding-top:12px">
+      <label>Concepto</label>
+      <input id="ingConcepto" placeholder="ej: Sueldo, freelance" autocomplete="off">
+      <div class="row">
+        <div><label>Monto</label><input id="ingMonto" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"></div>
+        <div><label>Moneda</label><select id="ingMoneda"><option value="UYU">UYU</option><option value="USD">USD</option></select></div>
+      </div>
+      <label>Fecha</label>
+      <input id="ingFecha" type="date">
+      <label>Notas (opcional)</label>
+      <input id="ingNotas" placeholder="" autocomplete="off">
+      <button type="button" id="ingAdd">Guardar ingreso</button>
+      <div id="ingStatus"></div>
+    </div>
+  </details>
+</div>
+
+<!-- GASTOS DE ESTE MES — mismo patrón que "Movimientos" en Argentina: lista
+     completa, ordenada por fecha, tocar una fila la abre para editar/borrar
+     (ver pintarGastosRecientes/abrirExpModal en form-scripts.html). -->
+<div class="hcard">
+  <div class="hcard-title">📋 Gastos de este mes <span class="hhint">tocá uno para editarlo</span></div>
+  <div id="addGastosList"></div>
+</div>
+
 </div><!-- /addPanel -->
 
 <div id="tareasPanel" class="panel">
@@ -201,6 +222,17 @@
     <button type="button" id="tarOrdenFechaBtn" class="task-filter-hoy" hidden>📅 Fecha: más cerca primero</button>
   </div>
   <div id="tarBoard" class="task-board"></div>
+</div>
+
+<!-- SUSPENDIDOS: proyecto en pausa, fuera de "Hacer" del todo. Sin
+     data-persist-open a propósito — a diferencia de Completadas, esta
+     siempre arranca minimizada al entrar (ver toggle genérico de <details>
+     más arriba en form-scripts.html, que solo engancha data-persist-open). -->
+<div class="hcard">
+  <details id="tarSuspendidasDetails">
+    <summary id="tarSuspendidasSummary" class="hcard-title">⏸ Suspendidos</summary>
+    <div id="tarBoardSuspendidas" class="task-board" style="margin-top:8px"></div>
+  </details>
 </div>
 
 <!-- COMPLETADAS -->
@@ -400,6 +432,18 @@
     <div class="hmodal-actions" style="grid-template-columns:1fr">
       <button type="button" id="catCerrarBtn" class="hsecondary">Cerrar</button>
     </div>
+  </div>
+</div>
+
+<!-- MENU DE COLUMNA — mantener apretado el grip ⠿ de una columna en la
+     pizarra, sin arrastrarla, abre este atajo (ver tarAbrirMenuColumna en
+     form-scripts.html) en vez de tener que entrar al modal ⚙️ de arriba. -->
+<div id="colMenuModal">
+  <div class="hmodal-box">
+    <h3 id="colMenuTitle">Proyecto</h3>
+    <button type="button" id="colMenuSusp" class="htoggle"></button>
+    <button type="button" id="colMenuDel" class="hdanger" style="margin-top:10px">🗑 Borrar proyecto</button>
+    <button type="button" id="colMenuCancel" class="hsecondary" style="margin-top:10px">Cancelar</button>
   </div>
 </div>
 
