@@ -923,7 +923,7 @@
   // de) depender solo del checkbox: no se "completa" una vez, se cuenta y se
   // reinicia sola (ver _tasksRows en el server).
   function tarCounterHtml(t) {
-    if (!t.recurrente) return '';
+    if (!t.recurrente || !t.objetivo) return '';
     var cumplido = t.objetivo > 0 && t.contador >= t.objetivo;
     return '<div class="task-counter' + (cumplido ? ' cumplido' : '') + '">' +
       '<span class="task-counter-txt">' + (cumplido ? '🎉 ' : '🔁 ') + t.contador + ' / ' + t.objetivo +
