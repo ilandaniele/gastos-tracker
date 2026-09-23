@@ -558,6 +558,49 @@ function ensureFixedCategoryColumn(sheet) {
   return { added: true, col: targetCol1, headerRow: fixedHeaderRow0 + 1 };
 }
 
+// === Columna "Fecha" en la tabla FIJA ===
+// Guarda cuándo se cargó el pago del mes (no cuándo vence) para poder
+// ordenar los gastos fijos junto a los variables en vez de mostrarlos
+// siempre primero (ver getDashboardData / _ordenarPorFechaDesc).
+// Va después de "Categoría" si existe, si no después de "Cotización",
+// si no al final del header. Idempotente igual que ensureFixedCategoryColumn.
+function ensureFixedDateColumn(sheet) {
+  const range = sheet.getDataRange().getValues();
+  if (!range.length) return { added: false, col: -1, headerRow: -1 };
+  const varHeaderRow0 = findHeaderRow(range);
+  const fixedSearchEnd = varHeaderRow0 >= 0 ? varHeaderRow0 : Math.min(range.length, 16);
+  let fixedHeaderRow0 = -1;
+  for (let i = 0; i < fixedSearchEnd; i++) {
+    if (String(range[i][0] || '').trim().toLowerCase() === 'gasto') { fixedHeaderRow0 = i; break; }
+  }
+  if (fixedHeaderRow0 < 0) return { added: false, col: -1, headerRow: -1, reason: 'No hay header "Gasto" en tabla fija (tab legacy?)' };
+  const maxCol = sheet.getMaxColumns();
+  const headerRow = sheet.getRange(fixedHeaderRow0 + 1, 1, 1, maxCol).getValues()[0];
+  for (let c = 0; c < headerRow.length; c++) {
+    if (/^fecha$/i.test(String(headerRow[c] || '').trim())) {
+      return { added: false, col: c + 1, headerRow: fixedHeaderRow0 + 1 };
+    }
+  }
+  let catCol1 = -1, cotizCol1 = -1;
+  for (let c = 0; c < headerRow.length; c++) {
+    const h = String(headerRow[c] || '').trim();
+    if (/^categor/i.test(h)) { catCol1 = c + 1; }
+    else if (/cotizaci/i.test(h)) { cotizCol1 = c + 1; }
+  }
+  let targetCol1;
+  if (catCol1 > 0) {
+    targetCol1 = catCol1 + 1;
+  } else if (cotizCol1 > 0) {
+    targetCol1 = cotizCol1 + 1;
+  } else {
+    let lastNonEmpty = 0;
+    for (let c = 0; c < headerRow.length; c++) if (String(headerRow[c] || '').trim()) lastNonEmpty = c + 1;
+    targetCol1 = lastNonEmpty + 1;
+  }
+  sheet.getRange(fixedHeaderRow0 + 1, targetCol1).setValue('Fecha');
+  return { added: true, col: targetCol1, headerRow: fixedHeaderRow0 + 1 };
+}
+
 // Clasifica las filas de la tabla fija de un mes (rellena Categoría usando classifyItem).
 // No pisa categorías ya existentes. Skipea filas tipo "Total"/"Compras"/etc.
 function classifyFixedMonth(tabName) {
@@ -1308,11 +1351,13 @@ function getDashboardData() {
       for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
         if (String(range[i][0] || '').trim().toLowerCase() === 'gasto') { fixedHeaderRow0 = i; break; }
       }
-      let fixedCatCol = -1;
+      let fixedCatCol = -1, fixedDateCol = -1;
       if (fixedHeaderRow0 >= 0) {
         const fh = range[fixedHeaderRow0];
         for (let c = 0; c < fh.length; c++) {
-          if (/^categor/i.test(String(fh[c] || '').trim())) { fixedCatCol = c; break; }
+          const h = String(fh[c] || '').trim();
+          if (/^categor/i.test(h)) fixedCatCol = c;
+          else if (/^fecha$/i.test(h)) fixedDateCol = c;
         }
       }
       for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
@@ -1322,6 +1367,7 @@ function getDashboardData() {
         const uyu = toNumber(range[i][1]);
         const usd = toNumber(range[i][2]);
         if (!uyu && !usd) continue; // sin cargar todavía este mes
+        const fixedFechaVal = fixedDateCol >= 0 ? range[i][fixedDateCol] : null;
         fixedRows.push({
           row: i + 1,
           item: label,
@@ -1329,7 +1375,10 @@ function getDashboardData() {
           currency: usd ? 'USD' : 'UYU',
           card: '',
           category: fixedCatCol >= 0 ? String(range[i][fixedCatCol] || '').trim() : '',
-          fecha: '',
+          // Sin fecha guardada (fijo cargado antes de esta feature) → cae al
+          // final de la lista, ver _ordenarPorFechaDesc.
+          fecha: fixedFechaVal instanceof Date && !isNaN(fixedFechaVal.getTime())
+            ? Utilities.formatDate(fixedFechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
           cotizacion: toNumber(range[i][3]),
           notas: '',
           fixed: true
@@ -1455,13 +1504,15 @@ function getDashboardData() {
     }
     const byCard = Object.values(cardSums).sort((a, b) => b.amount - a.amount);
 
-    // 7. Todos los gastos variables del mes, ordenados por fecha (más
-    // reciente primero) — se muestran como lista para ver/editar/borrar
+    // 7. Todos los gastos del mes (fijos + variables), ordenados por fecha
+    // (más reciente primero) — se muestran como lista para ver/editar/borrar
     // cualquiera, tanto en el dashboard como en "Agregar Gasto" (ver
     // renderDashboard/pintarGastosRecientes/abrirExpModal en el cliente).
-    // Fijos primero (no tienen fecha propia, son el monto del mes actual) y
-    // debajo las variables por fecha desc — ver 1b más arriba.
-    const expenses = fixedRows.concat(_ordenarPorFechaDesc(varRows));
+    // Los fijos entran con la fecha real de pago (ver 1b más arriba /
+    // ensureFixedDateColumn) para intercalarse con los variables en vez de
+    // salir siempre primero; un fijo viejo sin esa fecha guardada cae al
+    // final (_ordenarPorFechaDesc manda fecha='' al fondo).
+    const expenses = _ordenarPorFechaDesc(fixedRows.concat(varRows));
 
     return {
       ok: true,
@@ -1950,9 +2001,20 @@ function _doAddExpense(p) {
         fixedCatWritten = cat;
       }
     } catch (e) { Logger.log('fixed category write failed: ' + e.message); }
+    // Fecha real de pago — para poder ordenar los fijos junto a los variables
+    // en la lista (ver getDashboardData) en vez de mostrarlos siempre primero.
+    let fixedDateWritten = null;
+    try {
+      const dateInfo = ensureFixedDateColumn(sheet);
+      if (dateInfo.col > 0) {
+        const dateObj = parseLocalDate(date);
+        sheet.getRange(row1, dateInfo.col).setValue(dateObj).setNumberFormat('dd/MM/yyyy');
+        fixedDateWritten = Utilities.formatDate(dateObj, 'America/Montevideo', 'yyyy-MM-dd');
+      }
+    } catch (e) { Logger.log('fixed date write failed: ' + e.message); }
     return {
       tab: tabName, row: row1, fixed: true, cotizSource,
-      written: { item: String(range[fixedRowIdx][0]).trim(), amount: amt, currency: currencyUpper, prevAmount: existingNum, cotizacion, category: fixedCatWritten }
+      written: { item: String(range[fixedRowIdx][0]).trim(), amount: amt, currency: currencyUpper, prevAmount: existingNum, cotizacion, category: fixedCatWritten, fecha: fixedDateWritten }
     };
   }
 
