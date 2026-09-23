@@ -3152,7 +3152,17 @@
   // (DASH_EXPENSES), mismo click-to-editar (abrirExpModal).
   function gastoRowHtml(e) {
     var fechaCorta = e.fecha ? esc(e.fecha.slice(8) + '/' + e.fecha.slice(5, 7)) : '';
-    return '<div class="dash-list-row editable" data-row="' + e.row + '"><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + esc(e.card || '') + (e.category ? ' · ' + esc(e.category) : '') + (fechaCorta ? ' · 📅 ' + fechaCorta : '') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
+    // Los fijos no se editan/borran por acá (viven en la tabla fija, no en la
+    // variable — ver updateExpenseEntry/deleteExpenseRow en Code.gs), así que
+    // no llevan clase "editable" ni data-row clickeable, solo un badge.
+    var cls = e.fixed ? 'dash-list-row' : 'dash-list-row editable';
+    var rowAttr = e.fixed ? '' : ' data-row="' + e.row + '"';
+    var subParts = [];
+    if (e.fixed) subParts.push('🔒 FIJO');
+    if (e.card) subParts.push(esc(e.card));
+    if (e.category) subParts.push(esc(e.category));
+    if (fechaCorta) subParts.push('📅 ' + fechaCorta);
+    return '<div class="' + cls + '"' + rowAttr + '><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + subParts.join(' · ') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
   }
   function wireGastoRows(cont) {
     var expRows = cont.querySelectorAll('.dash-list-row.editable');

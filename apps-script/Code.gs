@@ -1298,6 +1298,45 @@ function getDashboardData() {
     const fx = _fixedTotals(range);
     const fixedUyu = fx.uyu, fixedUsd = fx.usd;
 
+    // 1b. Filas de la tabla fija con monto ya cargado este mes — antes
+    // _doAddExpense solo pisaba la celda y quedaba invisible en la lista de
+    // "Agregar Gasto"/dashboard (ver gastoRowHtml en el cliente); ahora se
+    // arman como filas de "expenses" igual que las variables, marcadas fixed:true.
+    const fixedRows = [];
+    {
+      let fixedHeaderRow0 = -1;
+      for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+        if (String(range[i][0] || '').trim().toLowerCase() === 'gasto') { fixedHeaderRow0 = i; break; }
+      }
+      let fixedCatCol = -1;
+      if (fixedHeaderRow0 >= 0) {
+        const fh = range[fixedHeaderRow0];
+        for (let c = 0; c < fh.length; c++) {
+          if (/^categor/i.test(String(fh[c] || '').trim())) { fixedCatCol = c; break; }
+        }
+      }
+      for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+        const label = String(range[i][0] || '').trim();
+        if (!label || _stripAccents(label) === _stripAccents('total fijos')) continue;
+        if (!FIXED_LABELS.some(f => _stripAccents(f) === _stripAccents(label))) continue;
+        const uyu = toNumber(range[i][1]);
+        const usd = toNumber(range[i][2]);
+        if (!uyu && !usd) continue; // sin cargar todavía este mes
+        fixedRows.push({
+          row: i + 1,
+          item: label,
+          amount: usd ? usd : uyu,
+          currency: usd ? 'USD' : 'UYU',
+          card: '',
+          category: fixedCatCol >= 0 ? String(range[i][fixedCatCol] || '').trim() : '',
+          fecha: '',
+          cotizacion: toNumber(range[i][3]),
+          notas: '',
+          fixed: true
+        });
+      }
+    }
+
     // 2. Find variable table
     const headerRow = findHeaderRow(range);
     const headers = headerRow >= 0 ? range[headerRow].map(h => String(h || '').trim()) : [];
@@ -1420,7 +1459,9 @@ function getDashboardData() {
     // reciente primero) — se muestran como lista para ver/editar/borrar
     // cualquiera, tanto en el dashboard como en "Agregar Gasto" (ver
     // renderDashboard/pintarGastosRecientes/abrirExpModal en el cliente).
-    const expenses = _ordenarPorFechaDesc(varRows);
+    // Fijos primero (no tienen fecha propia, son el monto del mes actual) y
+    // debajo las variables por fecha desc — ver 1b más arriba.
+    const expenses = fixedRows.concat(_ordenarPorFechaDesc(varRows));
 
     return {
       ok: true,
