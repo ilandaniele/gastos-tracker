@@ -4658,10 +4658,6 @@ function addIngresoSafe(data) {
   try { return addIngresoEntry(data || {}); }
   catch (err) { Logger.log('addIngresoSafe: ' + err.message); return { ok: false, error: err.message }; }
 }
-function getIngresosSafe() {
-  try { return getIngresosData(); }
-  catch (err) { return { ok: false, error: err.message }; }
-}
 function deleteIngresoSafe(data) {
   try { return deleteIngresoEntry(data || {}); }
   catch (err) { Logger.log('deleteIngresoSafe: ' + err.message); return { ok: false, error: err.message }; }
@@ -6901,11 +6897,6 @@ function addMealSafe(data) {
 
 function getHabitsDataSafe(month) {
   try { return getHabitsData(month); }
-  catch (err) { return { ok: false, error: err.message }; }
-}
-
-function getHabitTodaySafe() {
-  try { return getHabitToday(); }
   catch (err) { return { ok: false, error: err.message }; }
 }
 
