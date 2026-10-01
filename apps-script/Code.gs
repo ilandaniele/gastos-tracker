@@ -138,6 +138,9 @@ const ROUTES = {
     }
     return { ok: true, action: 'createMonth', tab: p.month, alreadyExisted: existed, movedToFront };
   },
+  ensureMonthTabs: () => ensureCurrentMonthTabs(),
+  installMonthTabsTrigger: () => installMonthTabsTrigger(),
+  removeMonthTabsTrigger: () => removeMonthTabsTrigger(),
   testRate: () => testRateSources(),
   dash: () => getDashboardData(),
   // === HABITOS ===
@@ -304,6 +307,9 @@ function doGet(e) {
     if (p.action || p.item) return json({ ok: false, error: 'No autorizado' });
     return _paginaNoAutorizado();
   }
+
+  // Primer acceso del mes: crea las hojas si faltan (cacheado, casi gratis).
+  ensureCurrentMonthTabsSafe();
 
   // Action-based JSON endpoints
   if (p.action && ROUTES[p.action]) {
@@ -1587,6 +1593,62 @@ function getOrCreateMonthTab(ss, tabName) {
     }
   }
   return sheet;
+}
+
+// Asegura que existan las hojas del mes en curso (gastos + bloque Argentina +
+// hábitos). Idempotente. Sin esto, el primer día del mes cualquier lectura
+// (ej. Argentina) fallaba con "No existe la hoja" hasta cargar un gasto.
+// Lo llama el trigger diario, doGet y las lecturas que dependen de la hoja.
+function ensureCurrentMonthTabs() {
+  const monthTab = currentMonthTab();
+  const habitTab = currentHabitTab();
+  const cache = CacheService.getScriptCache();
+  const key = 'ensured_' + monthTab;
+  try { if (cache.get(key)) return { ok: true, cached: true }; } catch (_) {}
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  const res = { ok: true, tab: monthTab, habitTab: habitTab };
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    res.monthExisted = !!ss.getSheetByName(monthTab);
+    const sheet = getOrCreateMonthTab(ss, monthTab);
+    try { getOrCreateArgBlock(sheet); } catch (e) { Logger.log('ensure arg block: ' + e.message); }
+    res.habitExisted = !!ss.getSheetByName(habitTab);
+    try { getOrCreateHabitTab(ss, habitTab); } catch (e) { Logger.log('ensure habit tab: ' + e.message); }
+  } finally {
+    lock.releaseLock();
+  }
+  try { cache.put(key, '1', 6 * 3600); } catch (_) {}
+  return res;
+}
+
+// Versión que nunca tira: para llamarla desde doGet sin romper la respuesta.
+function ensureCurrentMonthTabsSafe() {
+  try { return ensureCurrentMonthTabs(); }
+  catch (e) { Logger.log('ensureCurrentMonthTabs: ' + e.message); return { ok: false, error: e.message }; }
+}
+
+// Trigger diario ~00:30 (idempotente): si el 1° no hubo nadie, igual se crean.
+function installMonthTabsTrigger() {
+  let removed = 0;
+  for (const t of ScriptApp.getProjectTriggers()) {
+    if (t.getHandlerFunction() === 'monthTabsCron') { ScriptApp.deleteTrigger(t); removed++; }
+  }
+  ScriptApp.newTrigger('monthTabsCron').timeBased().everyDays(1).atHour(0).nearMinute(30).create();
+  return { ok: true, msg: 'Trigger instalado: todos los días ~00:30 asegura las hojas del mes', removedPrevious: removed };
+}
+
+function removeMonthTabsTrigger() {
+  let removed = 0;
+  for (const t of ScriptApp.getProjectTriggers()) {
+    if (t.getHandlerFunction() === 'monthTabsCron') { ScriptApp.deleteTrigger(t); removed++; }
+  }
+  return { ok: true, removed: removed };
+}
+
+function monthTabsCron() {
+  Logger.log('monthTabsCron: ' + JSON.stringify(ensureCurrentMonthTabsSafe()));
 }
 
 // Note: kept name "fetchBcuRate" for backwards compatibility — actually uses GOOGLEFINANCE.
@@ -4182,6 +4244,8 @@ function getArgentinaData(monthOpt) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const tabName = monthOpt || currentMonthTab();
+    // Mes en curso sin hoja (ej. 1° del mes): se crea sola en vez de fallar.
+    if (tabName === currentMonthTab() && !ss.getSheetByName(tabName)) ensureCurrentMonthTabs();
     const sheet = ss.getSheetByName(tabName);
     if (!sheet) return { ok: false, error: 'No existe la hoja "' + tabName + '"' };
 
