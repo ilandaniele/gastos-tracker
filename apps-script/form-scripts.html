@@ -1845,20 +1845,23 @@
   function tarPintarCompletadaBtn() {
     var b = tarEl('tmCompletadaBtn');
     if (!b) return;
-    var completada = !!(TAR.editando && TAR.editando.completada);
-    b.textContent = completada ? '↩️ Marcar como pendiente' : '✓ Enviar a completada';
-    b.classList.toggle('activo', completada);
+    // Archivada = ya está en la sección Completadas. Tildada desde afuera
+    // (check rápido) NO está archivada: se tacha en su lugar, así que ahí
+    // todavía hay que poder mandarla a la sección Completadas.
+    var archivada = !!(TAR.editando && TAR.editando.completada && TAR.editando.archivada);
+    b.textContent = archivada ? '↩️ Mandar a sección en progreso' : '✓ Enviar a sección completada';
+    b.classList.toggle('activo', archivada);
   }
   if (tarEl('tmCompletadaBtn')) tarEl('tmCompletadaBtn').addEventListener('click', function() {
     var t = TAR.editando;
     if (!t) return;
-    var completadaNueva = !t.completada;
+    var completadaNueva = !(t.completada && t.archivada);
     tarStatus('Guardando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
         if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
         tarCerrarModal();
-        tarStatus(completadaNueva ? '✓ Enviada a completadas' : '✓ Reabierta', 'ok');
+        tarStatus(completadaNueva ? '✓ Enviada a completadas' : '✓ Vuelta a en progreso', 'ok');
         loadTareas();
       })
       .withFailureHandler(function(err) {
