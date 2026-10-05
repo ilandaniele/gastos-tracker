@@ -828,8 +828,25 @@
   // Separado de loadTareas() para poder reusarlo desde loadTareasPanel(), que
   // trae Tareas + Compras en una sola llamada al entrar a la pestaña (ver más
   // abajo) — acá solo se aplica lo que ya llegó, sin disparar otro pedido.
+  // Spinner en la pizarra mientras no haya datos (primera carga) — tarStatus
+  // vive adentro del modal Agregar, así que ahí no se ve. Una vez que llegó
+  // data, las recargas no tapan lo que ya se muestra.
+  var tarCargado = false;
+  function tarBoardCargando(txt, esError) {
+    if (tarCargado) return;
+    var b = tarEl('tarBoard');
+    if (!b) return;
+    b.innerHTML = '<div class="tar-loading' + (esError ? ' err' : '') + '">' +
+      (esError ? '' : '<div class="tar-spin"></div>') + '<span>' + esc(txt) + '</span></div>';
+  }
   function tarAplicarDatos(r) {
-    if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
+    if (!r || !r.ok) {
+      var m = (r && r.error) || 'error';
+      tarStatus('✗ ' + m, 'err');
+      tarBoardCargando('✗ ' + m, true);
+      return;
+    }
+    tarCargado = true;
     TAR.tareas = r.tareas || [];
     TAR.categorias = r.categorias || [];
     TAR.periodos = r.periodos || [];
@@ -849,10 +866,12 @@
   }
   function loadTareas() {
     tarStatus('Cargando...', 'loading');
+    tarBoardCargando('Cargando tareas...');
     google.script.run
       .withSuccessHandler(tarAplicarDatos)
       .withFailureHandler(function(err) {
         tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        tarBoardCargando('✗ ' + (err && err.message ? err.message : err), true);
       })
       .getTasksSafe();
   }
@@ -990,6 +1009,10 @@
       // tablero activo (sinArrastre=false): dentro de una categoría YA
       // suspendida (sinArrastre=true) todo está parado igual, un toggle acá
       // sería ruido. "Sin subcategoría" tampoco es un grupo real, no aplica.
+      var addSubBtn = !sinArrastre
+        ? '<button type="button" class="task-subgroup-add" data-add-sub="' + esc(cat) + '|' + esc(key) + '" ' +
+          'title="Agregar tarea acá">＋</button>'
+        : '';
       var suspSubBtn = (!esSinSub && !sinArrastre)
         ? '<button type="button" class="task-subgroup-susp" data-susp-sub="' + esc(cat) + '|' + esc(key) + '" ' +
           'title="Suspender este sub-grupo">⏸</button>'
@@ -997,7 +1020,7 @@
       return '<div class="task-subgroup' + (esSinSub ? ' sin' : '') + (colapsado ? ' colapsado' : '') + '">' +
         '<div class="task-subgroup-head" data-colapsar-sub="' + esc(claveColapso) + '">' +
           '<span><span class="task-col-chevron">▾</span> ' + (esSinSub ? 'Sin subcategoría' : esc(key)) + '</span>' +
-          '<span class="n">' + grupoOrdenado.length + '</span>' + borrarBtn + suspSubBtn + '</div>' +
+          '<span class="n">' + grupoOrdenado.length + '</span>' + addSubBtn + borrarBtn + suspSubBtn + '</div>' +
         '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
           '<div class="task-col-body">' + grupoOrdenado.map(function(t) { return tarCardHtml(t, true, sinArrastre); }).join('') + '</div>' +
         '</div></div>' +
@@ -1073,6 +1096,28 @@
           if (wrap) wrap.classList.toggle('colapsado', nuevo);
         });
       })(colapsarsSub[cs]);
+    }
+    // "＋" de una columna / sub-grupo: abre Agregar con el proyecto (y
+    // subproyecto) ya elegidos.
+    var addCats = cont.querySelectorAll('[data-add-cat]');
+    for (var ac = 0; ac < addCats.length; ac++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation(); // no colapsar la columna
+          tarAbrirAddModal(el.getAttribute('data-add-cat'), '');
+        });
+      })(addCats[ac]);
+    }
+    var addSubs = cont.querySelectorAll('[data-add-sub]');
+    for (var as = 0; as < addSubs.length; as++) {
+      (function(el) {
+        el.addEventListener('click', function(ev) {
+          ev.stopPropagation(); // no colapsar el sub-grupo
+          var clave = el.getAttribute('data-add-sub');
+          var idx = clave.indexOf('|');
+          tarAbrirAddModal(clave.slice(0, idx), clave.slice(idx + 1));
+        });
+      })(addSubs[as]);
     }
     // Borrar un sub-grupo que ya terminó del todo (botón 🗑, solo aparece
     // cuando todas sus tarjetas están completadas — ver tarColBodyHtml).
@@ -1269,6 +1314,7 @@
               '<span class="task-col-chevron">▾</span> ' +
               '<span class="task-col-title">' + esc(tarCatEmoji(cat)) + ' ' + esc(cat) + '</span></span>' +
             '<span class="n">' + pendEnCat + '</span>' +
+            '<button type="button" class="task-col-add" data-add-cat="' + esc(cat) + '" title="Agregar tarea a este proyecto">＋</button>' +
             '<button type="button" class="task-col-menu-btn" data-col-menu="' + esc(cat) + '" title="Suspender o borrar proyecto">⋮</button>' +
           '</div>' +
           '<div class="task-col-collapse' + (colapsado ? ' colapsado' : '') + '"><div class="task-col-collapse-inner">' +
@@ -1732,13 +1778,21 @@
   // Modal de "Agregar" (ver #tarAddModal en el HTML): antes era una tarjeta
   // fija arriba de la pizarra, ahora solo aparece al tocar el botón — mismo
   // patrón show/click-afuera-cierra que el modal de editar (tarAbrirModal).
-  function tarAbrirAddModal() {
+  // categoria/subcategoria (opcionales): precargan el proyecto y subproyecto
+  // desde el "＋" de la pizarra. Sin args (botón de arriba) deja lo que había.
+  function tarAbrirAddModal(categoria, subcategoria) {
+    if (typeof categoria === 'string' && categoria) {
+      TAR.catNuevo = categoria;
+      tarPoblarCategorias();
+      tarPoblarSubcatSelect(categoria, 'tarSubcategoria', subcategoria || '');
+    }
     if (tarEl('tarAddModal')) tarEl('tarAddModal').classList.add('show');
+    if (typeof categoria === 'string' && categoria && tarEl('tarTexto')) tarEl('tarTexto').focus();
   }
   function tarCerrarAddModal() {
     if (tarEl('tarAddModal')) tarEl('tarAddModal').classList.remove('show');
   }
-  if (tarEl('tarAddOpenBtn')) tarEl('tarAddOpenBtn').addEventListener('click', tarAbrirAddModal);
+  if (tarEl('tarAddOpenBtn')) tarEl('tarAddOpenBtn').addEventListener('click', function() { tarAbrirAddModal(); });
   if (tarEl('tarAddCloseX')) tarEl('tarAddCloseX').addEventListener('click', tarCerrarAddModal);
   if (tarEl('tarAddModal')) tarEl('tarAddModal').addEventListener('click', function(ev) {
     if (ev.target === tarEl('tarAddModal')) tarCerrarAddModal();
@@ -2437,18 +2491,19 @@
     var respondido = false;
     tarStatus('Cargando...', 'loading');
     compStatus('Cargando...', 'loading');
+    tarBoardCargando(reintento ? 'Reintentando...' : 'Cargando tareas...');
     setTimeout(function() {
       if (respondido) return;
       if (!reintento) { loadTareasPanel(true); return; }
       var msg = '✗ El servidor no respondió — volvé a tocar la pestaña';
-      tarStatus(msg, 'err'); compStatus(msg, 'err');
+      tarStatus(msg, 'err'); compStatus(msg, 'err'); tarBoardCargando(msg, true);
     }, 20000);
     google.script.run
       .withSuccessHandler(function(r) {
         respondido = true;
         if (!r || !r.ok) {
           var msg = '✗ ' + ((r && r.error) || 'error');
-          tarStatus(msg, 'err'); compStatus(msg, 'err');
+          tarStatus(msg, 'err'); compStatus(msg, 'err'); tarBoardCargando(msg, true);
           return;
         }
         tarAplicarDatos(r.tareas);
@@ -2457,7 +2512,7 @@
       .withFailureHandler(function(err) {
         respondido = true;
         var msg = '✗ ' + (err && err.message ? err.message : err);
-        tarStatus(msg, 'err'); compStatus(msg, 'err');
+        tarStatus(msg, 'err'); compStatus(msg, 'err'); tarBoardCargando(msg, true);
       })
       .getTareasPanelDataSafe();
   }
