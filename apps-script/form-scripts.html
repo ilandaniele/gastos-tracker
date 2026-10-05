@@ -1856,16 +1856,32 @@
     var t = TAR.editando;
     if (!t) return;
     var completadaNueva = !(t.completada && t.archivada);
+    // Optimista: mueve la tarea y cierra el modal al toque, sin esperar al
+    // server (que a veces tarda o queda colgado). Si falla, vuelve atrás.
+    var prev = { completada: t.completada, archivada: t.archivada, fechaCompletada: t.fechaCompletada };
+    function revertir(msg) {
+      t.completada = prev.completada; t.archivada = prev.archivada; t.fechaCompletada = prev.fechaCompletada;
+      tarStatus('✗ ' + msg, 'err');
+      tarPintar();
+    }
+    t.completada = completadaNueva;
+    t.archivada = completadaNueva;
+    tarCerrarModal();
+    tarPintar();
     tarStatus('Guardando...', 'loading');
+    var contesto = false;
+    setTimeout(function() {
+      if (!contesto) tarStatus('Sigue guardando... (el servidor tarda)', 'loading');
+    }, 8000);
     google.script.run
       .withSuccessHandler(function(r) {
-        if (!r || !r.ok) { tarStatus('✗ ' + ((r && r.error) || 'error'), 'err'); return; }
-        tarCerrarModal();
+        contesto = true;
+        if (!r || !r.ok) { revertir((r && r.error) || 'error'); return; }
         tarStatus(completadaNueva ? '✓ Enviada a completadas' : '✓ Vuelta a en progreso', 'ok');
-        loadTareas();
       })
       .withFailureHandler(function(err) {
-        tarStatus('✗ ' + (err && err.message ? err.message : err), 'err');
+        contesto = true;
+        revertir(err && err.message ? err.message : err);
       })
       .toggleTaskSafe({ row: t.row, completada: completadaNueva, archivar: completadaNueva });
   });
@@ -2414,11 +2430,22 @@
   // eran dos google.script.run separadas, cada una abriendo el spreadsheet
   // entero por su cuenta (ver getTareasPanelDataSafe en el server). Una sola
   // llamada, un solo open: la pestaña tarda notoriamente menos en entrar.
-  function loadTareasPanel() {
+  // Si el server no contesta (Apps Script a veces deja el pedido colgado),
+  // reintenta una vez a los 20s y después avisa en vez de quedar en
+  // "Cargando..." para siempre. Una respuesta tardía igual se aplica.
+  function loadTareasPanel(reintento) {
+    var respondido = false;
     tarStatus('Cargando...', 'loading');
     compStatus('Cargando...', 'loading');
+    setTimeout(function() {
+      if (respondido) return;
+      if (!reintento) { loadTareasPanel(true); return; }
+      var msg = '✗ El servidor no respondió — volvé a tocar la pestaña';
+      tarStatus(msg, 'err'); compStatus(msg, 'err');
+    }, 20000);
     google.script.run
       .withSuccessHandler(function(r) {
+        respondido = true;
         if (!r || !r.ok) {
           var msg = '✗ ' + ((r && r.error) || 'error');
           tarStatus(msg, 'err'); compStatus(msg, 'err');
@@ -2428,6 +2455,7 @@
         compAplicarDatos(r.compras);
       })
       .withFailureHandler(function(err) {
+        respondido = true;
         var msg = '✗ ' + (err && err.message ? err.message : err);
         tarStatus(msg, 'err'); compStatus(msg, 'err');
       })
