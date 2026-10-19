@@ -423,6 +423,13 @@
   var DASH_EXPENSES = [];
   var DASH_TAB = '';
   var DASH_EDIT_ROW = null;
+  // Mes elegido en el dashboard ('' = mes en curso) y lista de meses con su total
+  // (ver Code.gs getMonthlyTotals), que alimenta el selector y el gráfico de barras.
+  var DASH_MONTH = '';
+  var DASH_MONTHS = null;
+  var MES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var MES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
   function switchTab(panelId) {
     var tabs = document.querySelectorAll('.tab');
     for (var i = 0; i < tabs.length; i++) {
@@ -3134,13 +3141,6 @@
       return sym + n.toFixed(cur === 'UYU' ? 0 : 2);
     }
   }
-
-  // Mes elegido en el dashboard ('' = mes en curso) y lista de meses con su total
-  // (ver Code.gs getMonthlyTotals), que alimenta el selector y el gráfico de barras.
-  var DASH_MONTH = '';
-  var DASH_MONTHS = null;
-  var MES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  var MES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
   function loadDashboard() {
     var content = document.getElementById('dashContent');
