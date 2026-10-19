@@ -1347,8 +1347,6 @@ function getDashboardData(month) {
     const range = sheet.getDataRange().getValues();
 
     // 1. Fixed table totals (rows with col A matching FIXED_LABELS — exact match only)
-    const fx = _fixedTotals(range);
-    const fixedUyu = fx.uyu, fixedUsd = fx.usd;
 
     // 1b. Filas de la tabla fija con monto ya cargado este mes — antes
     // _doAddExpense solo pisaba la celda y quedaba invisible en la lista de
@@ -1371,8 +1369,9 @@ function getDashboardData(month) {
       }
       for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
         const label = String(range[i][0] || '').trim();
-        if (!label || _stripAccents(label) === _stripAccents('total fijos')) continue;
-        if (!FIXED_LABELS.some(f => _stripAccents(f) === _stripAccents(label))) continue;
+        if (!label) continue;
+        if (_stripAccents(label) === 'total fijos') break;
+        if (i === fixedHeaderRow0) continue;
         const uyu = toNumber(range[i][1]);
         const usd = toNumber(range[i][2]);
         if (!uyu && !usd) continue; // sin cargar todavía este mes
@@ -1458,18 +1457,10 @@ function getDashboardData(month) {
       }
     }
 
-    // 4. Find "Gastos totales" / "Cantidad" row for Sheet-calculated totals
-    let sheetUyu = null, sheetUsd = null, sheetMixedUyu = null, sheetMixedUsd = null;
-    for (let i = 0; i < range.length; i++) {
-      const a = String(range[i][0] || '').trim().toLowerCase();
-      if (a === 'cantidad') {
-        sheetUyu = parseFloat(range[i][1]);
-        sheetUsd = parseFloat(range[i][2]);
-        sheetMixedUyu = parseFloat(range[i][3]);
-        sheetMixedUsd = parseFloat(range[i][4]);
-        break;
-      }
-    }
+    // 4. Totales calculados fila por fila (ver _calcMonthTotals). La fila
+    // "Cantidad" de la hoja no se usa: sus fórmulas solo suman la tabla fija
+    // y dejaban afuera todo lo variable (USD de viajes, tarjetas, etc.).
+    const mt = _calcMonthTotals(range);
 
     // 5. Subtotal categoría table
     const byCategory = [];
@@ -1529,14 +1520,14 @@ function getDashboardData(month) {
       cotizacion: lastCotiz,
       variableCount: varRows.length,
       totals: {
-        uyu: sheetUyu !== null && isFinite(sheetUyu) ? sheetUyu : (fixedUyu + varUyu),
-        usd: sheetUsd !== null && isFinite(sheetUsd) ? sheetUsd : (fixedUsd + varUsd),
-        uyuInUyu: sheetMixedUyu !== null && isFinite(sheetMixedUyu) ? sheetMixedUyu : null,
-        uyuInUsd: sheetMixedUsd !== null && isFinite(sheetMixedUsd) ? sheetMixedUsd : null,
-        fixedUyu: fixedUyu,
-        fixedUsd: fixedUsd,
-        varUyu: varUyu,
-        varUsd: varUsd
+        uyu: mt.uyu,
+        usd: mt.usd,
+        uyuInUyu: mt.mixedUyu,
+        uyuInUsd: mt.mixedUsd,
+        fixedUyu: mt.fixedUyu,
+        fixedUsd: mt.fixedUsd,
+        varUyu: mt.varUyu,
+        varUsd: mt.varUsd
       },
       byCategory: byCategory,
       byCard: byCard,
@@ -1556,32 +1547,93 @@ function _monthTabInfo(name) {
   return idx < 0 ? null : { year: parseInt(m[2], 10), month: idx };
 }
 
-// Meses disponibles (hojas de mes) + total de cada uno en UYU, del más viejo
-// al más nuevo — alimenta el selector y el gráfico de barras del dashboard.
-// Total = fila "Cantidad" col D (UYU + USD convertido); si falta, fijos + variables UYU.
+// Totales del mes sumando cada fila: tabla fija (todas las filas con monto,
+// incluidas las de tarjeta como "Itaú Crédito") + tabla variable. Cada monto
+// en USD se pasa a UYU con la cotización de su propia fila (o la última vista).
+function _calcMonthTotals(range) {
+  let fixedUyu = 0, fixedUsd = 0, varUyu = 0, varUsd = 0;
+  let mixedUyu = 0, lastCotiz = null;
+  const rowCotiz = v => { const c = toNumber(v); return c && c > 20 ? c : null; };
+
+  const fixedRows = [];
+  for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+    const label = String(range[i][0] || '').trim();
+    if (!label) continue;
+    const key = _stripAccents(label);
+    if (key === 'total fijos') break;
+    if (key === 'gasto') continue;
+    const uyu = toNumber(range[i][1]) || 0, usd = toNumber(range[i][2]) || 0;
+    if (!uyu && !usd) continue;
+    fixedRows.push({ uyu: uyu, usd: usd, cotiz: rowCotiz(range[i][3]) });
+  }
+
+  const varRows = [];
+  const headerRow = findHeaderRow(range);
+  if (headerRow >= 0) {
+    const headers = range[headerRow].map(h => String(h || '').trim());
+    const cardCols = [];
+    let cotizCol = -1;
+    for (let c = 1; c < headers.length; c++) {
+      const h = headers[c];
+      if (/cotizaci[oó]n/i.test(h)) { cotizCol = c; continue; }
+      if (/categor|^fecha$/i.test(h)) continue;
+      if (h && !/lugar|notas|notes/i.test(h)) cardCols.push({ col: c, usd: /usd|d[oó]lar/i.test(h) });
+    }
+    for (let i = headerRow + 1; i < range.length; i++) {
+      const cellA = String(range[i][0] || '').trim();
+      if (!cellA) continue;
+      if (isBoundaryRow(cellA.toLowerCase())) break;
+      const cotiz = cotizCol >= 0 ? rowCotiz(range[i][cotizCol]) : null;
+      if (cotiz) lastCotiz = cotiz;
+      for (let k = 0; k < cardCols.length; k++) {
+        const v = parseFloat(range[i][cardCols[k].col]);
+        if (isFinite(v) && v !== 0) {
+          varRows.push({ uyu: cardCols[k].usd ? 0 : v, usd: cardCols[k].usd ? v : 0, cotiz: cotiz });
+          break;
+        }
+      }
+    }
+  }
+
+  const fallback = lastCotiz || COTIZ_FALLBACK;
+  fixedRows.forEach(r => { fixedUyu += r.uyu; fixedUsd += r.usd; mixedUyu += r.uyu + r.usd * (r.cotiz || fallback); });
+  varRows.forEach(r => { varUyu += r.uyu; varUsd += r.usd; mixedUyu += r.uyu + r.usd * (r.cotiz || fallback); });
+  return {
+    uyu: fixedUyu + varUyu, usd: fixedUsd + varUsd,
+    mixedUyu: Math.round(mixedUyu), mixedUsd: Math.round(mixedUyu / fallback * 100) / 100,
+    fixedUyu: fixedUyu, fixedUsd: fixedUsd, varUyu: varUyu, varUsd: varUsd
+  };
+}
+
+// Meses disponibles (hojas de mes) + total en UYU de los últimos 12, del más
+// viejo al más nuevo — alimenta el selector y el gráfico de barras. Los meses
+// pasados se cachean 6 h (leer cada hoja es lo lento); el actual se recalcula
+// siempre para que un gasto recién cargado se vea.
 function getMonthlyTotals() {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
+    const cache = CacheService.getScriptCache();
+    const curTab = currentMonthTab();
     const tabs = ss.getSheets()
       .map(s => ({ sheet: s, info: _monthTabInfo(s.getName()) }))
       .filter(t => t.info)
       .sort((a, b) => (a.info.year - b.info.year) || (a.info.month - b.info.month));
-    const months = tabs.map(t => {
-      let total = null;
+    const recent = tabs.length - 12;
+    const months = tabs.map((t, idx) => {
+      const name = t.sheet.getName();
+      const out = { tab: name, year: t.info.year, month: t.info.month, total: null };
+      if (idx < recent) return out; // fuera del gráfico: solo el nombre para el selector
+      const key = 'mt2_' + name;
+      if (name !== curTab) {
+        try { const hit = cache.get(key); if (hit !== null) { out.total = parseFloat(hit); return out; } } catch (_) {}
+      }
       try {
-        const range = t.sheet.getDataRange().getValues();
-        for (let i = 0; i < range.length; i++) {
-          if (String(range[i][0] || '').trim().toLowerCase() === 'cantidad') {
-            const v = parseFloat(range[i][3]);
-            if (isFinite(v)) total = v;
-            break;
-          }
-        }
-        if (total === null) total = _fixedTotals(range).uyu;
-      } catch (e) { total = 0; }
-      return { tab: t.sheet.getName(), year: t.info.year, month: t.info.month, total: total || 0 };
+        out.total = _calcMonthTotals(t.sheet.getDataRange().getValues()).mixedUyu;
+        if (name !== curTab) { try { cache.put(key, String(out.total), 21600); } catch (_) {} }
+      } catch (e) { out.total = 0; }
+      return out;
     });
-    return { ok: true, months: months, current: currentMonthTab() };
+    return { ok: true, months: months, current: curTab };
   } catch (err) {
     Logger.log('getMonthlyTotals error: ' + err.message);
     return { ok: false, error: err.message };

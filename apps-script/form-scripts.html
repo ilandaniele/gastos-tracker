@@ -3139,12 +3139,16 @@
   // (ver Code.gs getMonthlyTotals), que alimenta el selector y el gráfico de barras.
   var DASH_MONTH = '';
   var DASH_MONTHS = null;
+  var MES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var MES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
   function loadDashboard() {
     var content = document.getElementById('dashContent');
     content.className = 'dash-loader';
     content.textContent = 'Cargando datos...';
+    // Selector con el mes actual desde el arranque: un <select> vacío en iOS
+    // abre una barra de "No hay opciones" mientras llega la lista del server.
+    if (!DASH_MONTHS) pintarSelectorMes();
     google.script.run
       .withSuccessHandler(renderDashboard)
       .withFailureHandler(function(err){
@@ -3167,7 +3171,13 @@
 
   function pintarSelectorMes() {
     var sel = document.getElementById('dashMonth');
-    if (!sel || !DASH_MONTHS) return;
+    if (!sel) return;
+    if (!DASH_MONTHS) {
+      var hoy = new Date();
+      var nombre = DASH_MONTH || (MES_LARGO[hoy.getMonth()] + ' ' + hoy.getFullYear());
+      sel.innerHTML = '<option value="' + esc(nombre) + '" selected>' + esc(nombre) + '</option>';
+      return;
+    }
     var elegido = DASH_MONTH || DASH_MONTHS.current;
     var opts = '';
     for (var i = DASH_MONTHS.months.length - 1; i >= 0; i--) {
@@ -3181,7 +3191,7 @@
   function pintarGraficoMeses() {
     var box = document.getElementById('dashChart');
     if (!box || !DASH_MONTHS) return;
-    var ms = DASH_MONTHS.months.slice(-12);
+    var ms = DASH_MONTHS.months.filter(function(m){ return m.total !== null; });
     if (!ms.length) { box.innerHTML = ''; return; }
     var elegido = DASH_MONTH || DASH_MONTHS.current;
     var max = ms.reduce(function(a, m){ return Math.max(a, m.total); }, 0) || 1;
