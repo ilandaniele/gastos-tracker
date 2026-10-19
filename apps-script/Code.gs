@@ -142,7 +142,8 @@ const ROUTES = {
   installMonthTabsTrigger: () => installMonthTabsTrigger(),
   removeMonthTabsTrigger: () => removeMonthTabsTrigger(),
   testRate: () => testRateSources(),
-  dash: () => getDashboardData(),
+  dash: (p) => getDashboardData(p && p.month),
+  dashmonths: () => getMonthlyTotals(),
   // === HABITOS ===
   habitsData: p => getHabitsData(p.month || currentHabitTab()),
   habitDay: p => saveHabitDayData(p),
@@ -1335,10 +1336,12 @@ function addBatch(items) {
 }
 
 // === Dashboard: reads current month tab and computes totals/breakdowns ===
-function getDashboardData() {
+function getDashboardData(month) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
-    const tabName = currentMonthTab();
+    // month opcional ("Septiembre 2026"); sin él, el mes en curso. Solo se
+    // acepta si es una hoja de mes real (ver _monthTabInfo), nunca un nombre libre.
+    const tabName = (month && _monthTabInfo(month)) ? String(month).trim() : currentMonthTab();
     const sheet = ss.getSheetByName(tabName);
     if (!sheet) return { ok: false, error: 'Tab "' + tabName + '" no existe' };
     const range = sheet.getDataRange().getValues();
@@ -1541,6 +1544,46 @@ function getDashboardData() {
     };
   } catch (err) {
     Logger.log('getDashboardData error: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// "Mayo 2026" → {year, month(0-11)}; null si no es nombre de hoja de mes.
+function _monthTabInfo(name) {
+  const m = String(name || '').trim().match(/^(\S+) (\d{4})$/);
+  if (!m) return null;
+  const idx = MONTH_NAMES.findIndex(n => n === m[1]);
+  return idx < 0 ? null : { year: parseInt(m[2], 10), month: idx };
+}
+
+// Meses disponibles (hojas de mes) + total de cada uno en UYU, del más viejo
+// al más nuevo — alimenta el selector y el gráfico de barras del dashboard.
+// Total = fila "Cantidad" col D (UYU + USD convertido); si falta, fijos + variables UYU.
+function getMonthlyTotals() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const tabs = ss.getSheets()
+      .map(s => ({ sheet: s, info: _monthTabInfo(s.getName()) }))
+      .filter(t => t.info)
+      .sort((a, b) => (a.info.year - b.info.year) || (a.info.month - b.info.month));
+    const months = tabs.map(t => {
+      let total = null;
+      try {
+        const range = t.sheet.getDataRange().getValues();
+        for (let i = 0; i < range.length; i++) {
+          if (String(range[i][0] || '').trim().toLowerCase() === 'cantidad') {
+            const v = parseFloat(range[i][3]);
+            if (isFinite(v)) total = v;
+            break;
+          }
+        }
+        if (total === null) total = _fixedTotals(range).uyu;
+      } catch (e) { total = 0; }
+      return { tab: t.sheet.getName(), year: t.info.year, month: t.info.month, total: total || 0 };
+    });
+    return { ok: true, months: months, current: currentMonthTab() };
+  } catch (err) {
+    Logger.log('getMonthlyTotals error: ' + err.message);
     return { ok: false, error: err.message };
   }
 }

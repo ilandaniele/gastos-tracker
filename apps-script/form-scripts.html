@@ -198,7 +198,7 @@
       var iso = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
       var dateField = getField('date');
       if (dateField) dateField.value = iso;
-      loadDashboard(); // refresca "Gastos de este mes" con el que se acaba de cargar
+      DASH_MONTH = ""; loadDashboard(); // refresca "Gastos de este mes" con el que se acaba de cargar
     } else {
       setStatus('✗ Error: ' + (result && result.error ? result.error : 'desconocido'), 'err');
     }
@@ -403,7 +403,7 @@
           setStatus('✓ ' + result.saved + ' guardados · ' + result.failed + ' fallaron · ' + result.tab, 'ok');
           scannedItems = [];
           document.getElementById('scanPreview').style.display = 'none';
-          loadDashboard(); // refresca "Gastos de este mes" con lo que se acaba de cargar
+          DASH_MONTH = ""; loadDashboard(); // refresca "Gastos de este mes" con lo que se acaba de cargar
         } else {
           setStatus('✗ Batch: ' + (result && result.error || 'error'), 'err');
         }
@@ -451,7 +451,7 @@
     // Cada vez que se abre la pestaña de agregar, refrescar la fecha a "hoy"
     // y recargar "Gastos de este mes" (mismo criterio que Argentina/Ahorros:
     // recargar siempre al entrar, ver más arriba en este switch).
-    if (panelId === 'addPanel') { refreshDateToToday(); loadDashboard(); }
+    if (panelId === 'addPanel') { refreshDateToToday(); DASH_MONTH = ""; loadDashboard(); }
   }
   var tabBtns = document.querySelectorAll('.tab');
   for (var t = 0; t < tabBtns.length; t++) {
@@ -3135,6 +3135,12 @@
     }
   }
 
+  // Mes elegido en el dashboard ('' = mes en curso) y lista de meses con su total
+  // (ver Code.gs getMonthlyTotals), que alimenta el selector y el gráfico de barras.
+  var DASH_MONTH = '';
+  var DASH_MONTHS = null;
+  var MES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
   function loadDashboard() {
     var content = document.getElementById('dashContent');
     content.className = 'dash-loader';
@@ -3144,8 +3150,65 @@
       .withFailureHandler(function(err){
         content.textContent = '✗ Error: ' + (err && err.message ? err.message : err);
       })
-      .getDashboardData();
+      .getDashboardData(DASH_MONTH || null);
+    loadDashMonths();
   }
+
+  function loadDashMonths() {
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (!r || !r.ok) return;
+        DASH_MONTHS = r;
+        pintarSelectorMes();
+        pintarGraficoMeses();
+      })
+      .getMonthlyTotals();
+  }
+
+  function pintarSelectorMes() {
+    var sel = document.getElementById('dashMonth');
+    if (!sel || !DASH_MONTHS) return;
+    var elegido = DASH_MONTH || DASH_MONTHS.current;
+    var opts = '';
+    for (var i = DASH_MONTHS.months.length - 1; i >= 0; i--) {
+      var m = DASH_MONTHS.months[i];
+      opts += '<option value="' + esc(m.tab) + '"' + (m.tab === elegido ? ' selected' : '') + '>' + esc(m.tab) + '</option>';
+    }
+    sel.innerHTML = opts;
+  }
+
+  // Barras con el total (UYU) de cada mes, últimos 12; tocar una barra elige ese mes.
+  function pintarGraficoMeses() {
+    var box = document.getElementById('dashChart');
+    if (!box || !DASH_MONTHS) return;
+    var ms = DASH_MONTHS.months.slice(-12);
+    if (!ms.length) { box.innerHTML = ''; return; }
+    var elegido = DASH_MONTH || DASH_MONTHS.current;
+    var max = ms.reduce(function(a, m){ return Math.max(a, m.total); }, 0) || 1;
+    box.innerHTML = ms.map(function(m) {
+      var h = Math.max(2, Math.round(m.total / max * 100));
+      var lbl = MES_CORTO[m.month] + (m.month === 0 || ms[0] === m ? ' ' + String(m.year).slice(2) : '');
+      return '<div class="dash-chart-col' + (m.tab === elegido ? ' sel' : '') + '" data-tab="' + esc(m.tab) + '">' +
+        '<div class="dash-chart-val">' + fmt(Math.round(m.total / 1000)) + 'k</div>' +
+        '<div class="dash-chart-bar" style="height:' + h + '%"></div>' +
+        '<div class="dash-chart-lbl">' + lbl + '</div></div>';
+    }).join('');
+    var cols = box.querySelectorAll('.dash-chart-col');
+    for (var i = 0; i < cols.length; i++) {
+      (function(el) {
+        el.addEventListener('click', function() { elegirMesDash(el.getAttribute('data-tab')); });
+      })(cols[i]);
+    }
+  }
+
+  function elegirMesDash(tab) {
+    var actual = DASH_MONTHS && DASH_MONTHS.current;
+    DASH_MONTH = (tab === actual) ? '' : tab;
+    loadDashboard();
+  }
+  if (document.getElementById('dashMonth')) document.getElementById('dashMonth').addEventListener('change', function() {
+    elegirMesDash(this.value);
+  });
 
   function renderDashboard(data) {
     dashLoadedOnce = true;
@@ -3159,6 +3222,9 @@
     content.className = '';
     var t = data.totals || {};
     var html = '';
+
+    // Gráfico de gastos por mes (se rellena en pintarGraficoMeses)
+    html += '<div class="dash-section"><h2>Gasto por mes (UYU) <span class="hhint">tocá una barra para ver ese mes</span></h2><div id="dashChart" class="dash-chart"></div></div>';
 
     // KPIs
     html += '<div class="dash-section"><div class="dash-kpis">';
@@ -3230,7 +3296,10 @@
 
     content.innerHTML = html;
     wireGastoRows(content);
-    pintarGastosRecientes();
+    pintarGraficoMeses();
+    // "Agregar Gasto" siempre lista el mes en curso: si se está viendo otro mes,
+    // no pisar esa lista con gastos viejos (ni dejar editar sobre el mes equivocado).
+    if (!DASH_MONTH) pintarGastosRecientes();
   }
 
   // Una fila de gasto — compartida entre el dashboard ("Gastos del mes") y

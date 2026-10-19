@@ -449,7 +449,10 @@
 
 <div id="dashPanel" class="panel">
   <h1 id="dashTitle">Dashboard</h1>
-  <button type="button" id="refreshDash" class="dash-refresh">↻ Recargar</button>
+  <div class="dash-toolbar">
+    <select id="dashMonth" aria-label="Mes"></select>
+    <button type="button" id="refreshDash" class="dash-refresh">↻ Recargar</button>
+  </div>
   <div id="dashContent" class="dash-loader">Cargando datos...</div>
 </div>
 
