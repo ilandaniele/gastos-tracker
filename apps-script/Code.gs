@@ -1630,9 +1630,11 @@ function getMonthlyTotals() {
       try {
         out.total = _calcMonthTotals(t.sheet.getDataRange().getValues()).mixedUyu;
         if (name !== curTab) { try { cache.put(key, String(out.total), 21600); } catch (_) {} }
-      } catch (e) { out.total = 0; }
+      } catch (e) { Logger.log('mes ' + name + ': ' + e.message); out.total = 0; }
+      if (!isFinite(out.total)) out.total = 0;
       return out;
     });
+    Logger.log('getMonthlyTotals: ' + JSON.stringify(months));
     return { ok: true, months: months, current: curTab };
   } catch (err) {
     Logger.log('getMonthlyTotals error: ' + err.message);

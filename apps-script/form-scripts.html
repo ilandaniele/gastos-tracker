@@ -3161,10 +3161,18 @@
   function loadDashMonths() {
     google.script.run
       .withSuccessHandler(function(r) {
-        if (!r || !r.ok) return;
+        if (!r || !r.ok) {
+          var cb = document.getElementById('dashChart');
+          if (cb) cb.textContent = '✗ ' + ((r && r.error) || 'no se pudo cargar el gráfico');
+          return;
+        }
         DASH_MONTHS = r;
         pintarSelectorMes();
         pintarGraficoMeses();
+      })
+      .withFailureHandler(function(err) {
+        var cb = document.getElementById('dashChart');
+        if (cb) cb.textContent = '✗ ' + (err && err.message ? err.message : err);
       })
       .getMonthlyTotals();
   }
@@ -3191,7 +3199,7 @@
   function pintarGraficoMeses() {
     var box = document.getElementById('dashChart');
     if (!box || !DASH_MONTHS) return;
-    var ms = DASH_MONTHS.months.filter(function(m){ return m.total !== null; });
+    var ms = DASH_MONTHS.months.filter(function(m){ return m.total != null && isFinite(m.total); });
     if (!ms.length) { box.innerHTML = ''; return; }
     var elegido = DASH_MONTH || DASH_MONTHS.current;
     var max = ms.reduce(function(a, m){ return Math.max(a, m.total); }, 0) || 1;
