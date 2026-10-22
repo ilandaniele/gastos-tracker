@@ -15,6 +15,25 @@ const FIXED_TABLE_MAX_ROWS = 20;
 const IMG_MAX_PX = 1280;
 const VAR_HEADER_LABEL = 'Lugar / Actividad';
 
+// Mensaje unico para cuando el permiso de salida a internet se cayo. Lo usan
+// el scan de tickets y los precios de las acciones, que son las dos cosas que
+// dependen de UrlFetchApp.
+const AUTH_URLFETCH_MSG =
+  'El permiso para salir a internet se cayó, así que no puedo leer el ticket ' +
+  'ni traer precios. Abrí el editor de Apps Script, elegí la función ' +
+  'autorizarUrlFetch, dale Ejecutar y apretá Permitir. Con eso vuelve a andar.';
+
+// Apps Script tira este error en el idioma de la cuenta, asi que se mira el
+// nombre del scope y las formas conocidas del mensaje, en ingles y castellano.
+// Se prende sola en cuanto un fetch se cae por falta de permiso, dentro de la
+// misma ejecucion. Sirve para contestar el motivo real en vez de un generico.
+var _URLFETCH_DENEGADO = false;
+
+function _esFaltaDePermiso(msg) {
+  return /external_request|permission to call UrlFetchApp|do not have permission|no cuentas con el permiso|no tienes permiso/i
+    .test(String(msg || ''));
+}
+
 const MONTH_NAMES = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
   'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
@@ -175,7 +194,8 @@ const ROUTES = {
   precioAccion: p => {
     const px = fetchStockPrice(p.ticker);
     return px ? { ok: true, ticker: String(p.ticker).toUpperCase(), ...px }
-              : { ok: false, error: 'No se pudo traer el precio de ' + p.ticker };
+              : { ok: false, error: _URLFETCH_DENEGADO ? AUTH_URLFETCH_MSG
+                                                      : 'No se pudo traer el precio de ' + p.ticker };
   },
   argAdd: p => addArgentinaEntry(p),
   argUpdate: p => updateArgentinaEntry(p),
@@ -265,7 +285,7 @@ const ROUTES = {
                msg: 'Scope external_request OK — el scan de tickets debería funcionar.' };
     } catch (e) {
       return { ok: false, urlFetchWorks: false, error: e.message,
-               msg: 'Scope external_request NO autorizado todavía.' };
+               msg: AUTH_URLFETCH_MSG };
     }
   }
 };
@@ -1234,6 +1254,34 @@ function monthlyReportCron() {
   }
 }
 
+// === Autorización de UrlFetch ===
+// El web app corre "como el que deployó", así que usa el permiso que Ilan le dio
+// al script, no el del que abre la página. Si ese permiso pierde el scope
+// script.external_request, se cae TODO lo que sale a internet: el scan de
+// tickets con Gemini y los precios de las acciones de Yahoo.
+//
+// Para arreglarlo hay que volver a dar el permiso a mano, una vez:
+//   editor de Apps Script → elegir autorizarUrlFetch en el desplegable →
+//   Ejecutar → Revisar permisos → entrar con ilan.daniele@gmail.com → Permitir.
+// Esta función existe para tener algo corto y sin argumentos que ejecutar ahí:
+// el diálogo de permisos pide TODOS los scopes del appsscript.json de una.
+function autorizarUrlFetch() {
+  const props = PropertiesService.getScriptProperties();
+  const out = { tieneGeminiKey: !!props.getProperty('GEMINI_KEY') };
+  try {
+    out.urlFetch = UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true })
+                              .getResponseCode();
+    out.ok = true;
+    out.msg = 'Listo: UrlFetch autorizado. El scan de tickets y los precios ya funcionan.';
+  } catch (e) {
+    out.ok = false;
+    out.error = String(e && e.message || e);
+    out.msg = 'Todavía falta el permiso. Volvé a ejecutar y apretá Permitir.';
+  }
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 // === Ticket OCR via Gemini Vision ===
 function scanTicket(base64Image) {
   try {
@@ -1307,10 +1355,8 @@ function scanTicket(base64Image) {
     Logger.log('scanTicket error: ' + err.message);
     var m = String((err && err.message) || err);
     // Friendly message for the UrlFetch authorization gap
-    if (/external_request|permission to call UrlFetchApp|do not have permission/i.test(m)) {
-      m = 'Falta autorizar el scope UrlFetch (script.external_request). El script no puede ' +
-          'llamar a Gemini hasta que autorices: editá appsscript.json → agregá oauthScopes → ' +
-          'corré una función desde el editor → Allow → redeploy.';
+    if (_esFaltaDePermiso(m)) {
+      m = AUTH_URLFETCH_MSG;
     }
     return { ok: false, error: m };
   }
@@ -3637,6 +3683,7 @@ function _yahooQuote(symbol) {
     return { precio: precio, moneda: String(meta.currency || 'USD').toUpperCase() };
   } catch (err) {
     Logger.log('_yahooQuote ' + symbol + ': ' + err.message);
+    if (_esFaltaDePermiso(err && err.message)) _URLFETCH_DENEGADO = true;
     return null;
   }
 }
@@ -3659,6 +3706,7 @@ function _yahooQuoteBatch(symbols) {
     responses = UrlFetchApp.fetchAll(requests);
   } catch (err) {
     Logger.log('_yahooQuoteBatch: ' + err.message);
+    if (_esFaltaDePermiso(err && err.message)) _URLFETCH_DENEGADO = true;
     return out;
   }
   for (let i = 0; i < symbols.length; i++) {
