@@ -13,6 +13,12 @@ const RATE_CACHE_TTL_SEC = 600; // 10 min
 const COTIZ_FALLBACK = 40.25;
 const FIXED_TABLE_MAX_ROWS = 20;
 const IMG_MAX_PX = 1280;
+// JPEG de 1x1 px, blanco. Solo lo usa ?action=testGemini para probar el scan
+// sin tener que subir un ticket de verdad.
+const TINY_JPEG_B64 =
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof' +
+  'Hh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB' +
+  'AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
 const VAR_HEADER_LABEL = 'Lugar / Actividad';
 
 // Mensaje unico para cuando el permiso de salida a internet se cayo. Lo usan
@@ -276,6 +282,17 @@ const ROUTES = {
     return { ok: true, tab: sheet.getName(), from: [r, c], maxRows: sheet.getMaxRows(),
              maxCols: sheet.getMaxColumns(), lastRow: sheet.getLastRow(),
              lastCol: sheet.getLastColumn(), values: vals };
+  },
+  // Diagnostico: prueba la cadena entera del scan de tickets (permiso de salida
+  // + GEMINI_KEY + endpoint + schema) con una imagen de 1x1 px — ?action=testGemini
+  // Una imagen vacia no tiene items, asi que items:[] es el resultado bueno:
+  // significa que Gemini contesto y la respuesta parseo bien.
+  testGemini: () => {
+    const r = scanTicket(TINY_JPEG_B64);
+    return r && r.ok
+      ? { ok: true, items: r.items.length,
+          msg: 'Gemini contesta y la respuesta parsea. El scan de tickets funciona.' }
+      : { ok: false, error: r && r.error, msg: 'El scan de tickets sigue fallando.' };
   },
   // Diagnostic: verify UrlFetch (script.external_request) scope works — ?action=testFetch
   testFetch: () => {
