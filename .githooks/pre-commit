@@ -1,0 +1,88 @@
+#!/bin/sh
+# Corta el commit si se está por subir algo que no es de este proyecto.
+#
+# Ilan trabaja varios proyectos en paralelo bajo Desktop\Proyectos y a veces una
+# sesión con el directorio equivocado escribe archivos acá adentro. Ya pasó dos
+# veces: puntos/config.js (del proyecto tribunal) y cybersecmanage/ (un repo SAP
+# entero, 178 MB). Las dos se salvaron por stagear rutas explícitas, pero un
+# "git add ." los metía en la historia de un repo público.
+#
+# Este hook no reemplaza stagear rutas explícitas: es la red abajo.
+
+set -e
+
+# Carpetas y archivos que sí son de este proyecto. Si agregás una carpeta nueva
+# de verdad, sumala acá en el mismo commit.
+PERMITIDOS=".githooks .gitignore README.md apps-script cowork docs pwa"
+
+permitido() {
+  for p in $PERMITIDOS; do
+    [ "$1" = "$p" ] && return 0
+  done
+  return 1
+}
+
+ajenos=""
+anidados=""
+
+for archivo in $(git diff --cached --name-only --diff-filter=ACMR); do
+  raiz=${archivo%%/*}
+  permitido "$raiz" || case " $ajenos " in
+    *" $raiz "*) ;;
+    *) ajenos="$ajenos $raiz" ;;
+  esac
+
+  # Un .git adentro de una subcarpeta quiere decir que ahí vive otro repo.
+  dir="$archivo"
+  while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+    if [ -e "$dir/.git" ]; then
+      case " $anidados " in
+        *" $dir "*) ;;
+        *) anidados="$anidados $dir" ;;
+      esac
+      break
+    fi
+    dir=$(dirname "$dir")
+  done
+done
+
+# Un repo anidado se stagea como gitlink (modo 160000), no como archivos
+# sueltos, así que el recorrido de arriba no lo ve. Se mira aparte.
+for enlace in $(git diff --cached --raw | awk '$2 == "160000" || $1 == ":160000" { print $NF }'); do
+  case " $anidados " in
+    *" $enlace "*) ;;
+    *) anidados="$anidados $enlace" ;;
+  esac
+done
+
+if [ -n "$ajenos" ] || [ -n "$anidados" ]; then
+  echo ""
+  echo "COMMIT CORTADO — hay archivos que no parecen de gastos-tracker."
+  echo ""
+  [ -n "$ajenos" ] && {
+    echo "  Fuera del proyecto:"
+    for a in $ajenos; do echo "    $a/"; done
+  }
+  [ -n "$anidados" ] && {
+    echo "  Otro repo git adentro:"
+    for a in $anidados; do echo "    $a/"; done
+  }
+  echo ""
+  echo "  Si es de otro proyecto: movelo a Desktop\Proyectos\<proyecto> y"
+  echo "  sacalo del stage con  git restore --staged <ruta>"
+  echo ""
+  echo "  Si de verdad va acá: agregá la carpeta a PERMITIDOS en"
+  echo "  .githooks/pre-commit, en este mismo commit."
+  echo ""
+  exit 1
+fi
+
+# Aviso sin cortar: algo apareció en el working tree que no es de acá. No está
+# en el commit, pero conviene enterarse ahora y no dentro de tres semanas.
+sueltos=$(git status --porcelain --untracked-files=normal |
+          sed -n 's/^?? //p' | cut -d/ -f1 | sort -u)
+for s in $sueltos; do
+  permitido "$s" || echo "aviso: '$s' está en la carpeta pero no es de este proyecto."
+done
+
+exit 0
