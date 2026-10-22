@@ -1268,6 +1268,23 @@ function monthlyReportCron() {
 function autorizarUrlFetch() {
   const props = PropertiesService.getScriptProperties();
   const out = { tieneGeminiKey: !!props.getProperty('GEMINI_KEY') };
+
+  // Quien ejecuta. Si no es el dueño del script, autorizar acá no arregla el
+  // web app: el web app corre con el permiso del que lo deployó.
+  try { out.cuenta = Session.getEffectiveUser().getEmail(); } catch (e) { out.cuenta = '?'; }
+
+  // Que piensa Apps Script del permiso. REQUIRED viene con un link que abre el
+  // diálogo de una; NOT_REQUIRED con el fetch fallando significa que el permiso
+  // quedó pegado a medias y hay que sacarle el acceso a la app para que vuelva
+  // a pedir todo de cero.
+  try {
+    const info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    out.estado = String(info.getAuthorizationStatus());
+    if (out.estado === 'REQUIRED') out.linkParaAutorizar = info.getAuthorizationUrl();
+  } catch (e) {
+    out.estado = 'no se pudo leer: ' + String(e && e.message || e);
+  }
+
   try {
     out.urlFetch = UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true })
                               .getResponseCode();
@@ -1276,8 +1293,12 @@ function autorizarUrlFetch() {
   } catch (e) {
     out.ok = false;
     out.error = String(e && e.message || e);
-    out.msg = 'Todavía falta el permiso. Volvé a ejecutar y apretá Permitir.';
+    out.msg = out.linkParaAutorizar
+      ? 'Abrí linkParaAutorizar y apretá Permitir.'
+      : 'El permiso quedó pegado a medias: Apps Script no pide nada y el fetch igual falla. ' +
+        'Sacale el acceso a la app en myaccount.google.com/permissions y volvé a ejecutar esta función.';
   }
+
   Logger.log(JSON.stringify(out));
   return out;
 }
