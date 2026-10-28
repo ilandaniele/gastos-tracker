@@ -74,6 +74,16 @@
   .dash-list-row .name { color: #1a1a1a; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
   .dash-list-row .val { font-weight: 600; color: #0f766e; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .dash-list-row .sub { font-size: 11px; color: #888; }
+  .scan-group { margin: 8px 0 4px; }
+  .scan-group label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; }
+  .scan-group input { width: 100%; box-sizing: border-box; padding: 7px 8px; font-size: 13px; border-radius: 5px; }
+  .dash-list-row.grupo { cursor: pointer; }
+  .dash-list-row.grupo:active { background: #f8fafc; }
+  .dash-list-row.grupo .chev { display: inline-block; width: 14px; color: #888; transition: transform .15s; }
+  .dash-list-row.grupo.open .chev { transform: rotate(90deg); }
+  .grupo-items { display: none; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
+  .grupo-items.open { display: block; }
+  .grupo-items .dash-list-row { padding-left: 26px; }
   .dash-list-row.editable { cursor: pointer; }
   .dash-list-row.editable:active { background: #f8fafc; }
   .dash-bar { height: 4px; background: #f0f0f0; border-radius: 2px; margin-top: 4px; overflow: hidden; }

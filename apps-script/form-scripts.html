@@ -316,6 +316,9 @@
       setStatus('No se detectaron items. Probá con foto más clara.', 'err');
       return;
     }
+    // Ticket de supermercado: propone guardarlo como UN gasto desplegable.
+    var gEl = document.getElementById('scanGroup');
+    if (gEl) gEl.value = result.supermarket ? ('Supermercado' + (result.store ? ' · ' + result.store : '')) : '';
     renderScanPreview();
     setStatus('✓ ' + scannedItems.length + ' items detectados', 'ok');
   }
@@ -412,7 +415,7 @@
         setLocked(false);
         setStatus('✗ Batch: ' + (err && err.message ? err.message : err), 'err');
       })
-      .addBatch(batch);
+      .addBatch(batch, (document.getElementById('scanGroup') || {}).value || '');
   });
 
   // === Tabs ===
@@ -3309,7 +3312,7 @@
     DASH_TAB = data.tab || '';
     if (DASH_EXPENSES.length) {
       html += '<div class="dash-section"><h2>Gastos del mes <span class="hhint">tocá uno para editarlo</span></h2><div class="dash-list">' +
-        DASH_EXPENSES.map(gastoRowHtml).join('') + '</div></div>';
+        gastosListHtml(DASH_EXPENSES) + '</div></div>';
     }
 
     content.innerHTML = html;
@@ -3337,7 +3340,44 @@
     if (fechaCorta) subParts.push('📅 ' + fechaCorta);
     return '<div class="' + cls + '"' + rowAttr + '><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + subParts.join(' · ') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
   }
+  // Lista de gastos con los tickets agrupados (e.grupo, ver _parseGrupo en
+  // Code.gs): los productos de un mismo ticket salen como UN ítem con el total
+  // y un desplegable. Las filas siguen siendo individuales en la hoja, así que
+  // el total del grupo es solo la suma de lo que ya se cuenta por separado.
+  function gastosListHtml(list) {
+    var grupos = {}, out = [];
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (!e.grupo || e.fixed) { out.push({ e: e }); continue; }
+      if (!grupos[e.grupo]) { grupos[e.grupo] = { g: e.grupo, nombre: e.grupoNombre, items: [] }; out.push(grupos[e.grupo]); }
+      grupos[e.grupo].items.push(e);
+    }
+    return out.map(function(o) {
+      if (o.e) return gastoRowHtml(o.e);
+      if (o.items.length < 2) return gastoRowHtml(o.items[0]);
+      var tot = 0;
+      for (var k = 0; k < o.items.length; k++) tot += o.items[k].amount;
+      var f = o.items[0];
+      var fechaCorta = f.fecha ? esc(f.fecha.slice(8) + '/' + f.fecha.slice(5, 7)) : '';
+      var sub = [o.items.length + ' items'];
+      if (f.card) sub.push(esc(f.card));
+      if (fechaCorta) sub.push('📅 ' + fechaCorta);
+      return '<div class="dash-list-row grupo" data-grupo="' + esc(o.g) + '"><div style="flex:1;min-width:0"><div class="name"><span class="chev">▸</span>🧾 ' + esc(o.nombre || 'Supermercado') + '</div><div class="sub">' + sub.join(' · ') + '</div></div><div class="val">' + fmt(tot, f.currency) + '</div></div>' +
+        '<div class="grupo-items" data-grupo-items="' + esc(o.g) + '">' + o.items.map(gastoRowHtml).join('') + '</div>';
+    }).join('');
+  }
   function wireGastoRows(cont) {
+    var gRows = cont.querySelectorAll('.dash-list-row.grupo');
+    for (var gr = 0; gr < gRows.length; gr++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          var box = cont.querySelector('.grupo-items[data-grupo-items="' + el.getAttribute('data-grupo') + '"]');
+          if (!box) return;
+          el.classList.toggle('open');
+          box.classList.toggle('open');
+        });
+      })(gRows[gr]);
+    }
     var expRows = cont.querySelectorAll('.dash-list-row.editable');
     for (var er = 0; er < expRows.length; er++) {
       (function(el) {
@@ -3353,7 +3393,7 @@
     var box = document.getElementById('addGastosList');
     if (!box) return;
     box.innerHTML = DASH_EXPENSES.length
-      ? DASH_EXPENSES.map(gastoRowHtml).join('')
+      ? gastosListHtml(DASH_EXPENSES)
       : '<div class="task-empty">Todavía no cargaste gastos este mes</div>';
     wireGastoRows(box);
   }

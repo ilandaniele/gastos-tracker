@@ -1339,7 +1339,9 @@ function scanTicket(base64Image) {
       '4b. Viajes es para gastos de viajar: pasajes, vuelos, hotel, hostel, Airbnb, excursiones, ' +
       'free shop, alquiler de auto, peajes de ruta. Un ómnibus o taxi urbano del día a día es Transporte, no Viajes. ' +
       '5. Si no podés leer una línea, omitila — NO inventes. ' +
-      'Devolvé SOLO JSON válido con shape {"items":[{"name":string,"amount":number,"category":string},...]}.';
+      '6. store = nombre del comercio como figura en el ticket (ej "Tienda Inglesa", "Devoto"), "" si no se lee. ' +
+      '7. supermarket = true SOLO si es un supermercado/autoservicio/almacén con muchos productos de compra (Tienda Inglesa, Disco, Devoto, Géant, Ta-Ta, Macro Mercado, Frigorífico, etc.); false para restaurantes, bares, farmacias, ropa, transporte y el resto. ' +
+      'Devolvé SOLO JSON válido con shape {"store":string,"supermarket":boolean,"items":[{"name":string,"amount":number,"category":string},...]}.';
 
     const body = {
       contents: [{
@@ -1353,6 +1355,8 @@ function scanTicket(base64Image) {
         response_schema: {
           type: 'object',
           properties: {
+            store: { type: 'string' },
+            supermarket: { type: 'boolean' },
             items: {
               type: 'array',
               items: {
@@ -1388,7 +1392,7 @@ function scanTicket(base64Image) {
     if (!text) return { ok: false, error: 'Respuesta Gemini vacía: ' + JSON.stringify(data).substring(0, 400) };
     const parsed = JSON.parse(text);
     const items = (parsed.items || []).filter(function(it){ return it && it.name && it.amount > 0; });
-    return { ok: true, items: items };
+    return { ok: true, items: items, store: String(parsed.store || '').trim(), supermarket: parsed.supermarket === true };
   } catch (err) {
     Logger.log('scanTicket error: ' + err.message);
     var m = String((err && err.message) || err);
@@ -1400,14 +1404,36 @@ function scanTicket(base64Image) {
   }
 }
 
+// Marca de grupo ("ticket") dentro de la columna Notas: cada producto de un
+// ticket de supermercado sigue siendo SU PROPIA fila (así categorías, medios
+// de pago y totales quedan exactos, sin tocar ninguna cuenta); la marca solo
+// le dice a la lista que los muestre juntos, como un ítem desplegable.
+//   [[ticket:<id>|<nombre>]]
+const GRUPO_RE = /\s*\[\[ticket:([^|\]]+)\|([^\]]*)\]\]/;
+function _tagGrupo(id, nombre) {
+  return '[[ticket:' + id + '|' + String(nombre || 'Supermercado').replace(/[\[\]|]/g, ' ').trim() + ']]';
+}
+// {texto, id, nombre}: separa las notas reales del usuario de la marca.
+function _parseGrupo(notas) {
+  const s = String(notas || '');
+  const m = s.match(GRUPO_RE);
+  if (!m) return { texto: s.trim(), id: '', nombre: '' };
+  return { texto: s.replace(GRUPO_RE, '').trim(), id: m[1], nombre: m[2].trim() };
+}
+
 // === Batch add (used by scan-save-all flow) ===
-function addBatch(items) {
+// group (opcional): nombre del comercio. Si viene, todos los items comparten
+// una marca de grupo para mostrarse como un único gasto desplegable.
+function addBatch(items, group) {
   if (!Array.isArray(items) || !items.length) return { ok: false, error: 'No items' };
   let saved = 0, failed = 0;
   const errors = [];
   let lastTab = '';
+  const grupoNombre = String(group || '').trim();
+  const tag = grupoNombre ? _tagGrupo(Utilities.getUuid().slice(0, 8), grupoNombre) : '';
   for (let i = 0; i < items.length; i++) {
     try {
+      if (tag) items[i].notes = String(items[i].notes || '').trim() ? items[i].notes + ' ' + tag : tag;
       const r = addExpense(items[i]);
       lastTab = r.tab || lastTab;
       saved++;
@@ -1525,7 +1551,10 @@ function getDashboardData(month) {
         if (rowAmount) {
           const fechaVal = fechaCol >= 0 ? range[i][fechaCol] : null;
           const rowCotiz = cotizCol >= 0 ? toNumber(range[i][cotizCol]) : null;
+          const g = _parseGrupo(notesCol >= 0 ? range[i][notesCol] : '');
           varRows.push({
+            grupo: g.id,
+            grupoNombre: g.nombre,
             row: i + 1, // 1-indexed: fila real de la hoja, para editar/borrar
             item: cellA,
             amount: rowAmount,
@@ -1535,7 +1564,7 @@ function getDashboardData(month) {
             fecha: fechaVal instanceof Date && !isNaN(fechaVal.getTime())
               ? Utilities.formatDate(fechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
             cotizacion: rowCotiz,
-            notas: notesCol >= 0 ? String(range[i][notesCol] || '').trim() : ''
+            notas: g.texto
           });
         }
       }
@@ -2019,6 +2048,10 @@ function deleteExpenseRow(p) {
 
   let nCols = 0;
   for (let c = 0; c < range[header0].length; c++) if (String(range[header0][c] || '').trim()) nCols = c + 1;
+  // La columna Notas (justo después de Categoría) puede tener el header vacío
+  // y quedar fuera de nCols: sin esto la marca de grupo no acompañaría a su fila.
+  const catIdx = range[header0].findIndex(h => /categor/i.test(String(h || '')));
+  if (catIdx >= 0) nCols = Math.max(nCols, catIdx + 2);
 
   const actual = String(sheet.getRange(row, 1).getValue() || '').trim();
   if (_stripAccents(actual) !== _stripAccents(esperado)) {
@@ -2122,7 +2155,13 @@ function updateExpenseEntry(p) {
     const cotiz = toNumber(p.cotizacion);
     if (cotizCol >= 0) sheet.getRange(row, cotizCol + 1).setValue(cotiz != null ? cotiz : '');
     if (catCol >= 0) sheet.getRange(row, catCol + 1).setValue(String(p.category || '').trim());
-    if (notesCol >= 0) sheet.getRange(row, notesCol + 1).setValue(String(p.notes || '').trim());
+    if (notesCol >= 0) {
+      // Conservar la marca de grupo del ticket: el usuario edita solo el texto.
+      const prev = _parseGrupo(sheet.getRange(row, notesCol + 1).getValue());
+      const txt = _parseGrupo(p.notes).texto;
+      const tag = prev.id ? _tagGrupo(prev.id, prev.nombre) : '';
+      sheet.getRange(row, notesCol + 1).setValue((txt + (txt && tag ? ' ' : '') + tag).trim());
+    }
     if (dateCol >= 0 && p.date) {
       const dateObj = parseLocalDate(p.date);
       if (dateObj && !isNaN(dateObj.getTime())) {
@@ -2323,13 +2362,16 @@ function _doAddExpense(p) {
   else finalCategory = 'Otros';
 
   // Build single row write (atomic — one round trip instead of 4)
-  const numCols = headers.length;
+  // Notas va justo después de Categoría; si el header de Notas está vacío y
+  // cae fuera del bloque de headers, se ensancha la fila para no perder la
+  // nota (lleva la marca de grupo del ticket, ver _tagGrupo).
+  const numCols = (notes && catCol >= 0) ? Math.max(headers.length, catCol + 2) : headers.length;
   const row = new Array(numCols).fill('');
   row[0] = item;
   row[cardCol] = amt;
   if (cotizCol >= 0 && cotizacion) row[cotizCol] = cotizacion;
   if (catCol >= 0 && finalCategory) row[catCol] = finalCategory;
-  if (notes && catCol >= 0 && catCol + 1 < numCols) row[catCol + 1] = notes;
+  if (notes && catCol >= 0) row[catCol + 1] = notes;
   sheet.getRange(insertAt, 1, 1, numCols).setValues([row]);
 
   // Escribir la fecha en la columna "Fecha" del variable table (la crea si no existe)
