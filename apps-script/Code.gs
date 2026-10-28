@@ -294,6 +294,28 @@ const ROUTES = {
           msg: 'Gemini contesta y la respuesta parsea. El scan de tickets funciona.' }
       : { ok: false, error: r && r.error, msg: 'El scan de tickets sigue fallando.' };
   },
+  // Diagnostico: guarda 2 gastos de prueba como un ticket agrupado, verifica que
+  // la lista los junte, que los totales suban EXACTO lo cargado, y borra todo —
+  // ?action=testTicketAgrupado. Si algo falla igual intenta limpiar.
+  testTicketAgrupado: () => {
+    const antes = getDashboardData();
+    if (!antes.ok) return antes;
+    const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
+    const base = { currency: 'UYU', card: 'Débito UYU', category: 'Comida', date: hoy };
+    const b = addBatch([Object.assign({ item: 'ZZTEST uno', amount: 3 }, base), Object.assign({ item: 'ZZTEST dos', amount: 4.5 }, base)], 'Supermercado test');
+    const dsp = getDashboardData();
+    const mios = (dsp.expenses || []).filter(e => /^ZZTEST/.test(e.item));
+    const agrupados = mios.length === 2 && mios[0].grupo && mios[0].grupo === mios[1].grupo && mios[0].grupoNombre === 'Supermercado test';
+    const sube = Math.round((dsp.totals.varUyu - antes.totals.varUyu) * 100) / 100;
+    // Borrar de abajo hacia arriba: borrar compacta las filas de abajo.
+    mios.sort((x, y) => y.row - x.row).forEach(e => deleteExpenseRow({ row: e.row, item: e.item, month: dsp.tab }));
+    const fin = getDashboardData();
+    const limpio = fin.expenses.length === antes.expenses.length && Math.abs(fin.totals.varUyu - antes.totals.varUyu) < 0.005;
+    const sh = _ticketsSheet(false);
+    const huerfanas = sh ? _ticketsDelMes(dsp.tab).filter(t => t.grupo === (mios[0] && mios[0].grupo)).length : 0;
+    const ok = b.saved === 2 && agrupados && sube === 7.5 && limpio && huerfanas === 0;
+    return { ok: ok, guardados: b.saved, errores: b.errors, agrupados: !!agrupados, subeTotal: sube, quedoLimpio: limpio, entradasHuerfanas: huerfanas };
+  },
   // Diagnostic: verify UrlFetch (script.external_request) scope works — ?action=testFetch
   testFetch: () => {
     try {
@@ -1404,43 +1426,123 @@ function scanTicket(base64Image) {
   }
 }
 
-// Marca de grupo ("ticket") dentro de la columna Notas: cada producto de un
-// ticket de supermercado sigue siendo SU PROPIA fila (así categorías, medios
-// de pago y totales quedan exactos, sin tocar ninguna cuenta); la marca solo
-// le dice a la lista que los muestre juntos, como un ítem desplegable.
-//   [[ticket:<id>|<nombre>]]
-const GRUPO_RE = /\s*\[\[ticket:([^|\]]+)\|([^\]]*)\]\]/;
-function _tagGrupo(id, nombre) {
-  return '[[ticket:' + id + '|' + String(nombre || 'Supermercado').replace(/[\[\]|]/g, ' ').trim() + ']]';
+// === Tickets agrupados ===
+// Cada producto de un ticket de supermercado sigue siendo SU PROPIA fila de la
+// hoja del mes (así categorías, medios de pago y totales quedan exactos, sin
+// tocar ninguna cuenta). Lo único que se agrega es una pestaña oculta
+// `_tickets` que dice qué filas son del mismo ticket, para que la lista las
+// muestre juntas como un ítem desplegable. Se identifican por contenido
+// (mes + nombre + monto + fecha) y no por número de fila, porque las filas se
+// corren al borrar/insertar. Si una fila deja de coincidir (se editó por otro
+// lado) simplemente sale suelta: nunca se pierde ni se duplica plata.
+const TICKETS_TAB = '_tickets';
+const TICKETS_HEADERS = ['Mes', 'Grupo', 'Nombre', 'Item', 'Monto', 'Fecha'];
+
+function _ticketKey(item, amount, fecha) {
+  return _stripAccents(item) + '|' + (Math.round((toNumber(amount) || 0) * 100) / 100) + '|' + String(fecha || '');
 }
-// {texto, id, nombre}: separa las notas reales del usuario de la marca.
-function _parseGrupo(notas) {
-  const s = String(notas || '');
-  const m = s.match(GRUPO_RE);
-  if (!m) return { texto: s.trim(), id: '', nombre: '' };
-  return { texto: s.replace(GRUPO_RE, '').trim(), id: m[1], nombre: m[2].trim() };
+
+function _ticketsSheet(crear) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName(TICKETS_TAB);
+  if (!sh && crear) {
+    sh = ss.insertSheet(TICKETS_TAB);
+    sh.getRange(1, 1, 1, TICKETS_HEADERS.length).setValues([TICKETS_HEADERS]);
+    sh.hideSheet();
+  }
+  return sh;
+}
+
+// Filas de _tickets de un mes: [{row, grupo, nombre, key}]
+function _ticketsDelMes(tab) {
+  const sh = _ticketsSheet(false);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, TICKETS_HEADERS.length).getValues();
+  const out = [];
+  for (let i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) !== tab) continue;
+    const f = vals[i][5] instanceof Date ? Utilities.formatDate(vals[i][5], 'America/Montevideo', 'yyyy-MM-dd') : String(vals[i][5] || '');
+    out.push({ row: i + 2, grupo: String(vals[i][1]), nombre: String(vals[i][2]), key: _ticketKey(vals[i][3], vals[i][4], f) });
+  }
+  return out;
+}
+
+// Marca cada fila de `varRows` (ver getDashboardData) con su grupo, si lo tiene.
+function _anotarGrupos(tab, varRows) {
+  let tickets;
+  try { tickets = _ticketsDelMes(tab); } catch (e) { Logger.log('_tickets: ' + e.message); return; }
+  if (!tickets.length) return;
+  const porKey = {};
+  varRows.forEach(r => { (porKey[_ticketKey(r.item, r.amount, r.fecha)] = porKey[_ticketKey(r.item, r.amount, r.fecha)] || []).push(r); });
+  tickets.forEach(t => {
+    const lista = porKey[t.key];
+    const r = lista && lista.find(x => !x.grupo);
+    if (r) { r.grupo = t.grupo; r.grupoNombre = t.nombre; }
+  });
+}
+
+function _registrarTickets(entradas) {
+  if (!entradas.length) return;
+  const sh = _ticketsSheet(true);
+  sh.getRange(sh.getLastRow() + 1, 1, entradas.length, TICKETS_HEADERS.length).setValues(entradas);
+}
+
+// Un gasto cambió (edición/borrado): se actualiza o se quita su entrada de
+// _tickets para que no quede huérfana ni se pegue a otro gasto igual.
+// nuevo = {item, amount, fecha} o null para borrar.
+function _ticketCambio(tab, viejo, nuevo) {
+  try {
+    const sh = _ticketsSheet(false);
+    if (!sh) return;
+    const k = _ticketKey(viejo.item, viejo.amount, viejo.fecha);
+    const t = _ticketsDelMes(tab).find(x => x.key === k);
+    if (!t) return;
+    if (!nuevo) { sh.deleteRow(t.row); return; }
+    sh.getRange(t.row, 4, 1, 3).setValues([[nuevo.item, nuevo.amount, nuevo.fecha || '']]);
+  } catch (e) { Logger.log('_ticketCambio: ' + e.message); }
+}
+
+// Monto y fecha ya guardados de una fila de la tabla variable.
+function _filaTicketInfo(headers, vals) {
+  let amount = 0, fecha = '';
+  for (let c = 1; c < headers.length; c++) {
+    const h = headers[c];
+    if (!h) continue;
+    if (/^fecha$/i.test(h)) { const v = vals[c]; if (v instanceof Date && !isNaN(v.getTime())) fecha = Utilities.formatDate(v, 'America/Montevideo', 'yyyy-MM-dd'); continue; }
+    if (/cotizaci|categor|lugar|notas|notes/i.test(h)) continue;
+    const v = parseFloat(vals[c]);
+    if (!amount && isFinite(v) && v !== 0) amount = v;
+  }
+  return { item: String(vals[0] || '').trim(), amount: amount, fecha: fecha };
 }
 
 // === Batch add (used by scan-save-all flow) ===
-// group (opcional): nombre del comercio. Si viene, todos los items comparten
-// una marca de grupo para mostrarse como un único gasto desplegable.
+// group (opcional): nombre del comercio. Si viene, los items guardados quedan
+// registrados como un mismo ticket (ver _registrarTickets).
 function addBatch(items, group) {
   if (!Array.isArray(items) || !items.length) return { ok: false, error: 'No items' };
   let saved = 0, failed = 0;
   const errors = [];
   let lastTab = '';
-  const grupoNombre = String(group || '').trim();
-  const tag = grupoNombre ? _tagGrupo(Utilities.getUuid().slice(0, 8), grupoNombre) : '';
+  const nombre = String(group || '').replace(/\s+/g, ' ').trim();
+  const grupoId = Utilities.getUuid().slice(0, 8);
+  const entradas = [];
+  const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM-dd');
   for (let i = 0; i < items.length; i++) {
     try {
-      if (tag) items[i].notes = String(items[i].notes || '').trim() ? items[i].notes + ' ' + tag : tag;
       const r = addExpense(items[i]);
       lastTab = r.tab || lastTab;
       saved++;
+      if (nombre && !r.fixed) {
+        entradas.push([r.tab, grupoId, nombre, String(items[i].item).trim(), toNumber(items[i].amount), items[i].date || hoy]);
+      }
     } catch (e) {
       failed++;
       errors.push(items[i].item + ': ' + e.message);
     }
+  }
+  if (entradas.length) {
+    try { _registrarTickets(entradas); } catch (e) { errors.push('agrupar: ' + e.message); }
   }
   return { ok: true, saved: saved, failed: failed, tab: lastTab, errors: errors };
 }
@@ -1551,10 +1653,7 @@ function getDashboardData(month) {
         if (rowAmount) {
           const fechaVal = fechaCol >= 0 ? range[i][fechaCol] : null;
           const rowCotiz = cotizCol >= 0 ? toNumber(range[i][cotizCol]) : null;
-          const g = _parseGrupo(notesCol >= 0 ? range[i][notesCol] : '');
           varRows.push({
-            grupo: g.id,
-            grupoNombre: g.nombre,
             row: i + 1, // 1-indexed: fila real de la hoja, para editar/borrar
             item: cellA,
             amount: rowAmount,
@@ -1564,11 +1663,13 @@ function getDashboardData(month) {
             fecha: fechaVal instanceof Date && !isNaN(fechaVal.getTime())
               ? Utilities.formatDate(fechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
             cotizacion: rowCotiz,
-            notas: g.texto
+            notas: notesCol >= 0 ? String(range[i][notesCol] || '').trim() : ''
           });
         }
       }
     }
+
+    _anotarGrupos(tabName, varRows);
 
     // 4. Totales calculados fila por fila (ver _calcMonthTotals). La fila
     // "Cantidad" de la hoja no se usa: sus fórmulas solo suman la tabla fija
@@ -2048,15 +2149,12 @@ function deleteExpenseRow(p) {
 
   let nCols = 0;
   for (let c = 0; c < range[header0].length; c++) if (String(range[header0][c] || '').trim()) nCols = c + 1;
-  // La columna Notas (justo después de Categoría) puede tener el header vacío
-  // y quedar fuera de nCols: sin esto la marca de grupo no acompañaría a su fila.
-  const catIdx = range[header0].findIndex(h => /categor/i.test(String(h || '')));
-  if (catIdx >= 0) nCols = Math.max(nCols, catIdx + 2);
 
   const actual = String(sheet.getRange(row, 1).getValue() || '').trim();
   if (_stripAccents(actual) !== _stripAccents(esperado)) {
     throw new Error('La fila ' + row + ' dice "' + actual + '", no "' + esperado + '"');
   }
+  const infoTicket = _filaTicketInfo(range[header0].map(h => String(h || '').trim()), range[row - 1]);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -2070,6 +2168,7 @@ function deleteExpenseRow(p) {
     vals.push(new Array(nCols).fill(''));
     rng.setValues(vals);
     SpreadsheetApp.flush();
+    _ticketCambio(tabName, infoTicket, null);
   } finally {
     lock.releaseLock();
   }
@@ -2142,6 +2241,7 @@ function updateExpenseEntry(p) {
     // arriba) porque ensureCardColumn puede haber corrido las columnas.
     const numCols = headers.length;
     const rowValsNow = sheet.getRange(row, 1, 1, numCols).getValues()[0];
+    const infoTicket = _filaTicketInfo(headers, rowValsNow);
     for (let c = 1; c < numCols; c++) {
       if (c === cardCol || c === cotizCol || c === catCol || c === notesCol || c === dateCol) continue;
       const h = headers[c];
@@ -2155,13 +2255,7 @@ function updateExpenseEntry(p) {
     const cotiz = toNumber(p.cotizacion);
     if (cotizCol >= 0) sheet.getRange(row, cotizCol + 1).setValue(cotiz != null ? cotiz : '');
     if (catCol >= 0) sheet.getRange(row, catCol + 1).setValue(String(p.category || '').trim());
-    if (notesCol >= 0) {
-      // Conservar la marca de grupo del ticket: el usuario edita solo el texto.
-      const prev = _parseGrupo(sheet.getRange(row, notesCol + 1).getValue());
-      const txt = _parseGrupo(p.notes).texto;
-      const tag = prev.id ? _tagGrupo(prev.id, prev.nombre) : '';
-      sheet.getRange(row, notesCol + 1).setValue((txt + (txt && tag ? ' ' : '') + tag).trim());
-    }
+    if (notesCol >= 0) sheet.getRange(row, notesCol + 1).setValue(String(p.notes || '').trim());
     if (dateCol >= 0 && p.date) {
       const dateObj = parseLocalDate(p.date);
       if (dateObj && !isNaN(dateObj.getTime())) {
@@ -2169,6 +2263,7 @@ function updateExpenseEntry(p) {
       }
     }
     SpreadsheetApp.flush();
+    _ticketCambio(tabName, infoTicket, { item: item, amount: amt, fecha: p.date || infoTicket.fecha });
     return {
       ok: true, tab: tabName, row: row,
       written: { item: item, amount: amt, card: card, category: p.category || '', cotizacion: cotiz, notes: p.notes || '', date: p.date || '' }
@@ -2362,16 +2457,13 @@ function _doAddExpense(p) {
   else finalCategory = 'Otros';
 
   // Build single row write (atomic — one round trip instead of 4)
-  // Notas va justo después de Categoría; si el header de Notas está vacío y
-  // cae fuera del bloque de headers, se ensancha la fila para no perder la
-  // nota (lleva la marca de grupo del ticket, ver _tagGrupo).
-  const numCols = (notes && catCol >= 0) ? Math.max(headers.length, catCol + 2) : headers.length;
+  const numCols = headers.length;
   const row = new Array(numCols).fill('');
   row[0] = item;
   row[cardCol] = amt;
   if (cotizCol >= 0 && cotizacion) row[cotizCol] = cotizacion;
   if (catCol >= 0 && finalCategory) row[catCol] = finalCategory;
-  if (notes && catCol >= 0) row[catCol + 1] = notes;
+  if (notes && catCol >= 0 && catCol + 1 < numCols) row[catCol + 1] = notes;
   sheet.getRange(insertAt, 1, 1, numCols).setValues([row]);
 
   // Escribir la fecha en la columna "Fecha" del variable table (la crea si no existe)
