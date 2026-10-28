@@ -1614,9 +1614,12 @@ function getDashboardData(month) {
     for (let c = 1; c < headers.length; c++) {
       const h = headers[c];
       if (/cotizaci[oó]n/i.test(h)) { cotizCol = c; continue; }
-      if (/categor/i.test(h)) { catCol = c; continue; }
-      if (/^fecha$/i.test(h)) { fechaCol = c; continue; }
-      if (h && !/lugar|notas|notes/i.test(h)) cardCols.push({ col: c, name: h });
+      // Primera columna Categoría/Fecha gana: a la derecha de la tabla variable
+      // puede haber otra tabla (Categoría | UYU | USD) con sus propios headers,
+      // que no son datos de gastos ni medios de pago.
+      if (/categor/i.test(h)) { if (catCol < 0) catCol = c; continue; }
+      if (/^fecha$/i.test(h)) { if (fechaCol < 0) fechaCol = c; continue; }
+      if (h && !/lugar|notas|notes/i.test(h) && !(catCol >= 0 && /^(uyu|usd)$/i.test(h))) cardCols.push({ col: c, name: h });
     }
     // Notas: por convención se escribe justo después de Categoría (ver
     // _doAddExpense/updateExpenseEntry), no por nombre de header — así de
@@ -1786,12 +1789,15 @@ function _calcMonthTotals(range) {
   if (headerRow >= 0) {
     const headers = range[headerRow].map(h => String(h || '').trim());
     const cardCols = [];
-    let cotizCol = -1;
+    let cotizCol = -1, vioCat = false;
     for (let c = 1; c < headers.length; c++) {
       const h = headers[c];
       if (/cotizaci[oó]n/i.test(h)) { cotizCol = c; continue; }
-      if (/categor|^fecha$/i.test(h)) continue;
-      if (h && !/lugar|notas|notes/i.test(h)) cardCols.push({ col: c, usd: /usd|d[oó]lar/i.test(h) });
+      if (/categor/i.test(h)) { vioCat = true; continue; }
+      if (/^fecha$/i.test(h)) continue;
+      // "UYU"/"USD" sueltos DESPUÉS de Categoría son la tabla lateral de
+      // subtotales; antes de ella (meses viejos) sí son medios de pago.
+      if (h && !/lugar|notas|notes/i.test(h) && !(vioCat && /^(uyu|usd)$/i.test(h))) cardCols.push({ col: c, usd: /usd|d[oó]lar/i.test(h) });
     }
     for (let i = headerRow + 1; i < range.length; i++) {
       const cellA = String(range[i][0] || '').trim();
