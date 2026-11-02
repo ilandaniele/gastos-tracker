@@ -4842,6 +4842,7 @@
         ARG.entradas = r.entradas || [];
         ARG.cats = r.categorias || [];
         if (hEl('argMes')) hEl('argMes').textContent = '· ' + (r.tab || '');
+        pintarSelectorArg(r.tab);
         var sel = hEl('argCat');
         if (sel && !sel.options.length) {
           sel.innerHTML = ARG.cats.map(function(c) { return '<option>' + esc(c) + '</option>'; }).join('');
@@ -4851,8 +4852,30 @@
         pintarArg(r.totales);
       })
       .withFailureHandler(function(e) { argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
-      .getArgentinaDataSafe(null);
+      .getArgentinaDataSafe(ARG.mes || null);
   }
+
+  // Selector de mes: ARG.mes vacío = mes en curso. Editar/borrar usan el mes elegido.
+  var ARG_MESES = null, argMesesPedido = false;
+  function pintarSelectorArg(tabActual) {
+    var sel = hEl('argMesSel');
+    if (!sel) return;
+    var lista = ARG_MESES ? ARG_MESES.months.map(function(m) { return m.tab; }).reverse() : [];
+    if (tabActual && lista.indexOf(tabActual) < 0) lista.unshift(tabActual);
+    sel.innerHTML = lista.map(function(t) {
+      return '<option value="' + esc(t) + '"' + (t === tabActual ? ' selected' : '') + '>' + esc(t) + '</option>';
+    }).join('');
+    if (!ARG_MESES && !argMesesPedido) {
+      argMesesPedido = true;
+      google.script.run.withSuccessHandler(function(r) {
+        if (r && r.months) { ARG_MESES = r; pintarSelectorArg(ARG.mes || r.current); }
+      }).getMonthlyTotals();
+    }
+  }
+  if (hEl('argMesSel')) hEl('argMesSel').addEventListener('change', function() {
+    ARG.mes = (ARG_MESES && this.value === ARG_MESES.current) ? '' : this.value;
+    loadArg();
+  });
 
   function pintarArg(t) {
     t = t || {};
@@ -4889,7 +4912,7 @@
     var box = hEl('argList');
     if (!box) return;
     if (!ARG.entradas.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos este mes</div>';
+      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos en este mes</div>';
       return;
     }
     var html = '';
@@ -5075,6 +5098,7 @@
       .withFailureHandler(function(e) { cerrarArgModal(); argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
       .updateArgentinaSafe({
         row: ARG.editRow,
+        month: ARG.mes || undefined,
         detalle: (hEl('agDetalle') && hEl('agDetalle').value.trim()) || '',
         usd:   (hEl('agUsd')   && hEl('agUsd').value.trim())   || '',
         cotiz: (hEl('agCotiz') && hEl('agCotiz').value.trim()) || '',
@@ -5100,7 +5124,7 @@
         else argStatus('✗ ' + ((r && r.error) || 'error'), 'err');
       })
       .withFailureHandler(function(e) { cerrarArgModal(); argStatus('✗ ' + (e && e.message ? e.message : e), 'err'); })
-      .deleteArgentinaSafe({ row: row });
+      .deleteArgentinaSafe({ row: row, month: ARG.mes || undefined });
   });
 
   setTipo('Gasto');
