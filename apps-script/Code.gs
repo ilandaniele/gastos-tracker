@@ -169,6 +169,8 @@ const ROUTES = {
   testRate: () => testRateSources(),
   dash: (p) => getDashboardData(p && p.month),
   dashmonths: () => getMonthlyTotals(),
+  // Cambia solo la categoría de una fila variable: ?action=setExpenseCategory&month=..&row=..&item=..&category=..
+  setExpenseCategory: p => setExpenseCategory(p.month, p.row, p.item, p.category),
   // === HABITOS ===
   habitsData: p => getHabitsData(p.month || currentHabitTab()),
   habitDay: p => saveHabitDayData(p),
@@ -1858,7 +1860,7 @@ function getMonthlyTotals() {
       const name = t.sheet.getName();
       const out = { tab: name, year: t.info.year, month: t.info.month, total: null };
       if (idx < recent) return out; // fuera del gráfico: solo el nombre para el selector
-      const key = 'mt5_' + name;
+      const key = 'mt6_' + name;
       if (name !== curTab) {
         try { const hit = cache.get(key); if (hit !== null) { out.total = parseFloat(hit); return out; } } catch (_) {}
       }
@@ -2293,6 +2295,34 @@ function updateExpenseEntry(p) {
     lock.releaseLock();
   }
 }
+// Solo toca la celda Categoría; el ítem esperado evita pisar otra fila si
+// la hoja cambió desde que se miró.
+function setExpenseCategory(month, rowRaw, item, category) {
+  const row = parseInt(rowRaw, 10);
+  const cat = String(category || '').trim();
+  if (!isFinite(row) || !item || !cat) return { ok: false, error: 'Faltan month/row/item/category' };
+  if (!CATEGORIES.includes(cat)) return { ok: false, error: 'Categoría inválida: ' + cat };
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(month || currentMonthTab());
+  if (!sheet) return { ok: false, error: 'No existe la hoja' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const range = sheet.getDataRange().getValues();
+    const headerRow = findHeaderRow(range);
+    if (headerRow < 0 || row < headerRow + 2) return { ok: false, error: 'Esa fila no es de la tabla variable' };
+    const actual = String((range[row - 1] || [])[0] || '').trim();
+    if (_stripAccents(actual) !== _stripAccents(item)) return { ok: false, error: 'La fila ' + row + ' dice "' + actual + '"' };
+    const catCol = range[headerRow].findIndex(h => /categor/i.test(String(h || '')));
+    if (catCol < 0) return { ok: false, error: 'No hay columna Categoría' };
+    const antes = String(range[row - 1][catCol] || '');
+    sheet.getRange(row, catCol + 1).setValue(cat);
+    SpreadsheetApp.flush();
+    return { ok: true, tab: sheet.getName(), row: row, item: actual, antes: antes, ahora: cat };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function updateExpenseSafe(data) {
   try { return updateExpenseEntry(data || {}); }
   catch (err) { Logger.log('updateExpenseSafe: ' + err.message); return { ok: false, error: err.message }; }
