@@ -1583,7 +1583,7 @@ function getDashboardData(month) {
         const label = String(range[i][0] || '').trim();
         if (!label) continue;
         if (_stripAccents(label) === 'total fijos') break;
-        if (i === fixedHeaderRow0) continue;
+        if (i === fixedHeaderRow0 || /^total\b/.test(_stripAccents(label))) continue;
         const uyu = toNumber(range[i][1]);
         const usd = toNumber(range[i][2]);
         if (!uyu && !usd) continue; // sin cargar todavía este mes
@@ -1601,7 +1601,10 @@ function getDashboardData(month) {
             ? Utilities.formatDate(fixedFechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
           cotizacion: toNumber(range[i][3]),
           notas: '',
-          fixed: true
+          fixed: true,
+          uyuRaw: uyu || 0,   // una fila fija puede traer UYU y USD a la vez; amount muestra solo uno
+          usdRaw: usd || 0,
+          ahorro: fixedCatCol >= 0 && _esAhorro(range[i][fixedCatCol])
         });
       }
     }
@@ -1665,6 +1668,7 @@ function getDashboardData(month) {
             currency: rowCurrency,
             card: rowCardName,
             credito: _esTarjetaCredito(rowCardName),
+            ahorro: catCol >= 0 && _esAhorro(range[i][catCol]),
             category: catCol >= 0 ? String(range[i][catCol] || '').trim() : '',
             fecha: fechaVal instanceof Date && !isNaN(fechaVal.getTime())
               ? Utilities.formatDate(fechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
@@ -1683,37 +1687,22 @@ function getDashboardData(month) {
     const mt = _calcMonthTotals(range);
 
     // 5. Subtotal categoría table
-    const byCategory = [];
-    let catHeaderRow = -1;
-    for (let i = 0; i < range.length; i++) {
-      const a = String(range[i][0] || '').trim().toLowerCase();
-      const b = String(range[i][1] || '').trim().toLowerCase();
-      if ((a === 'categoría' || a === 'categoria') && (b === 'uyu' || b === 'pesos')) {
-        catHeaderRow = i; break;
-      }
+    // Se calcula desde las filas (no desde la tabla lateral de la hoja, que
+    // suma todo): misma regla que los totales — sin gasto en tarjeta de crédito
+    // ni ahorro/inversión. uyu y usd van separados, en su moneda original.
+    const catSums = {};
+    for (const v of fixedRows.concat(varRows)) {
+      if (v.credito || _esAhorro(v.category)) continue;
+      const key = v.category || 'Otros';
+      if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
+      if (v.fixed) { catSums[key].uyu += v.uyuRaw; catSums[key].usd += v.usdRaw; }
+      else if (v.currency === 'USD') catSums[key].usd += v.amount;
+      else catSums[key].uyu += v.amount;
     }
-    if (catHeaderRow >= 0) {
-      for (let i = catHeaderRow + 1; i < Math.min(catHeaderRow + 20, range.length); i++) {
-        const cat = String(range[i][0] || '').trim();
-        if (!cat) break;
-        const u = parseFloat(range[i][1]) || 0;
-        const s = parseFloat(range[i][2]) || 0;
-        if (u || s) byCategory.push({ name: cat, uyu: u, usd: s });
-      }
-      byCategory.sort((a, b) => b.uyu - a.uyu);
-    } else if (catCol >= 0) {
-      // Fallback: no side subtotal table -> compute categorias desde varRows
-      // (para meses donde el usuario borro la tabla lateral Categoria|UYU|USD)
-      const catSums = {};
-      for (const v of varRows) {
-        const key = v.category || 'Otros';
-        if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
-        if (v.currency === 'USD') catSums[key].usd += v.amount;
-        else catSums[key].uyu += v.amount;
-      }
-      Object.values(catSums).forEach(c => byCategory.push(c));
-      byCategory.sort((a, b) => (b.uyu + b.usd * 40) - (a.uyu + a.usd * 40));
-    }
+    const catFallback = mt.mixedUsd && mt.mixedUyu ? mt.mixedUyu / mt.mixedUsd : COTIZ_FALLBACK;
+    const byCategory = Object.values(catSums)
+      .map(c => ({ name: c.name, uyu: Math.round(c.uyu * 100) / 100, usd: Math.round(c.usd * 100) / 100 }))
+      .sort((a, b) => (b.uyu + b.usd * catFallback) - (a.uyu + a.usd * catFallback));
 
     // 6. By card (variable only — group sums)
     const cardSums = {};
@@ -1774,6 +1763,11 @@ function _monthTabInfo(name) {
 function _esTarjetaCredito(header) {
   return /cr[eé]dito|\boca\b/i.test(String(header || ''));
 }
+// Ahorro / inversión (categoría "Acciones/Bonos/Ahorros"): plata que se mueve
+// pero no se gastó, así que tampoco suma a los totales ni a "por categoría".
+function _esAhorro(categoria) {
+  return /ahorro|acciones|bonos/i.test(String(categoria || ''));
+}
 
 // Totales del mes sumando cada fila: tabla fija (todas las filas con monto,
 // incluidas las de tarjeta como "Itaú Crédito") + tabla variable. Cada monto
@@ -1784,14 +1778,22 @@ function _calcMonthTotals(range) {
   const rowCotiz = v => { const c = toNumber(v); return c && c > 20 ? c : null; };
 
   const fixedRows = [];
+  let fixedCatCol = -1;
+  for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
+    if (String(range[i][0] || '').trim().toLowerCase() === 'gasto') {
+      range[i].forEach((h, c) => { if (/^categor/i.test(String(h || '').trim())) fixedCatCol = c; });
+      break;
+    }
+  }
   for (let i = 0; i < Math.min(FIXED_TABLE_MAX_ROWS, range.length); i++) {
     const label = String(range[i][0] || '').trim();
     if (!label) continue;
     const key = _stripAccents(label);
     if (key === 'total fijos') break;
-    if (key === 'gasto') continue;
+    if (key === 'gasto' || /^total\b/.test(key)) continue; // filas de resumen de meses viejos ("Total + compras")
     const uyu = toNumber(range[i][1]) || 0, usd = toNumber(range[i][2]) || 0;
     if (!uyu && !usd) continue;
+    if (fixedCatCol >= 0 && _esAhorro(range[i][fixedCatCol])) continue;
     fixedRows.push({ uyu: uyu, usd: usd, cotiz: rowCotiz(range[i][3]) });
   }
 
@@ -1800,11 +1802,11 @@ function _calcMonthTotals(range) {
   if (headerRow >= 0) {
     const headers = range[headerRow].map(h => String(h || '').trim());
     const cardCols = [];
-    let cotizCol = -1, vioCat = false;
+    let cotizCol = -1, vioCat = false, catCol = -1;
     for (let c = 1; c < headers.length; c++) {
       const h = headers[c];
       if (/cotizaci[oó]n/i.test(h)) { cotizCol = c; continue; }
-      if (/categor/i.test(h)) { vioCat = true; continue; }
+      if (/categor/i.test(h)) { vioCat = true; if (catCol < 0) catCol = c; continue; }
       if (/^fecha$/i.test(h)) continue;
       // "UYU"/"USD" sueltos DESPUÉS de Categoría son la tabla lateral de
       // subtotales; antes de ella (meses viejos) sí son medios de pago.
@@ -1816,11 +1818,12 @@ function _calcMonthTotals(range) {
       if (isBoundaryRow(cellA.toLowerCase())) break;
       const cotiz = cotizCol >= 0 ? rowCotiz(range[i][cotizCol]) : null;
       if (cotiz) lastCotiz = cotiz;
+      const esAhorro = catCol >= 0 && _esAhorro(range[i][catCol]);
       for (let k = 0; k < cardCols.length; k++) {
         const v = parseFloat(range[i][cardCols[k].col]);
         if (isFinite(v) && v !== 0) {
-          // Gasto en tarjeta de crédito: no entra al total del mes (ver _esTarjetaCredito).
-          if (!cardCols[k].credito) varRows.push({ uyu: cardCols[k].usd ? 0 : v, usd: cardCols[k].usd ? v : 0, cotiz: cotiz });
+          // Tarjeta de crédito (se paga el mes siguiente) y ahorro: no entran al total.
+          if (!cardCols[k].credito && !esAhorro) varRows.push({ uyu: cardCols[k].usd ? 0 : v, usd: cardCols[k].usd ? v : 0, cotiz: cotiz });
           break;
         }
       }
@@ -1855,7 +1858,7 @@ function getMonthlyTotals() {
       const name = t.sheet.getName();
       const out = { tab: name, year: t.info.year, month: t.info.month, total: null };
       if (idx < recent) return out; // fuera del gráfico: solo el nombre para el selector
-      const key = 'mt3_' + name;
+      const key = 'mt5_' + name;
       if (name !== curTab) {
         try { const hit = cache.get(key); if (hit !== null) { out.total = parseFloat(hit); return out; } } catch (_) {}
       }

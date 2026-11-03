@@ -3256,40 +3256,21 @@
     html += '<div class="dash-kpi"><div class="dash-kpi-label">Variable UYU</div><div class="dash-kpi-val">' + fmt(t.varUyu, 'UYU') + '</div><div class="dash-kpi-sub">' + (data.variableCount || 0) + ' gastos</div></div>';
     // Top categoría KPI
     if (data.byCategory && data.byCategory.length) {
-      var topCat = data.byCategory.filter(function(c){ return (c.uyu||0) > 0; })[0];
+      var topCat = data.byCategory[0];
       if (topCat) {
-        html += '<div class="dash-kpi big" style="background:#fef3c7;border-color:#fde68a"><div class="dash-kpi-label">🥇 Top categoría</div><div class="dash-kpi-val" style="color:#92400e">' + topCat.name + '</div><div class="dash-kpi-sub">' + fmt(topCat.uyu, 'UYU') + '</div></div>';
+        var topSub = [topCat.uyu ? fmt(topCat.uyu, 'UYU') : '', topCat.usd ? fmt(topCat.usd, 'USD') : ''].filter(Boolean).join(' + ');
+        html += '<div class="dash-kpi big" style="background:#fef3c7;border-color:#fde68a"><div class="dash-kpi-label">🥇 Top categoría</div><div class="dash-kpi-val" style="color:#92400e">' + esc(topCat.name) + '</div><div class="dash-kpi-sub">' + topSub + '</div></div>';
       }
     }
     html += '</div></div>';
 
     // Por categoría con barras + ranking
-    if (data.byCategory && data.byCategory.length) {
-      var maxCat = data.byCategory.reduce(function(m, x){ return Math.max(m, x.uyu || 0); }, 0);
-      var totalCatUyu = data.byCategory.reduce(function(s, x){ return s + (x.uyu || 0); }, 0);
-      html += '<div class="dash-section"><h2>Por categoría (UYU)</h2><div class="dash-list">';
-      var rank = 0;
-      for (var i = 0; i < data.byCategory.length; i++) {
-        var c = data.byCategory[i];
-        if (!c.uyu && !c.usd) continue;
-        rank++;
-        var pct = maxCat > 0 ? (c.uyu / maxCat * 100) : 0;
-        var pctTot = totalCatUyu > 0 ? (c.uyu / totalCatUyu * 100) : 0;
-        var medal = rank === 1 ? '🥇 ' : (rank === 2 ? '🥈 ' : (rank === 3 ? '🥉 ' : ''));
-        var rowStyle = rank === 1 ? ' style="background:#fefce8"' : '';
-        var barColor = rank === 1 ? '#f59e0b' : '#0f766e';
-        html += '<div class="dash-list-row"' + rowStyle + '>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div class="name">' + medal + c.name + '</div>' +
-            '<div class="dash-bar"><div style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
-          '</div>' +
-          '<div class="val" style="text-align:right">' + fmt(c.uyu, 'UYU') +
-            '<div class="sub" style="font-weight:400">' + pctTot.toFixed(0) + '%</div>' +
-          '</div>' +
-        '</div>';
-      }
-      html += '</div></div>';
-    }
+    // Cada moneda en lo suyo, sin convertir. Sin tarjeta de crédito ni ahorro
+    // (misma regla que los totales, ver getDashboardData).
+    DASH_CATS = data.byCategory || [];
+    html += '<div class="dash-section"><h2>Por categoría <span id="dashCatMon" class="dash-moneda">' +
+      '<button type="button" data-mon="USD">USD</button><button type="button" data-mon="UYU">UYU</button></span></h2>' +
+      '<div class="dash-list" id="dashCats"></div></div>';
 
     // Por medio de pago
     if (data.byCard && data.byCard.length) {
@@ -3317,10 +3298,39 @@
 
     content.innerHTML = html;
     wireGastoRows(content);
+    var monBtns = content.querySelectorAll('#dashCatMon button');
+    for (var mb = 0; mb < monBtns.length; mb++) {
+      (function(b) { b.addEventListener('click', function() { DASH_CAT_MON = b.getAttribute('data-mon'); pintarCategorias(); }); })(monBtns[mb]);
+    }
+    pintarCategorias();
     pintarGraficoMeses();
     // "Agregar Gasto" siempre lista el mes en curso: si se está viendo otro mes,
     // no pisar esa lista con gastos viejos (ni dejar editar sobre el mes equivocado).
     if (!DASH_MONTH) pintarGastosRecientes();
+  }
+
+  var DASH_CATS = [], DASH_CAT_MON = 'USD';
+  function pintarCategorias() {
+    var box = document.getElementById('dashCats');
+    if (!box) return;
+    var mon = DASH_CAT_MON, key = mon === 'USD' ? 'usd' : 'uyu';
+    var bs = document.querySelectorAll('#dashCatMon button');
+    for (var b = 0; b < bs.length; b++) bs[b].classList.toggle('activo', bs[b].getAttribute('data-mon') === mon);
+    var lista = DASH_CATS.filter(function(c) { return (c[key] || 0) > 0; })
+      .sort(function(a, z) { return z[key] - a[key]; });
+    if (!lista.length) { box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin gastos en ' + mon + ' este mes</div>'; return; }
+    var max = lista[0][key];
+    var total = lista.reduce(function(s, c) { return s + c[key]; }, 0);
+    box.innerHTML = lista.map(function(c, i) {
+      var pct = max > 0 ? c[key] / max * 100 : 0;
+      var pctTot = total > 0 ? c[key] / total * 100 : 0;
+      var medal = i === 0 ? '🥇 ' : (i === 1 ? '🥈 ' : (i === 2 ? '🥉 ' : ''));
+      return '<div class="dash-list-row"' + (i === 0 ? ' style="background:#fefce8"' : '') + '>' +
+        '<div style="flex:1;min-width:0"><div class="name">' + medal + esc(c.name) + '</div>' +
+        '<div class="dash-bar"><div style="width:' + pct + '%;background:' + (i === 0 ? '#f59e0b' : '#0f766e') + '"></div></div></div>' +
+        '<div class="val" style="text-align:right">' + fmt(c[key], mon) +
+        '<div class="sub" style="font-weight:400">' + pctTot.toFixed(0) + '%</div></div></div>';
+    }).join('');
   }
 
   // Una fila de gasto — compartida entre el dashboard ("Gastos del mes") y
@@ -3337,6 +3347,8 @@
     if (e.fixed) subParts.push('🔒 FIJO');
     if (e.card) subParts.push(esc(e.card));
     if (e.category) subParts.push(esc(e.category));
+    if (e.credito) subParts.push('💳 se paga el mes siguiente');
+    else if (e.ahorro) subParts.push('🏦 ahorro, no suma');
     if (fechaCorta) subParts.push('📅 ' + fechaCorta);
     return '<div class="' + cls + '"' + rowAttr + '><div style="flex:1;min-width:0"><div class="name">' + esc(e.item) + '</div><div class="sub">' + subParts.join(' · ') + '</div></div><div class="val">' + fmt(e.amount, e.currency) + '</div></div>';
   }
