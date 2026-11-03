@@ -1644,8 +1644,10 @@ function getDashboardData(month) {
             rowCardName = cardCols[k].name;
             // Heuristic: USD if header contains USD or has Dólar
             rowCurrency = /usd|d[oó]lar/i.test(rowCardName) ? 'USD' : 'UYU';
-            if (rowCurrency === 'USD') varUsd += v;
-            else varUyu += v;
+            if (!_esTarjetaCredito(rowCardName)) {
+              if (rowCurrency === 'USD') varUsd += v;
+              else varUyu += v;
+            }
             break;
           }
         }
@@ -1662,6 +1664,7 @@ function getDashboardData(month) {
             amount: rowAmount,
             currency: rowCurrency,
             card: rowCardName,
+            credito: _esTarjetaCredito(rowCardName),
             category: catCol >= 0 ? String(range[i][catCol] || '').trim() : '',
             fecha: fechaVal instanceof Date && !isNaN(fechaVal.getTime())
               ? Utilities.formatDate(fechaVal, 'America/Montevideo', 'yyyy-MM-dd') : '',
@@ -1764,6 +1767,14 @@ function _monthTabInfo(name) {
   return idx < 0 ? null : { year: parseInt(m[2], 10), month: idx };
 }
 
+// Columnas de tarjeta de crédito (Crédito OCA / Itaú UYU / Itaú USD): lo que se
+// gasta con ellas se paga el mes siguiente, así que ese gasto va al desglose
+// (por categoría / tarjeta) pero NO suma al total del mes. Lo que sí suma es el
+// pago de la tarjeta, que vive en la tabla fija ("Itaú Crédito", "Oca").
+function _esTarjetaCredito(header) {
+  return /cr[eé]dito|\boca\b/i.test(String(header || ''));
+}
+
 // Totales del mes sumando cada fila: tabla fija (todas las filas con monto,
 // incluidas las de tarjeta como "Itaú Crédito") + tabla variable. Cada monto
 // en USD se pasa a UYU con la cotización de su propia fila (o la última vista).
@@ -1797,7 +1808,7 @@ function _calcMonthTotals(range) {
       if (/^fecha$/i.test(h)) continue;
       // "UYU"/"USD" sueltos DESPUÉS de Categoría son la tabla lateral de
       // subtotales; antes de ella (meses viejos) sí son medios de pago.
-      if (h && !/lugar|notas|notes/i.test(h) && !(vioCat && /^(uyu|usd)$/i.test(h))) cardCols.push({ col: c, usd: /usd|d[oó]lar/i.test(h) });
+      if (h && !/lugar|notas|notes/i.test(h) && !(vioCat && /^(uyu|usd)$/i.test(h))) cardCols.push({ col: c, usd: /usd|d[oó]lar/i.test(h), credito: _esTarjetaCredito(h) });
     }
     for (let i = headerRow + 1; i < range.length; i++) {
       const cellA = String(range[i][0] || '').trim();
@@ -1808,7 +1819,8 @@ function _calcMonthTotals(range) {
       for (let k = 0; k < cardCols.length; k++) {
         const v = parseFloat(range[i][cardCols[k].col]);
         if (isFinite(v) && v !== 0) {
-          varRows.push({ uyu: cardCols[k].usd ? 0 : v, usd: cardCols[k].usd ? v : 0, cotiz: cotiz });
+          // Gasto en tarjeta de crédito: no entra al total del mes (ver _esTarjetaCredito).
+          if (!cardCols[k].credito) varRows.push({ uyu: cardCols[k].usd ? 0 : v, usd: cardCols[k].usd ? v : 0, cotiz: cotiz });
           break;
         }
       }
@@ -1843,7 +1855,7 @@ function getMonthlyTotals() {
       const name = t.sheet.getName();
       const out = { tab: name, year: t.info.year, month: t.info.month, total: null };
       if (idx < recent) return out; // fuera del gráfico: solo el nombre para el selector
-      const key = 'mt2_' + name;
+      const key = 'mt3_' + name;
       if (name !== curTab) {
         try { const hit = cache.get(key); if (hit !== null) { out.total = parseFloat(hit); return out; } } catch (_) {}
       }
