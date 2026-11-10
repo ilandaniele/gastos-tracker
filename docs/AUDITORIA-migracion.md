@@ -217,12 +217,14 @@ Tablas extra por los módulos incluidos: `habit_days`, `meals`, `water_logs`, `e
 
 ## 10. Estado (2026-11-10)
 
-Hechas las fases 0, 1 y 2 para gastos, ingresos y ahorros:
+Hechas las fases 0, 1 y 2 para todos los módulos:
 
-- Apps Script: ruta de solo lectura `exportAll` (versión @196). La app no cambió.
-- D1 `gastos-db` (esquema en `worker/migrations/0001_init.sql`) con 57 meses, 5.294 gastos, 3 ingresos y 5 movimientos de ahorro.
+- Apps Script: ruta de solo lectura `exportAll` (versión @197) con gastos, ingresos, ahorros, tareas, compras, hábitos (días y registro de comida/agua/ejercicio) y país. La app no cambió.
+- D1 `gastos-db` (esquema en `worker/migrations/0001_init.sql` y `0002_modulos.sql`): 57 meses, 5.294 gastos, 3 ingresos, 5 ahorros, 33 tareas, 3 compras, 10 días de hábitos, 42 registros de hábitos, 102 movimientos del país en 5 meses.
 - Verificación: los totales en pesos y dólares de los 57 meses coinciden con los del Sheet (pestaña "Control" del visor, o `/api/verify`).
-- Visor en el Worker `gastos-app` (`worker/`), con clave en cookie. Falta ponerle Cloudflare Access delante (hay que verificar la firma del JWT; no alcanza con leer el header).
+- País configurable: la tabla `settings` guarda `pais_codigo` (AR), `pais_nombre`, `pais_moneda`; la bandera sale del código ISO. Cambiar de país es cambiar esas filas. Las tablas se llaman `foreign_*` y no mencionan a Argentina.
+- Visor en el Worker `gastos-app` (`worker/`): pestañas Gastos, Ingresos, Ahorros, Tareas, Compras, Hábitos, País y Control. Solo lectura.
+- Acceso: clave en cookie (`VIEW_KEY`) como respaldo. La verificación del JWT de Cloudflare Access ya está en el Worker y probada (`worker/test/access.test.mjs`, 11 casos), pero se activa solo al definir `ACCESS_TEAM` y `ACCESS_AUD`. Falta crear en el dashboard la app de Access para `gastos-app.ilandaniele.workers.dev` y copiar su AUD tag (el token de wrangler no tiene permiso de Access).
 - Reimportar en cualquier momento: desde `worker/`, con `APPS_SCRIPT_URL` y `APP_KEY` en el entorno, `node scripts/import.mjs --fetch --apply`.
 
-Pendiente: tareas, compras, hábitos y módulo de país configurable (Fase 1 ampliada); API de escritura (fase 3); crons y mail (fase 4).
+Pendiente: activar Access (paso manual de arriba); API de escritura con adaptador para los 57 usos de `google.script.run` (fase 3); crons y mail (fase 4); tipo de cambio sin GOOGLEFINANCE; multi-tenant, login y cobro.

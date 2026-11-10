@@ -2113,7 +2113,60 @@ function exportAll(p) {
     try { ingresos = getIngresosData().ingresos || []; } catch (e) { Logger.log('exportAll ingresos: ' + e.message); }
     try { const s = getSavingsData(); ahorros = s.ok ? s.movimientos : []; } catch (e) { Logger.log('exportAll ahorros: ' + e.message); }
   }
-  return { ok: true, exportedAt: new Date().toISOString(), months: months, ingresos: ingresos, ahorros: ahorros };
+  const out = { ok: true, exportedAt: new Date().toISOString(), months: months, ingresos: ingresos, ahorros: ahorros };
+  if (!only) {
+    // Módulos extra. Cada uno aislado: si uno falla, el volcado de gastos igual sale
+    // y el error queda en out.errores para verlo.
+    out.errores = [];
+    const aislar = (nombre, fn, def) => { try { return fn(); } catch (e) { out.errores.push(nombre + ': ' + e.message); return def; } };
+    out.tareas = aislar('tareas', () => { const t = getTasksData(); return t.ok ? t.tareas : []; }, []);
+    out.compras = aislar('compras', () => { const c = getComprasData(); return c.ok ? c.items : []; }, []);
+    out.habitos = aislar('habitos', () => _exportHabitos(ss), []);
+    out.pais = aislar('pais', () => _exportPais(tabs), []);
+  }
+  return out;
+}
+
+// Hábitos: una entrada por hoja "Hábitos <mes>" con sus días y su registro
+// (comidas, agua, ejercicio). Lee con los mismos lectores que la app.
+function _exportHabitos(ss) {
+  return ss.getSheets().map(s => s.getName()).filter(n => n.indexOf(HABIT_PREFIX) === 0).map(tab => {
+    try {
+      const m = readHabitMonth(tab);
+      if (!m) return { tab: tab, days: [], log: [] };
+      const log = [];
+      const sheet = ss.getSheetByName(tab);
+      const lastRow = sheet.getLastRow();
+      if (lastRow >= HABIT_MEAL_FIRST_ROW) {
+        const mv = sheet.getRange(HABIT_MEAL_FIRST_ROW, 1, lastRow - HABIT_MEAL_FIRST_ROW + 1, HABIT_MEAL_HEADERS.length).getValues();
+        for (const r of mv) {
+          if (!r[0]) continue;
+          const d = Object.prototype.toString.call(r[0]) === '[object Date]' ? r[0] : parseLocalDate(r[0]);
+          if (!d) continue;
+          const reg = String(r[6] || '').trim().toLowerCase();
+          const base = { date: Utilities.formatDate(d, 'America/Montevideo', 'yyyy-MM-dd'), hora: _readHM(r[1]), detalle: String(r[2] || '') };
+          if (reg === 'agua') log.push(Object.assign(base, { kind: 'agua', tipo: String(r[2] || ''), ml: toNumber(r[7]) || 0 }));
+          else if (reg === 'ejercicio') log.push(Object.assign(base, { kind: 'ejercicio', tipo: String(r[2] || ''), min: toNumber(r[7]) || 0 }));
+          else if (String(r[2] || '').trim()) log.push(Object.assign(base, { kind: 'comida', macro: String(r[3] || ''), tipo: String(r[4] || ''),
+            procesado: String(r[5] || ''), kcal: toNumber(r[8]), ingredientes: String(r[9] || '') }));
+        }
+      }
+      return { tab: tab, days: m.days, log: log };
+    } catch (e) { return { tab: tab, error: e.message, days: [], log: [] }; }
+  });
+}
+
+// Módulo "país secundario" (hoy Argentina): movimientos de los meses que tienen el bloque.
+function _exportPais(tabs) {
+  const out = [];
+  tabs.forEach(t => {
+    const a = getArgentinaData(t.name);
+    if (!a.ok || !a.exists) return;
+    out.push({ tab: t.name, year: t.info.year, month: t.info.month,
+               deudaAntesUsd: a.totales ? a.totales.deudaAntesUsd : null,
+               entradas: a.entradas });
+  });
+  return out;
 }
 
 function json(obj) {

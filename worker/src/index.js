@@ -21,11 +21,64 @@ function cookie(req, name) {
   const m = (req.headers.get('Cookie') || '').match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
   return m ? decodeURIComponent(m[1]) : '';
 }
-function autorizado(req, env) {
-  // Ojo: el header Cf-Access-Jwt-Assertion NO se puede dar por bueno sin verificar
-  // la firma del JWT (cualquiera puede mandarlo). Cuando se ponga Access delante
-  // hay que validarlo contra las claves públicas del team domain; hasta entonces
-  // solo vale la clave.
+
+// --- Cloudflare Access -------------------------------------------------------
+// El header Cf-Access-Jwt-Assertion lo puede mandar cualquiera: solo vale si la
+// firma RS256 verifica contra las claves públicas del team domain y el token
+// es para ESTA app (aud), vigente y del emisor esperado.
+// Se activa con las variables ACCESS_TEAM (ej. ilandaniele.cloudflareaccess.com)
+// y ACCESS_AUD (Application Audience tag de la app de Access). Opcional:
+// ACCESS_EMAILS (lista separada por comas) para restringir por mail.
+let certsCache = { at: 0, keys: null, team: '' };
+
+function b64urlBytes(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '='));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+function b64urlJson(s) { return JSON.parse(new TextDecoder().decode(b64urlBytes(s))); }
+
+async function claves(team) {
+  if (certsCache.keys && certsCache.team === team && Date.now() - certsCache.at < 3600_000) return certsCache.keys;
+  const r = await fetch(`https://${team}/cdn-cgi/access/certs`);
+  if (!r.ok) throw new Error('certs ' + r.status);
+  const j = await r.json();
+  certsCache = { at: Date.now(), keys: j.keys || [], team };
+  return certsCache.keys;
+}
+
+async function verificarAccess(jwt, env) {
+  const partes = String(jwt || '').split('.');
+  if (partes.length !== 3) return null;
+  try {
+    const head = b64urlJson(partes[0]);
+    const body = b64urlJson(partes[1]);
+    if (head.alg !== 'RS256') return null;
+    let jwk = (await claves(env.ACCESS_TEAM)).find((k) => k.kid === head.kid);
+    if (!jwk) { certsCache.at = 0; jwk = (await claves(env.ACCESS_TEAM)).find((k) => k.kid === head.kid); }
+    if (!jwk) return null;
+    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlBytes(partes[2]), new TextEncoder().encode(partes[0] + '.' + partes[1]));
+    if (!ok) return null;
+    const ahora = Math.floor(Date.now() / 1000);
+    if (typeof body.exp !== 'number' || body.exp < ahora) return null;
+    if (typeof body.nbf === 'number' && body.nbf > ahora + 60) return null;
+    if (body.iss !== 'https://' + env.ACCESS_TEAM) return null;
+    const aud = [].concat(body.aud || []);
+    if (!aud.includes(env.ACCESS_AUD)) return null;
+    if (env.ACCESS_EMAILS) {
+      const permitidos = env.ACCESS_EMAILS.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+      if (!permitidos.includes(String(body.email || '').toLowerCase())) return null;
+    }
+    return body;
+  } catch { return null; }
+}
+
+async function autorizado(req, env) {
+  if (env.ACCESS_TEAM && env.ACCESS_AUD) {
+    const jwt = req.headers.get('Cf-Access-Jwt-Assertion') || cookie(req, 'CF_Authorization');
+    if (jwt && await verificarAccess(jwt, env)) return true;
+  }
+  // Respaldo: clave del visor en cookie.
   return !!env.VIEW_KEY && eq(cookie(req, 'vk'), env.VIEW_KEY);
 }
 
@@ -85,6 +138,22 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
+// Bandera a partir del código ISO de país (dos letras -> dos "regional indicators").
+function banderaDe(codigo) {
+  const c = String(codigo || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return '🏳️';
+  return String.fromCodePoint(...[...c].map((ch) => 0x1F1E6 + ch.charCodeAt(0) - 65));
+}
+
+async function ajustes(env) {
+  const r = await env.DB.prepare(`SELECT clave, valor FROM settings WHERE tenant_id = ?`).bind(TENANT).all();
+  const s = {};
+  for (const x of r.results) s[x.clave] = x.valor;
+  s.pais_codigo = s.pais_codigo || 'AR';
+  s.pais_bandera = banderaDe(s.pais_codigo);
+  return s;
+}
+
 async function api(req, env, url) {
   const path = url.pathname;
 
@@ -130,6 +199,43 @@ async function api(req, env, url) {
   if (path === '/api/savings') {
     const r = await env.DB.prepare(`SELECT id, fecha, tipo, entidad, ticker, cantidad, precio_usd, comision_usd, monto, moneda, invertido_usd, notas FROM savings WHERE tenant_id = ? ORDER BY fecha DESC, id DESC`).bind(TENANT).all();
     return json({ ok: true, savings: r.results });
+  }
+
+  if (path === '/api/settings') return json({ ok: true, settings: await ajustes(env) });
+
+  if (path === '/api/tasks') {
+    const r = await env.DB.prepare(
+      `SELECT id, creada, tipo, categoria, subcategoria, texto, fecha, hora, notas, completada, fecha_completada, recurrente, objetivo, contador, periodo, importancia, archivada, subtareas
+       FROM tasks WHERE tenant_id = ? ORDER BY completada, archivada, COALESCE(NULLIF(fecha, ''), '9999'), id`).bind(TENANT).all();
+    const tasks = r.results.map((t) => { let s = []; try { s = JSON.parse(t.subtareas || '[]'); } catch {} return { ...t, subtareas: s }; });
+    return json({ ok: true, tasks });
+  }
+
+  if (path === '/api/purchases') {
+    const r = await env.DB.prepare(`SELECT id, creada, texto, comprado, fecha_comprado FROM purchases WHERE tenant_id = ? ORDER BY comprado, id DESC`).bind(TENANT).all();
+    return json({ ok: true, purchases: r.results });
+  }
+
+  if (path === '/api/habits') {
+    const [days, log] = await env.DB.batch([
+      env.DB.prepare(`SELECT fecha, levante, acoste, hs_sueno, trabajo, avance, animo, ejercicio, ejercicio_min, medite, medite_min, lei, abordajes, agua, mast, notas FROM habit_days WHERE tenant_id = ? ORDER BY fecha DESC`).bind(TENANT),
+      env.DB.prepare(`SELECT fecha, hora, kind, detalle, macro, tipo, procesado, kcal, ml, min, ingredientes FROM habit_log WHERE tenant_id = ? ORDER BY fecha DESC, hora DESC, id DESC`).bind(TENANT)
+    ]);
+    return json({ ok: true, days: days.results, log: log.results });
+  }
+
+  // Módulo "país": movimientos y deuda por mes. Nombre, moneda y bandera salen de los ajustes.
+  if (path === '/api/country') {
+    const [movs, meses] = await env.DB.batch([
+      env.DB.prepare(`SELECT id, mes, fecha, tipo, detalle, usd, cotizacion, monto_local, quien, categoria FROM foreign_movements WHERE tenant_id = ? ORDER BY mes DESC, src_row DESC`).bind(TENANT),
+      env.DB.prepare(`SELECT m.mes, m.deuda_antes_usd,
+          (SELECT COUNT(*) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes) AS n,
+          (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Gasto') AS gasto_usd,
+          (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Carga') AS carga_usd,
+          (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Pago') AS pago_usd
+        FROM foreign_months m WHERE m.tenant_id = ? ORDER BY m.mes DESC`).bind(TENANT)
+    ]);
+    return json({ ok: true, settings: await ajustes(env), months: meses.results, movements: movs.results });
   }
 
   // Compara, mes por mes, el total que calcula D1 con el que calculó el Sheet al importar.
@@ -179,7 +285,7 @@ export default {
       });
     }
 
-    if (!autorizado(req, env)) {
+    if (!(await autorizado(req, env))) {
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }

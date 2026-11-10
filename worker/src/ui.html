@@ -11,6 +11,7 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
 h1{font-size:17px;margin:0}
+h3{margin:18px 0 8px;font-size:14px;color:var(--mut)}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{border:0;background:none;color:var(--mut);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
 nav button.on{background:var(--chip);color:var(--ink);font-weight:600}
@@ -56,7 +57,7 @@ tr:last-child td{border-bottom:0}
 'use strict';
 var $ = function (s, r) { return (r || document).querySelector(s); };
 var state = { vista: 'gastos', mes: '', cat: '', q: '', moneda: '', tipo: '', medio: '', orden: 'fecha', dir: 'desc', offset: 0, limit: 100 };
-var facets = { categories: [], medios: [] }, months = [];
+var facets = { categories: [], medios: [] }, months = [], ajustes = { pais_codigo: 'AR', pais_nombre: 'Argentina', pais_moneda: 'ARS', pais_bandera: '🇦🇷' };
 
 function el(tag, attrs, kids) {
   var e = document.createElement(tag);
@@ -88,7 +89,7 @@ function get(path) {
 function fail(e) { $('#main').replaceChildren(el('div', { class: 'empty bad' }, e.message || String(e))); }
 
 function nav() {
-  var vistas = [['gastos', 'Gastos'], ['ingresos', 'Ingresos'], ['ahorros', 'Ahorros'], ['control', 'Control']];
+  var vistas = [['gastos', 'Gastos'], ['ingresos', 'Ingresos'], ['ahorros', 'Ahorros'], ['tareas', 'Tareas'], ['compras', 'Compras'], ['habitos', 'Hábitos'], ['pais', ajustes.pais_bandera + ' ' + ajustes.pais_nombre], ['control', 'Control']];
   $('#nav').replaceChildren.apply($('#nav'), vistas.map(function (v) {
     return el('button', { class: state.vista === v[0] ? 'on' : '', onclick: function () { state.vista = v[0]; render(); } }, v[1]);
   }));
@@ -214,6 +215,90 @@ function vistaAhorros() {
   }).catch(fail);
 }
 
+function fechaCorta(f) { return f ? String(f).slice(0, 10) : ''; }
+
+function vistaTareas() {
+  nav();
+  get('/api/tasks').then(function (d) {
+    var abiertas = d.tasks.filter(function (t) { return !t.completada && !t.archivada; });
+    $('#main').replaceChildren(
+      el('div', { class: 'cards' }, [
+        el('div', { class: 'card' }, [el('small', null, 'Pendientes'), el('b', null, abiertas.length)]),
+        el('div', { class: 'card' }, [el('small', null, 'Completadas'), el('b', null, d.tasks.filter(function (t) { return t.completada; }).length)]),
+        el('div', { class: 'card' }, [el('small', null, 'Recurrentes'), el('b', null, d.tasks.filter(function (t) { return t.recurrente; }).length)])]),
+      el('div', { class: 'tw' }, tablaSimple([
+        { t: '', f: function (t) { return t.completada ? '✔' : (t.archivada ? '🗄' : '○'); } },
+        { t: 'Tarea', f: function (t) { return t.texto + (t.subtareas.length ? '  (' + t.subtareas.length + ' subtareas)' : ''); } },
+        { t: 'Categoría', f: function (t) { return (t.categoria || '') + (t.subcategoria ? ' / ' + t.subcategoria : ''); } },
+        { t: 'Tipo', k: 'tipo' }, { t: 'Importancia', k: 'importancia' },
+        { t: 'Fecha', f: function (t) { return fechaCorta(t.fecha) + (t.hora ? ' ' + t.hora : ''); } },
+        { t: 'Recurrente', f: function (t) { return t.recurrente ? (t.contador || 0) + '/' + (t.objetivo || '?') + ' ' + (t.periodo || '') : ''; } },
+        { t: 'Notas', k: 'notas' }], d.tasks)));
+  }).catch(fail);
+}
+
+function vistaCompras() {
+  nav();
+  get('/api/purchases').then(function (d) {
+    $('#main').replaceChildren(el('div', { class: 'tw' }, tablaSimple([
+      { t: '', f: function (c) { return c.comprado ? '✔' : '○'; } }, { t: 'Compra', k: 'texto' },
+      { t: 'Creada', f: function (c) { return fechaCorta(c.creada); } },
+      { t: 'Comprada', f: function (c) { return fechaCorta(c.fecha_comprado); } }], d.purchases)));
+  }).catch(fail);
+}
+
+function vistaHabitos() {
+  nav();
+  get('/api/habits').then(function (d) {
+    var cant = function (k) { return d.log.filter(function (l) { return l.kind === k; }).length; };
+    $('#main').replaceChildren(
+      el('div', { class: 'cards' }, [
+        el('div', { class: 'card' }, [el('small', null, 'Días con datos'), el('b', null, d.days.length)]),
+        el('div', { class: 'card' }, [el('small', null, 'Comidas'), el('b', null, cant('comida'))]),
+        el('div', { class: 'card' }, [el('small', null, 'Agua (registros)'), el('b', null, cant('agua'))]),
+        el('div', { class: 'card' }, [el('small', null, 'Ejercicio (registros)'), el('b', null, cant('ejercicio'))])]),
+      el('h3', null, 'Días'),
+      el('div', { class: 'tw' }, tablaSimple([
+        { t: 'Fecha', k: 'fecha' }, { t: 'Me levanté', k: 'levante' }, { t: 'Me acosté', k: 'acoste' },
+        { t: 'Sueño hs', num: 1, f: function (x) { return x.hs_sueno == null ? '' : fmt(x.hs_sueno); } },
+        { t: 'Ánimo', num: 1, k: 'animo' }, { t: 'Ejercicio', f: function (x) { return x.ejercicio ? x.ejercicio + (x.ejercicio_min ? ' ' + x.ejercicio_min + ' min' : '') : ''; } },
+        { t: 'Abordajes', num: 1, k: 'abordajes' }, { t: 'Agua', num: 1, k: 'agua' }, { t: 'Notas', k: 'notas' }], d.days)),
+      el('h3', null, 'Registro (comida, agua, ejercicio)'),
+      el('div', { class: 'tw' }, tablaSimple([
+        { t: 'Fecha', k: 'fecha' }, { t: 'Hora', k: 'hora' }, { t: 'Tipo', k: 'kind' },
+        { t: 'Detalle', k: 'detalle' }, { t: 'Comida', k: 'tipo' }, { t: 'Macro', k: 'macro' }, { t: 'Procesado', k: 'procesado' },
+        { t: 'ml', num: 1, k: 'ml' }, { t: 'min', num: 1, k: 'min' }], d.log)));
+  }).catch(fail);
+}
+
+function vistaPais() {
+  nav();
+  get('/api/country').then(function (d) {
+    ajustes = d.settings;
+    var conDatos = d.months.filter(function (x) { return x.n; })[0];
+    var mesSel = state.paisMes || (conDatos ? conDatos.mes : (d.months[0] ? d.months[0].mes : ''));
+    var sel = el('select', { onchange: function () { state.paisMes = sel.value; vistaPais(); } },
+      d.months.map(function (x) { return el('option', { value: x.mes }, mesNombre(x.mes) + ' (' + x.n + ')'); }));
+    sel.value = mesSel;
+    var m = d.months.filter(function (x) { return x.mes === mesSel; })[0];
+    var movs = d.movements.filter(function (x) { return x.mes === mesSel; });
+    var local = ajustes.pais_moneda || '';
+    $('#main').replaceChildren(
+      el('div', { class: 'filters' }, [el('span', null, ajustes.pais_bandera + ' ' + ajustes.pais_nombre + ' · moneda ' + local), sel]),
+      m ? el('div', { class: 'cards' }, [
+        el('div', { class: 'card' }, [el('small', null, 'Deuda antes del mes'), el('b', null, 'US$ ' + fmt(m.deuda_antes_usd))]),
+        el('div', { class: 'card' }, [el('small', null, 'Cargas'), el('b', null, 'US$ ' + fmt(m.carga_usd))]),
+        el('div', { class: 'card' }, [el('small', null, 'Gastos'), el('b', null, 'US$ ' + fmt(m.gasto_usd))]),
+        el('div', { class: 'card' }, [el('small', null, 'Pagos'), el('b', null, 'US$ ' + fmt(m.pago_usd))])]) : '',
+      el('div', { class: 'tw' }, tablaSimple([
+        { t: 'Fecha', k: 'fecha' }, { t: 'Tipo', k: 'tipo' }, { t: 'Detalle', k: 'detalle' },
+        { t: 'US$', num: 1, f: function (x) { return fmt(x.usd); } },
+        { t: 'Cotiz.', num: 1, f: function (x) { return fmt(x.cotizacion); } },
+        { t: local, num: 1, f: function (x) { return fmt(x.monto_local); } },
+        { t: 'Quién', k: 'quien' }, { t: 'Categoría', k: 'categoria' }], movs)));
+  }).catch(fail);
+}
+
 function vistaControl() {
   nav();
   get('/api/verify').then(function (d) {
@@ -235,11 +320,15 @@ function render() {
   if (state.vista === 'gastos') vistaGastos();
   else if (state.vista === 'ingresos') vistaIngresos();
   else if (state.vista === 'ahorros') vistaAhorros();
+  else if (state.vista === 'tareas') vistaTareas();
+  else if (state.vista === 'compras') vistaCompras();
+  else if (state.vista === 'habitos') vistaHabitos();
+  else if (state.vista === 'pais') vistaPais();
   else vistaControl();
 }
 
-Promise.all([get('/api/months'), get('/api/facets')]).then(function (r) {
-  months = r[0].months; facets = r[1];
+Promise.all([get('/api/months'), get('/api/facets'), get('/api/settings')]).then(function (r) {
+  months = r[0].months; facets = r[1]; ajustes = r[2].settings;
   state.mes = months.length ? months[0].mes : '';
   render();
 }).catch(function (e) { nav(); fail(e); });

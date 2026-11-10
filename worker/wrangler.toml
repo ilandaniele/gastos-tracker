@@ -12,5 +12,11 @@ database_name = "gastos-db"
 database_id = "6e60920a-c1e0-4f32-b6e2-42666e6e304c"
 migrations_dir = "migrations"
 
-# Secretos (wrangler secret put): VIEW_KEY = clave del visor mientras no esté
-# Cloudflare Access delante.
+# Secretos (wrangler secret put): VIEW_KEY = clave de respaldo del visor.
+#
+# Cloudflare Access (verificación real del JWT). Se activa al definir ACCESS_AUD:
+# es el "Application Audience (AUD) Tag" de la app de Access que cubre este host.
+# [vars]
+# ACCESS_TEAM = "ilandaniele.cloudflareaccess.com"
+# ACCESS_AUD = "<aud tag>"
+# ACCESS_EMAILS = "ilan.daniele@gmail.com"

@@ -37,7 +37,7 @@ const b = (v) => v ? '1' : '0';
 
 function buildSql(data) {
   const out = [];
-  for (const t of ['expenses', 'month_totals', 'incomes', 'savings']) out.push(`DELETE FROM ${t} WHERE tenant_id = '${TENANT}';`);
+  for (const t of ['expenses', 'month_totals', 'incomes', 'savings', 'tasks', 'purchases', 'habit_days', 'habit_log', 'foreign_movements', 'foreign_months']) out.push(`DELETE FROM ${t} WHERE tenant_id = '${TENANT}';`);
   let ne = 0, nm = 0;
   for (const m of data.months) {
     if (!m.ok) throw new Error(`Mes ${m.tab} falló en el volcado: ${m.error}`);
@@ -57,8 +57,36 @@ function buildSql(data) {
   for (const s of data.ahorros) {
     out.push(`INSERT INTO savings (tenant_id, src_row, fecha, tipo, entidad, ticker, cantidad, precio_usd, comision_usd, monto, moneda, invertido_usd, notas) VALUES ('${TENANT}', ${n(s.row)}, ${q(s.fecha)}, ${q(s.tipo)}, ${q(s.entidad)}, ${q(s.ticker)}, ${n(s.cantidad)}, ${n(s.precioUsd)}, ${n(s.comisionUsd)}, ${n(s.monto)}, ${q(s.moneda)}, ${n(s.invertidoUsd)}, ${q(s.notas)});`);
   }
+  const tareas = data.tareas || [], compras = data.compras || [], habitos = data.habitos || [], pais = data.pais || [];
+  for (const t of tareas) {
+    out.push(`INSERT INTO tasks (tenant_id, src_row, creada, tipo, categoria, subcategoria, texto, fecha, hora, notas, completada, fecha_completada, recurrente, objetivo, contador, periodo, ultimo_reset, importancia, archivada, orden, subtareas) VALUES ('${TENANT}', ${n(t.row)}, ${q(t.creada)}, ${q(t.tipo)}, ${q(t.categoria)}, ${q(t.subcategoria)}, ${q(t.texto)}, ${q(t.fecha)}, ${q(t.hora)}, ${q(t.notas)}, ${b(t.completada)}, ${q(t.fechaCompletada)}, ${b(t.recurrente)}, ${n(t.objetivo)}, ${n(t.contador)}, ${q(t.periodo)}, ${q(t.ultimoReset)}, ${q(t.importancia)}, ${b(t.archivada)}, ${n(t.orden)}, ${q(JSON.stringify(t.subtareas || []))});`);
+  }
+  for (const c of compras) {
+    out.push(`INSERT INTO purchases (tenant_id, src_row, creada, texto, comprado, fecha_comprado) VALUES ('${TENANT}', ${n(c.row)}, ${q(c.creada)}, ${q(c.texto)}, ${b(c.comprado)}, ${q(c.fechaComprado)});`);
+  }
+  let nd = 0, nl = 0;
+  for (const h of habitos) {
+    for (const d of h.days || []) {
+      if (!d.hasData) continue;
+      nd++;
+      out.push(`INSERT INTO habit_days (tenant_id, fecha, tab, levante, acoste, hs_sueno, trabajo, avance, animo, ejercicio, ejercicio_min, medite, medite_min, lei, abordajes, agua, mast, notas) VALUES ('${TENANT}', ${q(d.date)}, ${q(h.tab)}, ${q(d.levante)}, ${q(d.acoste)}, ${n(d.hsSueno)}, ${n(d.trabajo)}, ${n(d.avance)}, ${n(d.animo)}, ${q(d.ejercicio)}, ${n(d.ejercicioMin)}, ${q(d.medite)}, ${n(d.mediteMin)}, ${q(d.lei)}, ${n(d.abordajes)}, ${n(d.agua)}, ${n(d.mast)}, ${q(d.notas)});`);
+    }
+    for (const l of h.log || []) {
+      nl++;
+      out.push(`INSERT INTO habit_log (tenant_id, fecha, hora, kind, detalle, macro, tipo, procesado, kcal, ml, min, ingredientes) VALUES ('${TENANT}', ${q(l.date)}, ${q(l.hora)}, ${q(l.kind)}, ${q(l.detalle)}, ${q(l.macro)}, ${q(l.tipo)}, ${q(l.procesado)}, ${n(l.kcal)}, ${n(l.ml)}, ${n(l.min)}, ${q(l.ingredientes)});`);
+    }
+  }
+  let nf = 0;
+  for (const p of pais) {
+    const mes = `${p.year}-${String(p.month + 1).padStart(2, '0')}`;
+    out.push(`INSERT INTO foreign_months (tenant_id, mes, deuda_antes_usd) VALUES ('${TENANT}', '${mes}', ${n(p.deudaAntesUsd)});`);
+    for (const e of p.entradas || []) {
+      nf++;
+      out.push(`INSERT INTO foreign_movements (tenant_id, mes, tab, src_row, fecha, tipo, detalle, usd, cotizacion, monto_local, quien, categoria) VALUES ('${TENANT}', '${mes}', ${q(p.tab)}, ${n(e.row)}, ${q(e.fecha)}, ${q(e.tipo)}, ${q(e.detalle)}, ${n(e.usd)}, ${n(e.cotiz)}, ${n(e.ars)}, ${q(e.quien)}, ${q(e.categoria)});`);
+    }
+  }
   out.push(`INSERT INTO import_log (at, source, months, expenses, incomes, savings) VALUES ('${new Date().toISOString()}', 'apps-script exportAll', ${nm}, ${ne}, ${data.ingresos.length}, ${data.ahorros.length});`);
-  return { sql: out.join('\n') + '\n', counts: { months: nm, expenses: ne, incomes: data.ingresos.length, savings: data.ahorros.length } };
+  return { sql: out.join('\n') + '\n', counts: { months: nm, expenses: ne, incomes: data.ingresos.length, savings: data.ahorros.length, tareas: tareas.length, compras: compras.length, habit_days: nd, habit_log: nl, pais_movs: nf } };
 }
 
 const data = await load();
