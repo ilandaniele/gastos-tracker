@@ -196,6 +196,12 @@
   <div id="addGastosList"></div>
 </div>
 
+<!-- INGRESOS DE ESTE MES — ver pintarIngresosMes en form-scripts.html. -->
+<div class="hcard">
+  <div class="hcard-title">💵 Ingresos de este mes <span id="addIngresosTotal" class="hhint"></span></div>
+  <div id="addIngresosList"></div>
+</div>
+
 </div><!-- /addPanel -->
 
 <div id="tareasPanel" class="panel">
@@ -1063,8 +1069,8 @@
   // Reglas y categorías inyectadas desde Code.gs: una sola fuente de verdad.
   var CAT_RULES_RAW = <?!= catRulesJson ?>;
   var CATEGORIAS    = <?!= categoriasJson ?>;
+  var CATS_SOCIALES = <?!= catsSocialesJson ?>;
   var TICKERS       = <?!= tickersJson ?>;
 </script>
 <?!= include('form-scripts') ?>
 </body></html>
-  var CATS_SOCIALES = <?!= catsSocialesJson ?>;

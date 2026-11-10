@@ -3065,6 +3065,7 @@
         ingLimpiar();
         ingStatus('✓ Ingreso guardado', 'ok');
         loadAhorros();
+        cargarIngresosMes();
       })
       .withFailureHandler(function(err) {
         ingStatus('✗ ' + (err && err.message ? err.message : err), 'err');
@@ -3441,6 +3442,41 @@
       ? gastosListHtml(DASH_EXPENSES)
       : '<div class="task-empty">Todavía no cargaste gastos este mes</div>';
     wireGastoRows(box);
+    cargarIngresosMes();
+  }
+
+  // Ingresos del mes en curso, debajo de la lista de gastos en "Agregar Gasto".
+  // Se leen de la hoja Ingresos (getIngresosData) y se filtran por yyyy-MM de hoy.
+  // Se recargan junto con los gastos y al guardar un ingreso (ver ingAdd).
+  function cargarIngresosMes() {
+    if (!document.getElementById('addIngresosList')) return;
+    google.script.run
+      .withSuccessHandler(function(r) { pintarIngresosMes(r); })
+      .withFailureHandler(function(err) {
+        var box = document.getElementById('addIngresosList');
+        if (box) box.innerHTML = '<div class="task-empty">✗ ' + esc(err && err.message ? err.message : String(err)) + '</div>';
+      })
+      .getIngresosData();
+  }
+  function pintarIngresosMes(r) {
+    var box = document.getElementById('addIngresosList');
+    var tot = document.getElementById('addIngresosTotal');
+    if (!box) return;
+    if (!r || !r.ok) { box.innerHTML = '<div class="task-empty">✗ ' + esc((r && r.error) || 'Error') + '</div>'; return; }
+    var mes = todayISO().slice(0, 7);
+    var lista = (r.ingresos || []).filter(function(i) { return String(i.fecha).slice(0, 7) === mes; })
+      .sort(function(a, z) { return String(z.fecha).localeCompare(String(a.fecha)); });
+    var uyu = 0, usd = 0;
+    lista.forEach(function(i) { if (i.moneda === 'USD') usd += i.monto; else uyu += i.monto; });
+    if (tot) tot.textContent = [uyu ? fmt(uyu, 'UYU') : '', usd ? fmt(usd, 'USD') : ''].filter(Boolean).join(' + ');
+    if (!lista.length) { box.innerHTML = '<div class="task-empty">Todavía no cargaste ingresos este mes</div>'; return; }
+    box.innerHTML = lista.map(function(i) {
+      var f = i.fecha ? esc(String(i.fecha).slice(8, 10) + '/' + String(i.fecha).slice(5, 7)) : '';
+      var sub = [];
+      if (f) sub.push('📅 ' + f);
+      if (i.notas) sub.push(esc(i.notas));
+      return '<div class="dash-list-row"><div style="flex:1;min-width:0"><div class="name">' + esc(i.concepto) + '</div><div class="sub">' + sub.join(' · ') + '</div></div><div class="val">' + fmt(i.monto, i.moneda) + '</div></div>';
+    }).join('');
   }
 
   // ---- Editar / borrar un gasto (ver DASH_EXPENSES, cargado en renderDashboard) ----
