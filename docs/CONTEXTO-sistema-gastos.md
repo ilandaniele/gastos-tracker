@@ -103,7 +103,21 @@ del saldo bancario disponible (`_monthExpenseTotals` lo excluye a propósito): p
 mueve un peso de ninguna cuenta.
 
 **Categorías**: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento,
-Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros
+Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Amigos, Cita, Acciones/Bonos/Ahorros, Otros
+
+**Dos categorías por gasto.** Un gasto puede llevar hasta 2 categorías (ej. una cena en una
+cita = `Cita + Comida`). Se guardan en la misma celda "Categoría", separadas por ` + `; no hay
+columna nueva, así que el layout de la hoja no cambia (`splitCategorias` / `joinCategorias` en
+`Code.gs`). Cuando un gasto tiene 2, el monto entero cuenta en cada una, por lo que la suma de
+las categorías puede pasar el total del mes. Los totales del mes no cambian.
+
+**Cita y Amigos.** Las palabras `cita(s)`, `tinder`, `bumble`, `happn` mapean a Cita, y
+`amigo(s)`, `amiga(s)`, `juntada`, `previa` a Amigos. Van antes que Comida/Bebida en
+`CAT_RULES`; si el texto además matchea una categoría "de qué fue" (cena, birra…) esa queda de
+segunda (`classifyItems`). El form tiene una copia de esa lógica (`clasificarItems` en
+`form-scripts.html`) y manda ya armada la lista que el usuario vio (`categories`), así que lo que
+elige a mano no lo pisan las reglas de texto. `?action=testCategorias` corre los casos de prueba
+sin escribir nada.
 
 `Acciones/Bonos/Ahorros` es para la plata que sale de la cuenta hacia el ahorro:
 no es consumo. Su regla de clasificación va **primera** en `CAT_RULES` y exige
@@ -211,6 +225,11 @@ Un ticker que no esté en el mapa igual se puede cargar: solo pierde el logo.
 | `?action=classifyAll` | Auto-clasifica todos los meses (agrega col Categoría si falta) |
 | `?action=inspectHeaders&month=X` | Debug: dumpea los headers de una pestaña |
 | `?action=testRate` | Devuelve la cotización GOOGLEFINANCE |
+| `?action=testCategorias[&item=X]` | Prueba la clasificación a 1-2 categorías (no escribe) |
+| `?action=setExpenseCategory&month=X&row=N&item=X&category=Cita+%2B+Comida` | Cambia solo la categoría (acepta 1 o 2, separadas por ` + `) |
+| `?action=previewReport&month=Octubre%202026` | HTML del reporte mensual, sin mandarlo |
+| `?action=sendReport&month=Octubre%202026` | Manda el reporte mensual por mail ahora |
+| `?action=installReportTrigger` | Instala el trigger: día 1 de cada mes, 9am, reporta el mes anterior |
 | `?action=testFetch` | Verifica que el scope UrlFetch funciona |
 | `?action=setKey&key=...` | Guarda la API key de Gemini en Script Properties |
 | `?action=hasKey` | Verifica si la key está seteada |
@@ -220,6 +239,15 @@ Un ticker que no esté en el mapa igual se puede cargar: solo pierde el logo.
 | `?action=updateAhorro&row=N&...` | Edita un movimiento |
 | `?action=deleteAhorro&row=N` | Borra un movimiento |
 | `?action=precioAccion&ticker=NVDA` | Precio del día de un ticker |
+
+---
+
+**Reporte mensual.** El día 1 de cada mes a las 9am (`monthlyReportCron`) llega por mail el
+reporte del mes anterior: total, últimos 6 meses, top categorías con tendencia y hábitos. Incluye
+una sección "A minimizar" con Cita y Amigos (`CATS_A_MINIMIZAR` en `Code.gs`): lo gastado, la
+comparación contra el promedio de los meses previos y los 3 gastos que más pesaron, y la lista
+"Dónde aflojar" las pone primero con un tope sugerido de 20% menos. Para cambiar qué categorías se
+marcan, editar esa constante.
 
 ---
 

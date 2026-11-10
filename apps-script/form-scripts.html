@@ -59,6 +59,7 @@
     var cardField = getField('card'); if (data.card && cardField) cardField.value = data.card;
     var catField = getField('category');
     if (data.category && catField) { catField.value = data.category; catTocadaAMano = true; }
+    var cat2Field = getField('category2'); if (cat2Field) cat2Field.value = '';
     if (data.amount === undefined || data.amount === null) amountField.focus();
   }
 
@@ -139,22 +140,50 @@
     return 'Otros';
   }
 
-  // Si el usuario elige una categoría a mano, se deja de pisar hasta que
-  // limpie el ítem o guarde.
+  // Copia de classifyItems de Code.gs: hasta 2 categorías. Si el texto nombra
+  // Cita o Amigos van primero y la primera "de qué fue" (Comida, Bar...) queda
+  // de segunda. Sin Cita/Amigos es una sola. Devuelve [] si no hay match.
+  function clasificarItems(texto) {
+    var s = String(texto || '').trim();
+    if (!s) return [];
+    var hits = [];
+    for (var i = 0; i < CAT_RULES_JS.length; i++) {
+      var r = CAT_RULES_JS[i];
+      if (r.re.test(s) && hits.indexOf(r.cat) < 0) hits.push(r.cat);
+    }
+    if (!hits.length) return [];
+    var AHORRO = 'Acciones/Bonos/Ahorros';
+    if (hits[0] === AHORRO) return [AHORRO];
+    var soc = (typeof CATS_SOCIALES !== 'undefined') ? CATS_SOCIALES : [];
+    var sociales = hits.filter(function(c) { return soc.indexOf(c) >= 0; });
+    if (!sociales.length) return [hits[0]];
+    var otra = null;
+    for (var j = 0; j < hits.length; j++) {
+      if (soc.indexOf(hits[j]) < 0 && hits[j] !== AHORRO) { otra = hits[j]; break; }
+    }
+    return sociales.concat(otra ? [otra] : []).slice(0, 2);
+  }
+
+  // Si el usuario elige una categoría a mano (cualquiera de las dos), se deja
+  // de pisar hasta que guarde.
   var catTocadaAMano = false;
   (function() {
-    var cat = getField('category');
-    if (cat) cat.addEventListener('change', function() { catTocadaAMano = true; });
+    ['category', 'category2'].forEach(function(n) {
+      var el = getField(n);
+      if (el) el.addEventListener('change', function() { catTocadaAMano = true; });
+    });
   })();
 
   function autoClasificar() {
     if (catTocadaAMano) return;
-    var itemField = getField('item'), catField = getField('category');
+    var itemField = getField('item'), catField = getField('category'), cat2Field = getField('category2');
     if (!itemField || !catField) return;
     var v = itemField.value.trim();
     if (!v) return;
-    var c = clasificarItem(v);
-    if (c && c !== 'Otros') catField.value = c;
+    var cs = clasificarItems(v);
+    if (!cs.length) return;
+    catField.value = cs[0];
+    if (cat2Field) cat2Field.value = cs[1] || '';
   }
 
   var AUTO_CARD_RULES = [
@@ -247,6 +276,10 @@
         data[el.name] = (el.name === 'amount' || el.name === 'cotizacion') ? normDec(el.value) : el.value;
       }
     }
+    // Lo que se ve en las dos listas es lo que se guarda: se manda ya armado
+    // ("Cita + Comida") para que el servidor no lo pise con las reglas de texto.
+    var cats = [data.category, data.category2].filter(function(c, i, a) { return c && a.indexOf(c) === i; });
+    if (cats.length) data.categories = cats.join(' + ');
     setLocked(true);
     setStatus('Guardando...', 'loading');
     google.script.run
@@ -3419,7 +3452,10 @@
     if (hEl('expItem'))   hEl('expItem').value   = e.item || '';
     if (hEl('expAmount')) hEl('expAmount').value = e.amount != null ? e.amount : '';
     if (hEl('expCard'))   hEl('expCard').value   = e.card || 'Débito UYU';
-    if (hEl('expCat'))    hEl('expCat').value    = e.category || '';
+    // La celda puede traer 2 categorías ("Cita + Comida"): una por lista.
+    var catsGasto = String(e.category || '').split('+').map(function(c) { return c.trim(); }).filter(Boolean);
+    if (hEl('expCat'))    hEl('expCat').value    = catsGasto[0] || '';
+    if (hEl('expCat2'))   hEl('expCat2').value   = catsGasto[1] || '';
     if (hEl('expFecha'))  hEl('expFecha').value  = e.fecha || '';
     if (hEl('expCotiz'))  hEl('expCotiz').value  = e.cotizacion != null ? e.cotizacion : '';
     if (hEl('expNotas'))  hEl('expNotas').value  = e.notas || '';
@@ -3463,7 +3499,8 @@
         item: item,
         amount: amount,
         card: (hEl('expCard') && hEl('expCard').value) || '',
-        category: (hEl('expCat') && hEl('expCat').value) || '',
+        category: [hEl('expCat') && hEl('expCat').value, hEl('expCat2') && hEl('expCat2').value]
+          .filter(function(c, i, a) { return c && a.indexOf(c) === i; }).join(' + '),
         date: (hEl('expFecha') && hEl('expFecha').value) || '',
         cotizacion: normDec(hEl('expCotiz') && hEl('expCotiz').value),
         notes: (hEl('expNotas') && hEl('expNotas').value.trim()) || ''

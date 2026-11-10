@@ -55,8 +55,42 @@ const FIXED_LABELS = [
 const CATEGORIES = [
   'Transporte','Comida','Bebida/Bar','Salud','Suscripciones','Entretenimiento',
   'Hogar','Limpieza','Ropa','Regalos','Gimnasio','Servicios','Viajes',
-  'Acciones/Bonos/Ahorros','Otros'
+  'Amigos','Cita','Acciones/Bonos/Ahorros','Otros'
 ];
+
+// Un gasto puede tener hasta 2 categorías (ej. una cena en una cita = Cita +
+// Comida). Se guardan en la MISMA celda "Categoría" separadas por " + ": así no
+// aparece una columna nueva que corra el layout de la hoja, y todo lo que ya
+// lee esa celda sigue andando. El separador no es "/" porque "Bebida/Bar" ya
+// lleva barra.
+const CAT_SEP = ' + ';
+const CAT_MAX = 2;
+// Si el texto del ítem nombra una de estas (cita, amigos) va PRIMERA y la de
+// qué fue (comida, bar...) queda de segunda.
+const CATS_SOCIALES = ['Cita', 'Amigos'];
+// Las que Ilan quiere gastar menos: el reporte mensual las marca aparte.
+const CATS_A_MINIMIZAR = ['Cita', 'Amigos'];
+const CAT_AHORRO = 'Acciones/Bonos/Ahorros';
+
+// "Cita + Comida" -> ['Cita','Comida']. Sin repetidas ni vacías.
+function splitCategorias(str) {
+  const out = [];
+  String(str || '').split('+').forEach(p => {
+    const c = p.trim();
+    if (c && out.indexOf(c) < 0) out.push(c);
+  });
+  return out;
+}
+
+// Inversa de splitCategorias, con tope de CAT_MAX.
+function joinCategorias(arr) {
+  const out = [];
+  (arr || []).forEach(c => {
+    const s = String(c || '').trim();
+    if (s && out.indexOf(s) < 0) out.push(s);
+  });
+  return out.slice(0, CAT_MAX).join(CAT_SEP);
+}
 
 const CARDS = ['Débito UYU','Crédito OCA','Crédito Itaú UYU','Crédito Itaú USD','Débito USD','Efectivo UYU','Efectivo USD'];
 
@@ -171,6 +205,8 @@ const ROUTES = {
   dashmonths: () => getMonthlyTotals(),
   // Cambia solo la categoría de una fila variable: ?action=setExpenseCategory&month=..&row=..&item=..&category=..
   setExpenseCategory: p => setExpenseCategory(p.month, p.row, p.item, p.category),
+  // Diagnóstico sin escribir nada: ?action=testCategorias  (o &item=texto para uno solo)
+  testCategorias: p => testCategorias(p.item),
   // === HABITOS ===
   habitsData: p => getHabitsData(p.month || currentHabitTab()),
   habitDay: p => saveHabitDayData(p),
@@ -398,8 +434,15 @@ function formHtml() {
   // dos listas de categorías que se puedan desincronizar.
   t.categoryOptions = categoriasOrdenadas()
     .map(c => '<option>' + c + '</option>').join('');
+  // El form de alta arranca en "Otros" (no en la primera de la lista, que era
+  // "Acciones/Bonos/Ahorros": un gasto sin tocar se guardaba como ahorro y
+  // quedaba fuera de los totales). La 2ª categoría arranca vacía.
+  t.categoryOptionsNew = categoriasOrdenadas()
+    .map(c => '<option' + (c === 'Otros' ? ' selected' : '') + '>' + c + '</option>').join('');
+  t.categoryOptions2 = '<option value="" selected>— ninguna —</option>' + t.categoryOptions;
   t.catRulesJson = JSON.stringify(catRulesSerializables());
   t.categoriasJson = JSON.stringify(categoriasOrdenadas());
+  t.catsSocialesJson = JSON.stringify(CATS_SOCIALES);
   // El mapa de empresas vive solo en Code.gs; el form lo usa para armar el
   // selector y para saber de que dominio sacar el logo.
   t.tickersJson = JSON.stringify(TICKER_INFO);
@@ -429,6 +472,11 @@ const CAT_RULES = [
   // en singular "bono" es el aguinaldo o un vale, y "accion" es accion de
   // gracias — los dos caian mal en esta categoria.
   [/acciones\b|bonos\b|broker|interactive brokers|ibkr|etf\b|cedear|nvda|nvidia|s&p ?500|sp500|inversi[oó]n|invertir|ahorro/i, 'Acciones/Bonos/Ahorros'],
+  // Cita y Amigos: la palabra mapea directo. Van antes que el resto para que
+  // "cena con amigos" sea Amigos y no Comida (Comida queda de segunda, ver
+  // classifyItems). \b para no agarrar "Citadel" ni "amigable".
+  [/\bcitas?\b|\btinder\b|\bbumble\b|\bhappn\b/i, 'Cita'],
+  [/\bamig[oa]s?\b|\bjuntada\b|\bprevia\b/i, 'Amigos'],
   [/^(forros|preservativ|condon)/i, 'Salud'], // explicit before "jabón"
   [/medicamento|farmashop|farmacia|farmacity|an[aá]lisis|dentista|hospital|cl[ií]nica|bluecross|blue cross|aflusan|vozama|duspatalin|dumirox|drogu|polish/i, 'Salud'],
   // Viajes va ANTES que Transporte: classifyItem devuelve la primera regla que
@@ -455,6 +503,85 @@ function classifyItem(item) {
     if (re.test(s)) return cat;
   }
   return 'Otros';
+}
+
+// Como classifyItem pero devuelve hasta 2 categorías. Si el texto nombra Cita o
+// Amigos, esas van primero y la primera regla "de qué fue" (Comida, Bebida/Bar...)
+// se suma de segunda: "Cena con amigos" -> ['Amigos','Comida']. Si no nombra
+// ninguna, es una sola, igual que classifyItem: sumar la segunda match de reglas
+// tan amplias metería categorías de más.
+// El form tiene una copia de esta lógica (clasificarItems en form-scripts.html).
+function classifyItems(item) {
+  if (!item) return ['Otros'];
+  const s = String(item).trim();
+  const hits = [];
+  for (const [re, cat] of CAT_RULES) {
+    if (re.test(s) && hits.indexOf(cat) < 0) hits.push(cat);
+  }
+  if (!hits.length) return ['Otros'];
+  if (hits[0] === CAT_AHORRO) return [CAT_AHORRO];
+  const sociales = hits.filter(c => CATS_SOCIALES.indexOf(c) >= 0);
+  if (!sociales.length) return [hits[0]];
+  const otra = hits.find(c => CATS_SOCIALES.indexOf(c) < 0 && c !== CAT_AHORRO);
+  return sociales.concat(otra ? [otra] : []).slice(0, CAT_MAX);
+}
+
+// Categoría(s) finales de un gasto nuevo, ya como texto para la celda.
+//  - `categories` (form nuevo): la lista que el usuario VIO y confirmó en las
+//    dos listas desplegables. Manda tal cual, validada contra CATEGORIES.
+//  - si no viene (atajos, scan de tickets, form viejo en caché): el texto manda,
+//    y sin match se respeta `category` salvo 'Transporte', que era el default
+//    de las listas viejas. `category2` se suma si hay lugar.
+function _resolverCategorias(item, category, category2, categories) {
+  const valida = c => CATEGORIES.indexOf(c) >= 0;
+  if (categories) {
+    const lista = splitCategorias(categories).filter(valida);
+    if (lista.length) return joinCategorias(lista);
+  }
+  const auto = classifyItems(item);
+  let lista;
+  if (auto[0] !== 'Otros') lista = auto.slice();
+  else if (category && category !== 'Transporte') lista = splitCategorias(category);
+  else lista = ['Otros'];
+  const extra = String(category2 || '').trim();
+  if (extra && valida(extra) && lista.indexOf(extra) < 0) lista.push(extra);
+  return joinCategorias(lista);
+}
+
+// Casos de la clasificación a 2 categorías. Solo lee reglas, no toca la hoja.
+function testCategorias(item) {
+  if (item) return { ok: true, item: item, categorias: joinCategorias(classifyItems(item)) };
+  const casos = [
+    ['Cita con Sofi', 'Cita'],
+    ['cita', 'Cita'],
+    ['Cena con amigos', 'Amigos + Comida'],
+    ['Birra con amigos', 'Amigos + Bebida/Bar'],
+    ['Cena cita', 'Cita + Comida'],
+    ['Amigos', 'Amigos'],
+    ['Tinder premium', 'Cita'],
+    ['Previa en lo de Juan', 'Amigos'],
+    ['Citadel', 'Otros'],
+    ['amigable', 'Otros'],
+    ['Almuerzo', 'Comida'],
+    ['ahorro amigos', 'Acciones/Bonos/Ahorros'],
+    ['zzzz', 'Otros']
+  ];
+  const resultados = casos.map(c => {
+    const got = joinCategorias(classifyItems(c[0]));
+    return { item: c[0], esperado: c[1], obtenido: got, ok: got === c[1] };
+  });
+  // _resolverCategorias: lo que el usuario eligió en el form manda sobre el texto.
+  const extra = [
+    { desc: 'categories del form manda', got: _resolverCategorias('Cena con amigos', 'Comida', '', 'Comida'), esperado: 'Comida' },
+    { desc: 'categories con 2', got: _resolverCategorias('x', '', '', 'Cita + Comida'), esperado: 'Cita + Comida' },
+    { desc: 'categories con 3 corta a 2', got: _resolverCategorias('x', '', '', 'Cita + Comida + Hogar'), esperado: 'Cita + Comida' },
+    { desc: 'categories inválida cae al texto', got: _resolverCategorias('Cena con amigos', '', '', 'Inventada'), esperado: 'Amigos + Comida' },
+    { desc: 'form viejo: Transporte no se confía', got: _resolverCategorias('zzzz', 'Transporte', '', ''), esperado: 'Otros' },
+    { desc: 'form viejo: category2 se suma', got: _resolverCategorias('zzzz', 'Salud', 'Cita', ''), esperado: 'Salud + Cita' },
+    { desc: 'split/join dedupe', got: joinCategorias(splitCategorias('Cita + Cita + Comida')), esperado: 'Cita + Comida' }
+  ].map(e => ({ item: e.desc, esperado: e.esperado, obtenido: e.got, ok: e.got === e.esperado }));
+  const todos = resultados.concat(extra);
+  return { ok: todos.every(r => r.ok), fallaron: todos.filter(r => !r.ok), total: todos.length, resultados: todos };
 }
 
 // Debug helper: dumps header row of a tab to see exactly what the sheet has.
@@ -819,14 +946,31 @@ function auditMonth(tabName) {
   const FX = 40;
   const byCat = {};
   for (const it of items) {
-    const c = it.cat || 'Otros';
-    if (!byCat[c]) byCat[c] = { uyu: 0, usd: 0, count: 0 };
-    byCat[c].uyu += it.uyu; byCat[c].usd += it.usd; byCat[c].count++;
+    // 2 categorías = el monto entero en cada una (ver getDashboardData).
+    const cats = splitCategorias(it.cat);
+    for (const c of (cats.length ? cats : ['Otros'])) {
+      if (!byCat[c]) byCat[c] = { uyu: 0, usd: 0, count: 0 };
+      byCat[c].uyu += it.uyu; byCat[c].usd += it.usd; byCat[c].count++;
+    }
   }
   const allCategoriasSorted = Object.keys(byCat).map(name => ({
     name: name, uyu: round2(byCat[name].uyu), usd: round2(byCat[name].usd), count: byCat[name].count
   })).sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX));
   const topCategorias = allCategoriasSorted.slice(0, 5);
+
+  // Categorías que Ilan quiere gastar menos (Cita, Amigos): total del mes y los
+  // 3 gastos más grandes de cada una, para que el reporte diga CUÁLES fueron.
+  const minimizar = CATS_A_MINIMIZAR.map(name => {
+    const delCat = items.filter(it => splitCategorias(it.cat).indexOf(name) >= 0)
+      .sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX));
+    return {
+      name: name,
+      uyu: round2(delCat.reduce((s, it) => s + it.uyu, 0)),
+      usd: round2(delCat.reduce((s, it) => s + it.usd, 0)),
+      count: delCat.length,
+      top: delCat.slice(0, 3).map(it => ({ item: it.item, uyu: round2(it.uyu), usd: round2(it.usd) }))
+    };
+  });
 
   // Top items por monto (UYU equivalente) — devuelve 10 para reportes
   const topItems = items.slice().sort((a, b) => (b.uyu + b.usd * FX) - (a.uyu + a.usd * FX))
@@ -870,6 +1014,8 @@ function auditMonth(tabName) {
     missingCategory: missingCat,
     topCategorias: topCategorias,
     allCategorias: allCategoriasSorted,
+    minimizar: minimizar,
+    fx: FX,
     topItems: topItems,
     sameCotizBatches: sameCotizBatches
   };
@@ -890,6 +1036,12 @@ function _prevMonth(monthStr) {
   const year = parseInt(m[2], 10);
   if (idx === 0) return MONTH_NAMES[11] + ' ' + (year - 1);
   return MONTH_NAMES[idx - 1] + ' ' + year;
+}
+
+// Los nombres de ítem los escribe el usuario: se escapan antes de ir al email.
+function _escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function _fmtUyu(n) {
@@ -942,6 +1094,46 @@ function buildMonthlyReportHtml(currentMonth) {
   html += '<div style="font-size: 18px; color: #065f46; margin-top: 4px;">' + _fmtUsd(current.audit.sumUsd) + '</div>';
   html += '<div style="font-size: 12px; color: #047857; margin-top: 8px;">' + current.audit.itemCount + ' gastos · solo variables, no incluye fijos mensuales</div>';
   html += '</div>';
+
+  // A minimizar: Cita y Amigos, con la tendencia contra los meses previos y
+  // los gastos que más pesaron.
+  const FXR = current.audit.fx || 40;
+  const equiv = c => (c ? c.uyu + c.usd * FXR : 0);
+  const minimizarTodas = current.audit.minimizar || [];
+  const minimizarRows = minimizarTodas.filter(m => m.count > 0);
+  if (minimizarTodas.length) {
+    html += '<div style="background: #fee2e2; padding: 20px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #dc2626;">';
+    html += '<div style="font-size: 13px; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">✂ A minimizar</div>';
+    // Las que no tuvieron gasto también se nombran: que falte la sección no se
+    // confunda con que el reporte no las mira.
+    const sinGasto = minimizarTodas.filter(m => m.count === 0).map(m => _escHtml(m.name));
+    if (sinGasto.length) {
+      html += '<div style="font-size: 14px; color: #15803d; margin-top: 10px;">✓ Sin gastos en ' + sinGasto.join(' ni ') + ' este mes.</div>';
+    }
+    for (const m of minimizarRows) {
+      const prevEq = previous.map(md => findCat(md.audit, m.name)).filter(c => c).map(equiv);
+      const avgEq = prevEq.length ? prevEq.reduce((a, b) => a + b, 0) / prevEq.length : 0;
+      const nowEq = equiv(m);
+      const pctM = _pctChange(nowEq, avgEq);
+      html += '<div style="margin-top: 14px;">';
+      html += '<div style="font-size: 20px; font-weight: 700; color: #991b1b;">' + _escHtml(m.name) + ' · ' + _fmtUyu(m.uyu) +
+              (m.usd > 0 ? ' + ' + _fmtUsd(m.usd) : '') + '</div>';
+      html += '<div style="font-size: 13px; color: #7f1d1d; margin-top: 2px;">' + _plural(m.count, 'gasto', 'gastos');
+      if (avgEq > 0 && pctM !== null) {
+        const color = pctM >= 10 ? '#dc2626' : (pctM <= -10 ? '#15803d' : '#7f1d1d');
+        html += ' · <span style="color: ' + color + '; font-weight: 600;">' + (pctM >= 0 ? '+' : '') + pctM.toFixed(0) +
+                '%</span> vs promedio últimos ' + prevEq.length + ' meses (' + _fmtUyu(avgEq) + ')';
+      }
+      html += '</div>';
+      if (m.top.length) {
+        html += '<div style="font-size: 12px; color: #7f1d1d; margin-top: 4px;">Lo que más pesó: ' +
+          m.top.map(t => _escHtml(t.item) + ' (' + (t.uyu > 0 ? _fmtUyu(t.uyu) : _fmtUsd(t.usd)) + ')').join(' · ') + '</div>';
+      }
+      html += '</div>';
+    }
+    if (minimizarRows.length) html += '<div style="font-size: 11px; color: #991b1b; margin-top: 12px;">Un gasto con 2 categorías (ej. Cita + Comida) cuenta entero en cada una, por eso estas cifras pueden solaparse con las de Comida.</div>';
+    html += '</div>';
+  }
 
   // Comida focus (lo que más te importa)
   const comidaCurrent = findCat(current.audit, 'Comida');
@@ -1047,7 +1239,21 @@ function buildMonthlyReportHtml(currentMonth) {
   html += '<h2 style="margin-top: 32px;">🎯 Dónde aflojar</h2>';
   html += '<ul style="line-height: 1.7;">';
   const recs = [];
+  // Primero lo que Ilan ya dijo que quiere bajar.
+  for (const m of minimizarRows) {
+    const prevEq = previous.map(md => findCat(md.audit, m.name)).filter(c => c).map(equiv);
+    const avgEq = prevEq.length ? prevEq.reduce((a, b) => a + b, 0) / prevEq.length : 0;
+    const nowEq = equiv(m);
+    const totalEq = current.audit.sumUyu + current.audit.sumUsd * FXR;
+    const share = totalEq > 0 ? Math.round(nowEq / totalEq * 100) : 0;
+    let txt = '<li><b>' + _escHtml(m.name) + '</b>: ' + _fmtUyu(nowEq) + ' en el mes (' + share + '% de los variables)';
+    if (avgEq > 0 && nowEq > avgEq * 1.1) txt += ', <span style="color: #dc2626;">por encima</span> de tu promedio de ' + _fmtUyu(avgEq);
+    else if (avgEq > 0 && nowEq < avgEq * 0.9) txt += ', <span style="color: #15803d;">por debajo</span> de tu promedio de ' + _fmtUyu(avgEq) + ' — bien';
+    txt += '. Fijate un tope para el mes que viene' + (avgEq > 0 ? ' (por ejemplo ' + _fmtUyu(Math.min(nowEq, avgEq) * 0.8) + ', un 20% menos)' : '') + '.</li>';
+    recs.push(txt);
+  }
   for (const cat of (current.audit.topCategorias || []).slice(0, 5)) {
+    if (CATS_A_MINIMIZAR.indexOf(cat.name) >= 0) continue; // ya salió arriba
     const prevVals = previous.map(md => findCat(md.audit, cat.name)).filter(c => c).map(c => c.uyu);
     const avg = prevVals.length ? prevVals.reduce((a, b) => a + b, 0) / prevVals.length : 0;
     if (avg > 0 && cat.uyu > avg * 1.3) {
@@ -1072,7 +1278,7 @@ function buildMonthlyReportHtml(currentMonth) {
   html += _buildHabitsEmailSection(currentMonth);
 
   html += '<hr style="border: none; border-top: 1px solid #e5e5e5; margin: 32px 0 16px;">';
-  html += '<p style="font-size: 11px; color: #888;">Reporte generado por el webhook de gastos. Trigger automático: día 5 de cada mes a las 9am (reporta el mes anterior).</p>';
+  html += '<p style="font-size: 11px; color: #888;">Reporte generado por el webhook de gastos. Trigger automático: día 1 de cada mes a las 9am (reporta el mes anterior).</p>';
   html += '</body></html>';
   return html;
 }
@@ -1268,8 +1474,8 @@ function installMonthlyReportTrigger() {
       removed++;
     }
   }
-  ScriptApp.newTrigger('monthlyReportCron').timeBased().onMonthDay(5).atHour(9).create();
-  return { ok: true, msg: 'Trigger instalado: día 5 de cada mes a las 9am (reporta mes anterior)', removedPrevious: removed };
+  ScriptApp.newTrigger('monthlyReportCron').timeBased().onMonthDay(1).atHour(9).create();
+  return { ok: true, msg: 'Trigger instalado: día 1 de cada mes a las 9am (reporta mes anterior)', removedPrevious: removed };
 }
 
 function removeMonthlyReportTrigger() {
@@ -1286,7 +1492,7 @@ function removeMonthlyReportTrigger() {
 
 function monthlyReportCron() {
   try {
-    // Reporta el MES ANTERIOR (corre día 5 → junta datos completos del mes recién cerrado)
+    // Reporta el MES ANTERIOR (corre día 1 → el mes recién cerrado ya está completo)
     const prevMonth = _prevMonth(currentMonthTab());
     const r = sendMonthlyReport(prevMonth, null);
     Logger.log('Monthly report sent: ' + JSON.stringify(r));
@@ -1695,11 +1901,16 @@ function getDashboardData(month) {
     const catSums = {};
     for (const v of fixedRows.concat(varRows)) {
       if (v.credito || _esAhorro(v.category)) continue;
-      const key = v.category || 'Otros';
-      if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
-      if (v.fixed) { catSums[key].uyu += v.uyuRaw; catSums[key].usd += v.usdRaw; }
-      else if (v.currency === 'USD') catSums[key].usd += v.amount;
-      else catSums[key].uyu += v.amount;
+      // Un gasto con 2 categorías ("Cita + Comida") suma el monto ENTERO en
+      // cada una: así se ve cuánto se fue en Cita aunque la cena también sea
+      // Comida. Por eso la suma de categorías puede pasar el total del mes.
+      const cats = splitCategorias(v.category);
+      for (const key of (cats.length ? cats : ['Otros'])) {
+        if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
+        if (v.fixed) { catSums[key].uyu += v.uyuRaw; catSums[key].usd += v.usdRaw; }
+        else if (v.currency === 'USD') catSums[key].usd += v.amount;
+        else catSums[key].uyu += v.amount;
+      }
     }
     const catFallback = mt.mixedUsd && mt.mixedUyu ? mt.mixedUyu / mt.mixedUsd : COTIZ_FALLBACK;
     const byCategory = Object.values(catSums)
@@ -2277,7 +2488,8 @@ function updateExpenseEntry(p) {
     sheet.getRange(row, cardCol + 1).setValue(amt);
     const cotiz = toNumber(p.cotizacion);
     if (cotizCol >= 0) sheet.getRange(row, cotizCol + 1).setValue(cotiz != null ? cotiz : '');
-    if (catCol >= 0) sheet.getRange(row, catCol + 1).setValue(String(p.category || '').trim());
+    const catFinal = joinCategorias(splitCategorias(p.category));
+    if (catCol >= 0) sheet.getRange(row, catCol + 1).setValue(catFinal);
     if (notesCol >= 0) sheet.getRange(row, notesCol + 1).setValue(String(p.notes || '').trim());
     if (dateCol >= 0 && p.date) {
       const dateObj = parseLocalDate(p.date);
@@ -2289,7 +2501,7 @@ function updateExpenseEntry(p) {
     _ticketCambio(tabName, infoTicket, { item: item, amount: amt, fecha: p.date || infoTicket.fecha });
     return {
       ok: true, tab: tabName, row: row,
-      written: { item: item, amount: amt, card: card, category: p.category || '', cotizacion: cotiz, notes: p.notes || '', date: p.date || '' }
+      written: { item: item, amount: amt, card: card, category: catFinal, cotizacion: cotiz, notes: p.notes || '', date: p.date || '' }
     };
   } finally {
     lock.releaseLock();
@@ -2299,9 +2511,13 @@ function updateExpenseEntry(p) {
 // la hoja cambió desde que se miró.
 function setExpenseCategory(month, rowRaw, item, category) {
   const row = parseInt(rowRaw, 10);
-  const cat = String(category || '').trim();
-  if (!isFinite(row) || !item || !cat) return { ok: false, error: 'Faltan month/row/item/category' };
-  if (!CATEGORIES.includes(cat)) return { ok: false, error: 'Categoría inválida: ' + cat };
+  // Acepta una o dos categorías: "Cita" o "Cita + Comida".
+  const partes = splitCategorias(category);
+  if (!isFinite(row) || !item || !partes.length) return { ok: false, error: 'Faltan month/row/item/category' };
+  if (partes.length > CAT_MAX) return { ok: false, error: 'Máximo ' + CAT_MAX + ' categorías' };
+  const mala = partes.find(c => !CATEGORIES.includes(c));
+  if (mala) return { ok: false, error: 'Categoría inválida: ' + mala };
+  const cat = joinCategorias(partes);
   const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(month || currentMonthTab());
   if (!sheet) return { ok: false, error: 'No existe la hoja' };
   const lock = LockService.getScriptLock();
@@ -2370,7 +2586,7 @@ function findFixedRow(range, item) {
 }
 
 function addExpense(data) {
-  const { item, amount, currency, card, category, date, cotizacion: cotInput, notes } = data;
+  const { item, amount, currency, card, category, category2, categories, date, cotizacion: cotInput, notes } = data;
   const amt = toNumber(amount);
   if (!item || amt === null || amt <= 0 || !currency || !card) {
     throw new Error('Faltan campos requeridos o monto inválido: item, amount>0, currency, card');
@@ -2380,14 +2596,14 @@ function addExpense(data) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('No se pudo obtener lock (timeout 15s)');
   try {
-    return _doAddExpense({ item, amt, currency, card, category, date, cotInput, notes });
+    return _doAddExpense({ item, amt, currency, card, category, category2, categories, date, cotInput, notes });
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
 }
 
 function _doAddExpense(p) {
-  const { item, amt, currency, card, category, date, cotInput, notes } = p;
+  const { item, amt, currency, card, category, category2, categories, date, cotInput, notes } = p;
   // Resolve cotización: manual > cached rate > fallback
   let cotizacion = toNumber(cotInput);
   let cotizSource = cotizacion !== null ? 'manual' : null;
@@ -2424,7 +2640,7 @@ function _doAddExpense(p) {
       const catInfo = ensureFixedCategoryColumn(sheet);
       if (catInfo.col > 0) {
         const label = String(range[fixedRowIdx][0]).trim();
-        const cat = classifyItem(label);
+        const cat = joinCategorias(classifyItems(label));
         sheet.getRange(row1, catInfo.col).setValue(cat);
         fixedCatWritten = cat;
       }
@@ -2496,16 +2712,10 @@ function _doAddExpense(p) {
   const cotizCol = headers.findIndex(h => /cotizaci[oó]n/i.test(h));
   const catCol = headers.findIndex(h => /categor/i.test(h));
 
-  // Categoría: se detecta desde el TEXTO del ítem (classifyItem es la fuente principal).
-  // El form mobile manda 'Transporte' por default → NO se confía en ese valor.
-  //   • el texto matchea una regla              → esa categoría (el texto manda)
-  //   • no matchea, pero pasaron algo ≠ default  → se respeta esa elección
-  //   • no matchea y sin elección real           → 'Otros'
-  const autoCat = classifyItem(item);
-  let finalCategory;
-  if (autoCat !== 'Otros') finalCategory = autoCat;
-  else if (category && category !== 'Transporte') finalCategory = category;
-  else finalCategory = 'Otros';
+  // Categoría(s): hasta 2. Ver _resolverCategorias — el form nuevo manda la
+  // lista ya confirmada por el usuario; el resto (atajos, scan, form viejo)
+  // se clasifica desde el texto del ítem.
+  const finalCategory = _resolverCategorias(item, category, category2, categories);
 
   // Build single row write (atomic — one round trip instead of 4)
   const numCols = headers.length;
