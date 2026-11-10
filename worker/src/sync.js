@@ -20,9 +20,15 @@ function insertar(out, tabla, cols, filas, porSentencia = 40) {
   }
 }
 
-export function buildStatements(data, { tenant = 'ilan', fuente = 'apps-script exportAll' } = {}) {
+// `saltear`: módulos cuya fuente de verdad ya es D1 (ver rpc.js). No se borran ni se
+// recargan desde el Sheet, para no pisar lo que se escribió directo en D1.
+const TABLAS_DE_MODULO = { compras: ['purchases'] };
+
+export function buildStatements(data, { tenant = 'ilan', fuente = 'apps-script exportAll', saltear = [] } = {}) {
   const T = `'${tenant}'`;
   const out = [];
+  const tablasSaltadas = new Set(saltear.flatMap((m) => TABLAS_DE_MODULO[m] || []));
+  const aplica = (t) => !tablasSaltadas.has(t);
   const parcial = !!data.parcial;
   for (const m of data.months) if (!m.ok) throw new Error(`Mes ${m.tab} falló en el volcado: ${m.error}`);
   const meses = data.months.map((m) => mesDe(m.year, m.month));
@@ -39,7 +45,7 @@ export function buildStatements(data, { tenant = 'ilan', fuente = 'apps-script e
     out.push(`DELETE FROM month_totals WHERE tenant_id = ${T}`);
   }
   for (const t of ['incomes', 'savings', 'tasks', 'purchases', 'habit_days', 'habit_log', 'foreign_movements', 'foreign_months', 'config']) {
-    out.push(`DELETE FROM ${t} WHERE tenant_id = ${T}`);
+    if (aplica(t)) out.push(`DELETE FROM ${t} WHERE tenant_id = ${T}`);
   }
 
   const totales = [], gastos = [];
@@ -72,7 +78,7 @@ export function buildStatements(data, { tenant = 'ilan', fuente = 'apps-script e
   tareas.map((t) => [T, n(t.row), q(t.creada), q(t.tipo), q(t.categoria), q(t.subcategoria), q(t.texto), q(t.fecha), q(t.hora), q(t.notas), b(t.completada), q(t.fechaCompletada),
     b(t.recurrente), n(t.objetivo), n(t.contador), q(t.periodo), q(t.ultimoReset), q(t.importancia), b(t.archivada), n(t.orden), q(JSON.stringify(t.subtareas || []))]));
   insertar(out, 'purchases', ['tenant_id', 'src_row', 'creada', 'texto', 'comprado', 'fecha_comprado'],
-    compras.map((c) => [T, n(c.row), q(c.creada), q(c.texto), b(c.comprado), q(c.fechaComprado)]));
+    (aplica('purchases') ? compras : []).map((c) => [T, n(c.row), q(c.creada), q(c.texto), b(c.comprado), q(c.fechaComprado)]));
 
   const dias = [], log = [];
   for (const h of habitos) {

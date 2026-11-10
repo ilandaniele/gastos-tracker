@@ -2,6 +2,7 @@
 // Hoy es de SOLO LECTURA: los datos entran por scripts/import.mjs desde el Sheet.
 import UI from './ui.html';
 import { buildStatements } from './sync.js';
+import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 
 const TENANT = 'ilan';
 
@@ -210,6 +211,8 @@ async function api(req, env, url) {
     return json({ ok: true, config: r.results });
   }
 
+  if (path === '/api/fuente') return json({ ok: true, fuentes: await fuentes(env, TENANT), rpc: RPC_NOMBRES });
+
   if (path === '/api/settings') return json({ ok: true, settings: await ajustes(env) });
 
   if (path === '/api/tasks') {
@@ -291,7 +294,9 @@ async function sincronizar(env) {
   try { data = JSON.parse(text); } catch { throw new Error('Volcado no es JSON: ' + text.slice(0, 100)); }
   if (!data.ok) throw new Error('Volcado dijo: ' + (data.error || 'error'));
   if (data.errores && data.errores.length) throw new Error('Volcado con errores, no se carga: ' + JSON.stringify(data.errores).slice(0, 200));
-  const { statements, counts } = buildStatements(data, { fuente: 'cron' });
+  const f = await fuentes(env, TENANT);
+  const saltear = MODULOS.filter((m) => f[m] === 'd1');
+  const { statements, counts } = buildStatements(data, { fuente: 'cron', saltear });
   // Una sola batch = una transacción: si algo falla no queda a medias.
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   return counts;
@@ -334,6 +339,26 @@ export default {
     if (!(await autorizado(req, env))) {
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
+
+    // Escritura: solo POST JSON a /api/rpc/<función> (mismo contrato que google.script.run)
+    // y /api/fuente. Se exige Content-Type JSON (un formulario cruzado no puede mandarlo
+    // sin preflight) y, si viene Origin, que sea el propio Worker.
+    if (req.method === 'POST' && (url.pathname.startsWith('/api/rpc/') || url.pathname === '/api/fuente')) {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
+      let body;
+      try { body = await req.json(); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+      if (url.pathname === '/api/fuente') {
+        try {
+          const modulo = body && body.modulo, destino = body && body.fuente;
+          if (destino === 'd1') await sincronizar(env); // D1 arranca con lo último del Sheet
+          await setFuente(env, TENANT, modulo, destino);
+          return json({ ok: true, fuentes: await fuentes(env, TENANT) });
+        } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 400); }
+      }
+      return json(await llamar(env, TENANT, decodeURIComponent(url.pathname.slice(9)), body && body.args));
     }
 
     if (req.method !== 'GET') return json({ ok: false, error: 'Solo lectura' }, 405);
