@@ -56,7 +56,7 @@ tr:last-child td{border-bottom:0}
 <script>
 'use strict';
 var $ = function (s, r) { return (r || document).querySelector(s); };
-var state = { vista: 'gastos', mes: '', cat: '', q: '', moneda: '', tipo: '', medio: '', orden: 'fecha', dir: 'desc', offset: 0, limit: 100 };
+var state = { vista: 'gastos', mes: '', cat: '', q: '', moneda: '', tipo: '', medio: '', orden: 'fecha', dir: 'desc', offset: 0, limit: 100, desde: '', hasta: '' };
 var facets = { categories: [], medios: [] }, months = [], ajustes = { pais_codigo: 'AR', pais_nombre: 'Argentina', pais_moneda: 'ARS', pais_bandera: '🇦🇷' };
 
 function el(tag, attrs, kids) {
@@ -78,7 +78,7 @@ function mesNombre(m) {
 }
 function qs(extra) {
   var p = new URLSearchParams();
-  ['mes','cat','q','moneda','tipo','medio','orden','dir'].forEach(function (k) { if (state[k]) p.set(k, state[k]); });
+  ['mes','cat','q','moneda','tipo','medio','orden','dir','desde','hasta'].forEach(function (k) { if (state[k]) p.set(k, state[k]); });
   for (var k in (extra || {})) p.set(k, extra[k]);
   return p.toString();
 }
@@ -117,6 +117,8 @@ function vistaGastos() {
     selectFiltro('tipo', [{ v: 'fijo', t: 'Fijos' }, { v: 'variable', t: 'Variables' }, { v: 'credito', t: 'Con tarjeta de crédito' }, { v: 'ahorro', t: 'Ahorro/inversión' }], 'Todos los tipos'),
     selectFiltro('moneda', ['UYU', 'USD'], 'Todas las monedas'),
     selectFiltro('medio', facets.medios, 'Todo medio de pago'),
+    el('input', { type: 'date', title: 'Desde', value: state.desde, onchange: function () { state.desde = this.value; state.offset = 0; cargarGastos(); } }),
+    el('input', { type: 'date', title: 'Hasta', value: state.hasta, onchange: function () { state.hasta = this.value; state.offset = 0; cargarGastos(); } }),
     q,
     el('a', { class: 'btn ghost', id: 'csv', href: '#' }, 'CSV')
   ]);
@@ -158,7 +160,7 @@ function pintarGastos(d, cats) {
       if (r.es_ahorro) tags.push(el('span', { class: 'tag' }, 'ahorro'));
       var monto = r.es_fijo && r.uyu_raw && r.usd_raw ? '$ ' + fmt(r.uyu_raw) + ' + US$ ' + fmt(r.usd_raw) : (r.moneda === 'USD' ? 'US$ ' : '$ ') + fmt(r.monto);
       return el('tr', null, [
-        el('td', null, r.fecha || '—'),
+        el('td', { title: r.fecha_origen === 'mes' ? 'Fecha estimada: el Sheet no trae el día, se muestra el 1 del mes' : '' }, [r.fecha_efectiva || '—', r.fecha_origen === 'mes' ? el('span', { class: 'mut' }, ' ~') : '']),
         el('td', { class: 'wrap' }, [r.concepto, r.grupo_nombre ? el('span', { class: 'tag' }, r.grupo_nombre) : '', r.notas ? el('div', { class: 'mut' }, r.notas) : '']),
         el('td', { class: 'num' }, monto),
         el('td', null, r.categoria || '—'),

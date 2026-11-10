@@ -198,6 +198,9 @@ const ROUTES = {
     return { ok: true, action: 'createMonth', tab: p.month, alreadyExisted: existed, movedToFront };
   },
   ensureMonthTabs: () => ensureCurrentMonthTabs(),
+  installSyncTrigger: (p) => installSyncD1Trigger(p && p.minutes),
+  removeSyncTrigger: () => removeSyncD1Trigger(),
+  syncD1Now: () => syncD1(),
   installMonthTabsTrigger: () => installMonthTabsTrigger(),
   removeMonthTabsTrigger: () => removeMonthTabsTrigger(),
   testRate: () => testRateSources(),
@@ -2099,22 +2102,33 @@ function getMonthlyTotals() {
 function exportAll(p) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const only = p && p.month ? String(p.month).trim() : '';
-  const tabs = ss.getSheets()
+  // p.parcial=1: lo que usa el sync automático. Gastos solo del mes actual y el
+  // anterior (los viejos no cambian); todo lo demás (tareas, compras, hábitos,
+  // país, ingresos, ahorros, config) va completo porque es chico.
+  const parcial = !!(p && String(p.parcial) === '1');
+  const allTabs = ss.getSheets()
     .map(s => ({ name: s.getName(), info: _monthTabInfo(s.getName()) }))
-    .filter(t => t.info && (!only || t.name === only))
+    .filter(t => t.info)
     .sort((a, b) => (a.info.year - b.info.year) || (a.info.month - b.info.month));
+  let tabs = allTabs.filter(t => !only || t.name === only);
+  if (parcial) {
+    const hoy = Utilities.formatDate(new Date(), 'America/Montevideo', 'yyyy-MM').split('-');
+    const idxHoy = (+hoy[0]) * 12 + (+hoy[1] - 1);
+    tabs = allTabs.filter(t => t.info.year * 12 + t.info.month <= idxHoy).slice(-2);
+  }
   const months = tabs.map(t => {
     const d = getDashboardData(t.name);
     return { tab: t.name, year: t.info.year, month: t.info.month, ok: !!d.ok, error: d.error || null,
              totals: d.totals || null, expenses: d.expenses || [] };
   });
+  const completo = !only;
   let ingresos = [], ahorros = [];
-  if (!only) {
+  if (completo) {
     try { ingresos = getIngresosData().ingresos || []; } catch (e) { Logger.log('exportAll ingresos: ' + e.message); }
     try { const s = getSavingsData(); ahorros = s.ok ? s.movimientos : []; } catch (e) { Logger.log('exportAll ahorros: ' + e.message); }
   }
-  const out = { ok: true, exportedAt: new Date().toISOString(), months: months, ingresos: ingresos, ahorros: ahorros };
-  if (!only) {
+  const out = { ok: true, parcial: parcial, exportedAt: new Date().toISOString(), months: months, ingresos: ingresos, ahorros: ahorros };
+  if (completo) {
     // Módulos extra. Cada uno aislado: si uno falla, el volcado de gastos igual sale
     // y el error queda en out.errores para verlo.
     out.errores = [];
@@ -2122,7 +2136,8 @@ function exportAll(p) {
     out.tareas = aislar('tareas', () => { const t = getTasksData(); return t.ok ? t.tareas : []; }, []);
     out.compras = aislar('compras', () => { const c = getComprasData(); return c.ok ? c.items : []; }, []);
     out.habitos = aislar('habitos', () => _exportHabitos(ss), []);
-    out.pais = aislar('pais', () => _exportPais(tabs), []);
+    out.pais = aislar('pais', () => _exportPais(allTabs), []);
+    out.config = aislar('config', () => _exportConfig(), {});
   }
   return out;
 }
@@ -2157,6 +2172,19 @@ function _exportHabitos(ss) {
 }
 
 // Módulo "país secundario" (hoy Argentina): movimientos de los meses que tienen el bloque.
+// Script Properties (categorías de tareas, subcategorías, emojis, estado de la
+// pantalla...) sin los secretos. Cada valor va como texto; los JSON se
+// reconocen del lado de la base.
+function _exportConfig() {
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const out = {};
+  Object.keys(props).forEach(k => {
+    if (/KEY|SECRET|TOKEN|PASS|AUTH/i.test(k)) return;
+    out[k] = props[k];
+  });
+  return out;
+}
+
 function _exportPais(tabs) {
   const out = [];
   tabs.forEach(t => {
@@ -6659,6 +6687,40 @@ function removeDailyTasksTrigger() {
   let removed = 0;
   for (const t of triggers) {
     if (t.getHandlerFunction() === 'dailyTasksCron') { ScriptApp.deleteTrigger(t); removed++; }
+  }
+  return { ok: true, removed: removed };
+}
+
+// ============================================================================
+// === Sync a D1 (Worker gastos-app) ===========================================
+// ============================================================================
+//
+// Cada N minutos le avisa al Worker (POST /api/sync, firmado con APP_KEY) para que
+// baje el volcado parcial y actualice D1. Se usa un trigger de acá y no un cron
+// del Worker porque el plan gratis de Cloudflare limita los crons por cuenta.
+// URL del Worker: Script Property SYNC_WORKER_URL (opcional) o la de workers.dev por defecto.
+function syncD1() {
+  const props = PropertiesService.getScriptProperties();
+  const base = props.getProperty('SYNC_WORKER_URL') || 'https://gastos-app.ilandaniele.workers.dev';
+  const r = UrlFetchApp.fetch(base.replace(/\/+$/, '') + '/api/sync', {
+    method: 'post', headers: { 'X-Sync-Key': _appKey() }, muteHttpExceptions: true, followRedirects: false
+  });
+  return { ok: r.getResponseCode() === 200, status: r.getResponseCode(), body: r.getContentText().slice(0, 300) };
+}
+function syncD1Cron() {
+  try { Logger.log('syncD1: ' + JSON.stringify(syncD1())); }
+  catch (e) { Logger.log('syncD1Cron: ' + e.message); }
+}
+function installSyncD1Trigger(minutes) {
+  const m = [1, 5, 10, 15, 30].indexOf(Number(minutes)) >= 0 ? Number(minutes) : 15;
+  removeSyncD1Trigger();
+  ScriptApp.newTrigger('syncD1Cron').timeBased().everyMinutes(m).create();
+  return { ok: true, cadaMinutos: m };
+}
+function removeSyncD1Trigger() {
+  let removed = 0;
+  for (const t of ScriptApp.getProjectTriggers()) {
+    if (t.getHandlerFunction() === 'syncD1Cron') { ScriptApp.deleteTrigger(t); removed++; }
   }
   return { ok: true, removed: removed };
 }

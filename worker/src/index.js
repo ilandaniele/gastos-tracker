@@ -1,6 +1,7 @@
 // Worker nuevo: visor de gastos sobre D1 (y base de la app que reemplazará a Apps Script).
 // Hoy es de SOLO LECTURA: los datos entran por scripts/import.mjs desde el Sheet.
 import UI from './ui.html';
+import { buildStatements } from './sync.js';
 
 const TENANT = 'ilan';
 
@@ -99,6 +100,9 @@ function filtros(url) {
   if (moneda === 'UYU' || moneda === 'USD') { w.push('moneda = ?'); p.push(moneda); }
   const medio = url.searchParams.get('medio');
   if (medio) { w.push('medio_pago = ?'); p.push(medio); }
+  const desde = url.searchParams.get('desde'), hasta = url.searchParams.get('hasta');
+  if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) { w.push('fecha_efectiva >= ?'); p.push(desde); }
+  if (hasta && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) { w.push('fecha_efectiva <= ?'); p.push(hasta); }
   const tipo = url.searchParams.get('tipo');
   if (tipo === 'fijo') w.push('es_fijo = 1');
   else if (tipo === 'variable') w.push('es_fijo = 0');
@@ -114,7 +118,7 @@ function filtros(url) {
 }
 
 const ORDEN = {
-  fecha: 'COALESCE(NULLIF(fecha, \'\'), \'0000\')',
+  fecha: 'fecha_efectiva',
   monto: 'monto', concepto: 'concepto COLLATE NOCASE', categoria: 'categoria COLLATE NOCASE', mes: 'mes'
 };
 
@@ -124,7 +128,7 @@ async function listarGastos(env, url, limit) {
   const dir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
   const off = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
   const [rows, tot] = await env.DB.batch([
-    env.DB.prepare(`SELECT id, mes, concepto, monto, moneda, uyu_raw, usd_raw, medio_pago, es_fijo, es_credito, es_ahorro, categoria, fecha, cotizacion, notas, grupo_nombre
+    env.DB.prepare(`SELECT id, mes, concepto, monto, moneda, uyu_raw, usd_raw, medio_pago, es_fijo, es_credito, es_ahorro, categoria, fecha, fecha_efectiva, fecha_origen, cotizacion, notas, grupo_nombre
                     FROM expenses WHERE ${where} ORDER BY ${col} ${dir}, id DESC LIMIT ? OFFSET ?`).bind(...params, limit, off),
     env.DB.prepare(`SELECT COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${SUMA_USD} AS usd FROM expenses WHERE ${where}`).bind(...params)
   ]);
@@ -201,6 +205,11 @@ async function api(req, env, url) {
     return json({ ok: true, savings: r.results });
   }
 
+  if (path === '/api/config') {
+    const r = await env.DB.prepare(`SELECT clave, valor FROM config WHERE tenant_id = ? ORDER BY clave`).bind(TENANT).all();
+    return json({ ok: true, config: r.results });
+  }
+
   if (path === '/api/settings') return json({ ok: true, settings: await ajustes(env) });
 
   if (path === '/api/tasks') {
@@ -257,9 +266,9 @@ async function api(req, env, url) {
 
   if (path === '/api/export.csv') {
     const { rows } = await listarGastos(env, url, 5000);
-    const head = ['mes', 'fecha', 'concepto', 'monto', 'moneda', 'medio_pago', 'categoria', 'fijo', 'credito', 'ahorro', 'notas'];
+    const head = ['mes', 'fecha', 'fecha_origen', 'concepto', 'monto', 'moneda', 'medio_pago', 'categoria', 'fijo', 'credito', 'ahorro', 'notas'];
     const lines = [head.join(',')].concat(rows.map((r) =>
-      [r.mes, r.fecha, r.concepto, r.monto, r.moneda, r.medio_pago, r.categoria, r.es_fijo, r.es_credito, r.es_ahorro, r.notas].map(csvCell).join(',')));
+      [r.mes, r.fecha_efectiva, r.fecha_origen, r.concepto, r.monto, r.moneda, r.medio_pago, r.categoria, r.es_fijo, r.es_credito, r.es_ahorro, r.notas].map(csvCell).join(',')));
     return new Response('﻿' + lines.join('\r\n') + '\r\n', {
       headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="gastos.csv"', 'Cache-Control': 'no-store' }
     });
@@ -268,7 +277,34 @@ async function api(req, env, url) {
   return json({ ok: false, error: 'Ruta no encontrada' }, 404);
 }
 
+// Sync automático: baja el volcado parcial (mes actual y anterior + módulos chicos) de
+// Apps Script y lo carga en D1. Apps Script sigue siendo la fuente de verdad.
+async function sincronizar(env) {
+  if (!env.APPS_SCRIPT_URL || !env.APP_KEY) throw new Error('Faltan APPS_SCRIPT_URL / APP_KEY');
+  const u = new URL(env.APPS_SCRIPT_URL);
+  u.searchParams.set('action', 'exportAll');
+  u.searchParams.set('parcial', '1');
+  u.searchParams.set('k', env.APP_KEY);
+  const r = await fetch(u, { redirect: 'follow' });
+  const text = await r.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('Volcado no es JSON: ' + text.slice(0, 100)); }
+  if (!data.ok) throw new Error('Volcado dijo: ' + (data.error || 'error'));
+  if (data.errores && data.errores.length) throw new Error('Volcado con errores, no se carga: ' + JSON.stringify(data.errores).slice(0, 200));
+  const { statements, counts } = buildStatements(data, { fuente: 'cron' });
+  // Una sola batch = una transacción: si algo falla no queda a medias.
+  await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
+  return counts;
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(sincronizar(env).then(
+      (c) => console.log('sync ok', JSON.stringify(c)),
+      (e) => console.error('sync falló:', String(e && e.message || e))
+    ));
+  },
+
   async fetch(req, env) {
     const url = new URL(req.url);
 
@@ -283,6 +319,16 @@ export default {
           'Cache-Control': 'no-store'
         }
       });
+    }
+
+    // Disparo del sync por Apps Script: no hay sesión de navegador, se autentica con
+    // la clave compartida (APP_KEY) en un header. Solo POST, y no acepta nada del cuerpo:
+    // el Worker mismo baja el volcado.
+    if (url.pathname === '/api/sync') {
+      if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
+      if (!env.APP_KEY || !eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY)) return json({ ok: false, error: 'No autorizado' }, 401);
+      try { return json({ ok: true, counts: await sincronizar(env) }); }
+      catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
     if (!(await autorizado(req, env))) {
