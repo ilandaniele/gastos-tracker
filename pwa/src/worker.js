@@ -235,6 +235,13 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    // El cron corre cada 15 min (la cuenta gratis de Cloudflare permite solo 5 crons,
+    // así que este se comparte): siempre sincroniza D1 vía gastos-app, y los avisos
+    // push salen solo en los horarios de siempre (minuto 0 de 02, 03, 04, 05 y 12 UTC).
+    ctx.waitUntil(sincronizarD1(env));
+    const t = new Date(event && event.scheduledTime ? event.scheduledTime : Date.now());
+    if (!(t.getUTCMinutes() === 0 && [2, 3, 4, 5, 12].indexOf(t.getUTCHours()) >= 0)) return;
+
     // El resultado del cron se guarda en KV: es la única forma de saber por qué
     // no llegó un aviso sin poder mirar los logs en vivo.
     ctx.waitUntil((async () => {
@@ -265,6 +272,23 @@ export default {
     })());
   }
 };
+
+// Le pide al Worker gastos-app (service binding GASTOS_APP) que actualice D1 desde
+// Apps Script. Guarda el último resultado en KV (log:sync) para poder revisarlo.
+async function sincronizarD1(env) {
+  let r;
+  try {
+    if (!env.GASTOS_APP || !env.APP_KEY) r = { ok: false, error: 'Falta binding GASTOS_APP o APP_KEY' };
+    else {
+      const res = await env.GASTOS_APP.fetch('https://gastos-app/api/sync', { method: 'POST', headers: { 'X-Sync-Key': env.APP_KEY } });
+      r = { ok: res.status === 200, status: res.status, body: (await res.text()).slice(0, 300) };
+    }
+  } catch (e) {
+    r = { ok: false, error: String(e && e.message || e) };
+  }
+  try { await env.SUBS.put('log:sync', JSON.stringify({ cuando: new Date().toISOString(), r })); } catch (e) {}
+  return r;
+}
 
 // Manda el push si hay algo pendiente. force saltea el chequeo (para probar).
 async function avisar(env, modo, force, extra) {

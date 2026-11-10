@@ -2,10 +2,17 @@ name = "gastos-habitos"
 main = "src/worker.js"
 compatibility_date = "2026-08-01"
 
+# Cron cada 15 min, compartido: sincroniza D1 (gastos-app) en cada corrida y manda los
+# avisos push solo en minuto 0 de estas horas (ver scheduled() en src/worker.js):
 # 2,3,4,5 UTC = 23, 00, 01, 02 en Montevideo (cierre del día)
 # 12 UTC      = 09 en Montevideo (a qué hora te levantaste)
 [triggers]
-crons = ["0 2,3,4,5,12 * * *"]
+crons = ["*/15 * * * *"]
+
+# Worker gastos-app (visor D1): se llama directo, sin pasar por internet ni por Access.
+[[services]]
+binding = "GASTOS_APP"
+service = "gastos-app"
 
 [[kv_namespaces]]
 binding = "SUBS"
