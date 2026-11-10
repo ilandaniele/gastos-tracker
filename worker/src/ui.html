@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mis gastos</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mut:#667085;--line:#e4e7ec;--acc:#2563eb;--bad:#b42318;--ok:#067647;--chip:#eef2f7}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--ink:#e8ecf2;--mut:#8b95a5;--line:#2a313c;--acc:#6ea0ff;--bad:#ff8a80;--ok:#5fd39a;--chip:#222a35}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
+h1{font-size:17px;margin:0}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{border:0;background:none;color:var(--mut);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
+nav button.on{background:var(--chip);color:var(--ink);font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:16px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.filters select,.filters input{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;min-width:0}
+.filters input[type=search]{flex:1 1 180px}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer;text-decoration:none}
+.btn.ghost{background:var(--chip);color:var(--ink)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.card small{color:var(--mut);display:block}
+.card b{font-size:20px;font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:900px){.two{grid-template-columns:2fr 1fr}}
+.tw{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+td.wrap{white-space:normal;min-width:160px}
+th{color:var(--mut);font-weight:600;font-size:12px;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+.tag{display:inline-block;background:var(--chip);border-radius:999px;padding:1px 8px;font-size:12px;margin-right:4px}
+.tag.warn{color:var(--bad)}
+.bar{height:6px;background:var(--chip);border-radius:3px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--acc)}
+.cat{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.cat:last-child{border-bottom:0}
+.cat .r{display:flex;justify-content:space-between;gap:8px}
+.mut{color:var(--mut)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.empty{padding:30px;text-align:center;color:var(--mut)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>💸 Mis gastos</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="main"></main>
+<script>
+'use strict';
+var $ = function (s, r) { return (r || document).querySelector(s); };
+var state = { vista: 'gastos', mes: '', cat: '', q: '', moneda: '', tipo: '', medio: '', orden: 'fecha', dir: 'desc', offset: 0, limit: 100 };
+var facets = { categories: [], medios: [] }, months = [];
+
+function el(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  if (attrs) for (var k in attrs) {
+    if (k === 'class') e.className = attrs[k];
+    else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+    else if (k === 'value') e.value = attrs[k];
+    else e.setAttribute(k, attrs[k]);
+  }
+  [].concat(kids == null ? [] : kids).forEach(function (c) { e.append(c && c.nodeType ? c : document.createTextNode(String(c))); });
+  return e;
+}
+function fmt(n) { return Number(n || 0).toLocaleString('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+function mesNombre(m) {
+  if (!m) return '';
+  var p = m.split('-'); var N = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return N[+p[1] - 1] + ' ' + p[0];
+}
+function qs(extra) {
+  var p = new URLSearchParams();
+  ['mes','cat','q','moneda','tipo','medio','orden','dir'].forEach(function (k) { if (state[k]) p.set(k, state[k]); });
+  for (var k in (extra || {})) p.set(k, extra[k]);
+  return p.toString();
+}
+function get(path) {
+  return fetch(path).then(function (r) { if (r.status === 401) throw new Error('Sesión vencida: entrá de nuevo con tu clave'); return r.json(); })
+    .then(function (j) { if (!j.ok) throw new Error(j.error || 'Error'); return j; });
+}
+function fail(e) { $('#main').replaceChildren(el('div', { class: 'empty bad' }, e.message || String(e))); }
+
+function nav() {
+  var vistas = [['gastos', 'Gastos'], ['ingresos', 'Ingresos'], ['ahorros', 'Ahorros'], ['control', 'Control']];
+  $('#nav').replaceChildren.apply($('#nav'), vistas.map(function (v) {
+    return el('button', { class: state.vista === v[0] ? 'on' : '', onclick: function () { state.vista = v[0]; render(); } }, v[1]);
+  }));
+}
+
+function selectFiltro(key, opciones, vacio) {
+  var s = el('select', { onchange: function () { state[key] = s.value; state.offset = 0; vistaGastos(); } },
+    [el('option', { value: '' }, vacio)].concat(opciones.map(function (o) {
+      var v = typeof o === 'string' ? o : o.v, t = typeof o === 'string' ? o : o.t;
+      return el('option', { value: v }, t);
+    })));
+  s.value = state[key];
+  return s;
+}
+
+function vistaGastos() {
+  nav();
+  var main = $('#main');
+  var q = el('input', { type: 'search', placeholder: 'Buscar concepto, nota, categoría…', value: state.q });
+  var t;
+  q.addEventListener('input', function () { clearTimeout(t); t = setTimeout(function () { state.q = q.value; state.offset = 0; cargarGastos(); }, 250); });
+  var filtros = el('div', { class: 'filters' }, [
+    selectFiltro('mes', months.map(function (m) { return { v: m.mes, t: mesNombre(m.mes) }; }), 'Todos los meses'),
+    selectFiltro('cat', facets.categories, 'Todas las categorías'),
+    selectFiltro('tipo', [{ v: 'fijo', t: 'Fijos' }, { v: 'variable', t: 'Variables' }, { v: 'credito', t: 'Con tarjeta de crédito' }, { v: 'ahorro', t: 'Ahorro/inversión' }], 'Todos los tipos'),
+    selectFiltro('moneda', ['UYU', 'USD'], 'Todas las monedas'),
+    selectFiltro('medio', facets.medios, 'Todo medio de pago'),
+    q,
+    el('a', { class: 'btn ghost', id: 'csv', href: '#' }, 'CSV')
+  ]);
+  main.replaceChildren(filtros,
+    el('div', { class: 'cards', id: 'cards' }),
+    el('div', { class: 'two' }, [el('div', null, [el('div', { class: 'tw', id: 'tabla' }), el('div', { class: 'pager', id: 'pager' })]), el('div', { class: 'tw', id: 'cats' })]));
+  cargarGastos();
+}
+
+function cargarGastos() {
+  $('#csv').href = '/api/export.csv?' + qs();
+  Promise.all([
+    get('/api/expenses?' + qs({ limit: state.limit, offset: state.offset })),
+    get('/api/categories?' + qs())
+  ]).then(function (r) { pintarGastos(r[0], r[1].categories); }).catch(fail);
+}
+
+function th(label, col, num) {
+  var flecha = state.orden === col ? (state.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  return el('th', { class: num ? 'num' : '', onclick: function () {
+    if (state.orden === col) state.dir = state.dir === 'asc' ? 'desc' : 'asc'; else { state.orden = col; state.dir = col === 'concepto' || col === 'categoria' ? 'asc' : 'desc'; }
+    state.offset = 0; cargarGastos();
+  } }, label + flecha);
+}
+
+function pintarGastos(d, cats) {
+  $('#cards').replaceChildren(
+    el('div', { class: 'card' }, [el('small', null, 'Gastos en pesos'), el('b', null, '$ ' + fmt(d.uyu))]),
+    el('div', { class: 'card' }, [el('small', null, 'Gastos en dólares'), el('b', null, 'US$ ' + fmt(d.usd))]),
+    el('div', { class: 'card' }, [el('small', null, 'Filas'), el('b', null, d.count)]));
+
+  var tabla = $('#tabla');
+  if (!d.rows.length) { tabla.replaceChildren(el('div', { class: 'empty' }, 'Sin gastos con esos filtros.')); }
+  else {
+    var cuerpo = d.rows.map(function (r) {
+      var tags = [];
+      if (r.es_fijo) tags.push(el('span', { class: 'tag' }, 'fijo'));
+      if (r.es_credito) tags.push(el('span', { class: 'tag warn' }, 'crédito'));
+      if (r.es_ahorro) tags.push(el('span', { class: 'tag' }, 'ahorro'));
+      var monto = r.es_fijo && r.uyu_raw && r.usd_raw ? '$ ' + fmt(r.uyu_raw) + ' + US$ ' + fmt(r.usd_raw) : (r.moneda === 'USD' ? 'US$ ' : '$ ') + fmt(r.monto);
+      return el('tr', null, [
+        el('td', null, r.fecha || '—'),
+        el('td', { class: 'wrap' }, [r.concepto, r.grupo_nombre ? el('span', { class: 'tag' }, r.grupo_nombre) : '', r.notas ? el('div', { class: 'mut' }, r.notas) : '']),
+        el('td', { class: 'num' }, monto),
+        el('td', null, r.categoria || '—'),
+        el('td', null, r.medio_pago || ''),
+        el('td', null, tags)
+      ]);
+    });
+    tabla.replaceChildren(el('table', null, [
+      el('thead', null, el('tr', null, [th('Fecha', 'fecha'), th('Concepto', 'concepto'), th('Monto', 'monto', true), th('Categoría', 'categoria'), el('th', null, 'Medio'), el('th', null, '')])),
+      el('tbody', null, cuerpo)]));
+  }
+  var ini = d.count ? state.offset + 1 : 0, fin = Math.min(d.count, state.offset + state.limit);
+  $('#pager').replaceChildren(
+    el('span', { class: 'mut' }, ini + '–' + fin + ' de ' + d.count),
+    el('button', { class: 'btn ghost', onclick: function () { state.offset = Math.max(0, state.offset - state.limit); cargarGastos(); } }, '←'),
+    el('button', { class: 'btn ghost', onclick: function () { if (fin < d.count) { state.offset += state.limit; cargarGastos(); } } }, '→'));
+
+  var max = Math.max.apply(null, cats.map(function (c) { return c.uyu + c.usd * 40; }).concat([1]));
+  $('#cats').replaceChildren.apply($('#cats'), cats.length ? cats.map(function (c) {
+    return el('div', { class: 'cat', onclick: function () { state.cat = c.cat; state.offset = 0; vistaGastos(); } }, [
+      el('div', { class: 'r' }, [el('span', null, c.cat), el('span', { class: 'mut' }, [c.uyu ? '$ ' + fmt(c.uyu) : '', c.uyu && c.usd ? ' · ' : '', c.usd ? 'US$ ' + fmt(c.usd) : ''].join(''))]),
+      el('div', { class: 'bar' }, el('i', { style: 'width:' + Math.round((c.uyu + c.usd * 40) / max * 100) + '%' }))
+    ]);
+  }) : [el('div', { class: 'empty' }, 'Sin categorías')]);
+}
+
+function tablaSimple(cols, filas) {
+  if (!filas.length) return el('div', { class: 'empty' }, 'Sin datos.');
+  return el('table', null, [
+    el('thead', null, el('tr', null, cols.map(function (c) { return el('th', { class: c.num ? 'num' : '' }, c.t); }))),
+    el('tbody', null, filas.map(function (f) { return el('tr', null, cols.map(function (c) { return el('td', { class: c.num ? 'num' : '' }, c.f ? c.f(f) : (f[c.k] == null ? '' : f[c.k])); })); }))
+  ]);
+}
+
+function vistaIngresos() {
+  nav();
+  get('/api/incomes').then(function (d) {
+    var u = 0, s = 0; d.incomes.forEach(function (i) { if (i.moneda === 'USD') s += i.monto; else u += i.monto; });
+    $('#main').replaceChildren(
+      el('div', { class: 'cards' }, [el('div', { class: 'card' }, [el('small', null, 'Total en pesos'), el('b', null, '$ ' + fmt(u))]), el('div', { class: 'card' }, [el('small', null, 'Total en dólares'), el('b', null, 'US$ ' + fmt(s))])]),
+      el('div', { class: 'tw' }, tablaSimple([{ t: 'Fecha', k: 'fecha' }, { t: 'Concepto', k: 'concepto' }, { t: 'Monto', num: 1, f: function (i) { return (i.moneda === 'USD' ? 'US$ ' : '$ ') + fmt(i.monto); } }, { t: 'Notas', k: 'notas' }], d.incomes)));
+  }).catch(fail);
+}
+
+function vistaAhorros() {
+  nav();
+  get('/api/savings').then(function (d) {
+    $('#main').replaceChildren(el('div', { class: 'tw' }, tablaSimple([
+      { t: 'Fecha', k: 'fecha' }, { t: 'Tipo', k: 'tipo' }, { t: 'Entidad', k: 'entidad' }, { t: 'Ticker', k: 'ticker' },
+      { t: 'Cantidad', num: 1, f: function (s) { return s.cantidad == null ? '' : fmt(s.cantidad); } },
+      { t: 'Precio US$', num: 1, f: function (s) { return s.precio_usd == null ? '' : fmt(s.precio_usd); } },
+      { t: 'Invertido US$', num: 1, f: function (s) { return fmt(s.invertido_usd); } },
+      { t: 'Notas', k: 'notas' }], d.savings)));
+  }).catch(fail);
+}
+
+function vistaControl() {
+  nav();
+  get('/api/verify').then(function (d) {
+    var li = d.ultimaImportacion;
+    $('#main').replaceChildren(
+      el('div', { class: 'cards' }, [
+        el('div', { class: 'card' }, [el('small', null, 'Totales D1 vs Sheet'), el('b', { class: d.todoCoincide ? 'ok' : 'bad' }, d.todoCoincide ? 'Coinciden ✔' : 'Hay diferencias')]),
+        el('div', { class: 'card' }, [el('small', null, 'Última importación'), el('b', { style: 'font-size:15px' }, li ? li.at.replace('T', ' ').slice(0, 16) + ' UTC' : '—')]),
+        el('div', { class: 'card' }, [el('small', null, 'Filas importadas'), el('b', null, li ? li.expenses : 0)])]),
+      el('div', { class: 'tw' }, tablaSimple([
+        { t: 'Mes', f: function (m) { return mesNombre(m.mes); } }, { t: 'Filas', num: 1, k: 'filas' },
+        { t: 'Sheet $', num: 1, f: function (m) { return fmt(m.sheet_uyu); } }, { t: 'D1 $', num: 1, f: function (m) { return fmt(m.d1_uyu); } },
+        { t: 'Sheet US$', num: 1, f: function (m) { return fmt(m.sheet_usd); } }, { t: 'D1 US$', num: 1, f: function (m) { return fmt(m.d1_usd); } },
+        { t: '', f: function (m) { return m.ok ? '✔' : 'Dif: $ ' + fmt(m.dif_uyu) + ' / US$ ' + fmt(m.dif_usd); } }], d.meses)));
+  }).catch(fail);
+}
+
+function render() {
+  if (state.vista === 'gastos') vistaGastos();
+  else if (state.vista === 'ingresos') vistaIngresos();
+  else if (state.vista === 'ahorros') vistaAhorros();
+  else vistaControl();
+}
+
+Promise.all([get('/api/months'), get('/api/facets')]).then(function (r) {
+  months = r[0].months; facets = r[1];
+  state.mes = months.length ? months[0].mes : '';
+  render();
+}).catch(function (e) { nav(); fail(e); });
+</script>
+</body>
+</html>

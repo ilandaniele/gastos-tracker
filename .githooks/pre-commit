@@ -13,7 +13,7 @@ set -e
 
 # Carpetas y archivos que sí son de este proyecto. Si agregás una carpeta nueva
 # de verdad, sumala acá en el mismo commit.
-PERMITIDOS=".githooks .gitignore README.md apps-script cowork docs pwa"
+PERMITIDOS=".githooks .gitignore README.md apps-script cowork docs pwa worker"
 
 permitido() {
   for p in $PERMITIDOS; do

@@ -1,0 +1,6 @@
+.dev.vars
+.wrangler/
+node_modules/
+.secrets-local.md
+scripts/*.generated.sql
+*.export.json

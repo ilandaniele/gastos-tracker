@@ -1,0 +1,16 @@
+# Worker nuevo (reemplazo futuro de Apps Script). Vive aparte de pwa/ ("gastos-habitos"):
+# esa app sigue andando igual hasta el corte.
+name = "gastos-app"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gastos-db"
+database_id = "6e60920a-c1e0-4f32-b6e2-42666e6e304c"
+migrations_dir = "migrations"
+
+# Secretos (wrangler secret put): VIEW_KEY = clave del visor mientras no esté
+# Cloudflare Access delante.

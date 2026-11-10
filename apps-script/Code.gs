@@ -203,6 +203,7 @@ const ROUTES = {
   testRate: () => testRateSources(),
   dash: (p) => getDashboardData(p && p.month),
   dashmonths: () => getMonthlyTotals(),
+  exportAll: (p) => exportAll(p),
   // Cambia solo la categoría de una fila variable: ?action=setExpenseCategory&month=..&row=..&item=..&category=..
   setExpenseCategory: p => setExpenseCategory(p.month, p.row, p.item, p.category),
   // Diagnóstico sin escribir nada: ?action=testCategorias  (o &item=texto para uno solo)
@@ -2088,6 +2089,31 @@ function getMonthlyTotals() {
     Logger.log('getMonthlyTotals error: ' + err.message);
     return { ok: false, error: err.message };
   }
+}
+
+// Volcado de solo lectura para migrar a la base nueva (D1). Reusa los mismos
+// lectores que usa la app (getDashboardData, getIngresosData, getSavingsData),
+// así los números del volcado son exactamente los que ve la interfaz y no hay
+// una segunda lógica de parseo que se pueda desincronizar.
+// p.month (opcional): un solo mes, para probar sin leer todas las hojas.
+function exportAll(p) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const only = p && p.month ? String(p.month).trim() : '';
+  const tabs = ss.getSheets()
+    .map(s => ({ name: s.getName(), info: _monthTabInfo(s.getName()) }))
+    .filter(t => t.info && (!only || t.name === only))
+    .sort((a, b) => (a.info.year - b.info.year) || (a.info.month - b.info.month));
+  const months = tabs.map(t => {
+    const d = getDashboardData(t.name);
+    return { tab: t.name, year: t.info.year, month: t.info.month, ok: !!d.ok, error: d.error || null,
+             totals: d.totals || null, expenses: d.expenses || [] };
+  });
+  let ingresos = [], ahorros = [];
+  if (!only) {
+    try { ingresos = getIngresosData().ingresos || []; } catch (e) { Logger.log('exportAll ingresos: ' + e.message); }
+    try { const s = getSavingsData(); ahorros = s.ok ? s.movimientos : []; } catch (e) { Logger.log('exportAll ahorros: ' + e.message); }
+  }
+  return { ok: true, exportedAt: new Date().toISOString(), months: months, ingresos: ingresos, ahorros: ahorros };
 }
 
 function json(obj) {
