@@ -37,11 +37,16 @@ El botón desaparece. Listo.
 
 - **23:00, 00:00, 01:00 y 02:00** — si no cerraste el día, te llega
   "🌙 Cerrá el día" con lo que falta. Apenas cargás, deja de insistir.
+- **07:00** — "🗓️ Tareas de hoy": las citas y tareas de hoy y las vencidas, solo
+  si hay alguna pendiente.
 - **09:00** — si no anotaste a qué hora te levantaste, te lo recuerda.
 - Tocás la notificación y se abre la app directo.
 
-Los horarios están en `pwa/wrangler.toml`. Se cambian ahí y se vuelve a
-publicar con `npx wrangler deploy`.
+Los horarios están en UTC (Montevideo es UTC-3): 2, 3, 4 y 5 = 23 a 02; 10 = 07:00;
+12 = 09:00. El cron corre cada 15 minutos y es compartido con la sincronización de
+D1; la lista de horas de aviso está en `scheduled()` de `pwa/src/worker.js` y el
+cron en `pwa/wrangler.toml`. Se cambian ahí y se vuelve a publicar con
+`npx wrangler deploy`.
 
 ---
 
@@ -89,9 +94,16 @@ Modo Concentración o los permisos.
 **"No se pudo activar"**
 Revisá Ajustes → Notificaciones → Gastos, que estén permitidas.
 
-**La app abre pero se ve en blanco unos segundos**
-Es normal: adentro carga la app de Apps Script, que tarda. Si queda en blanco
-más de un minuto, avisame.
+**Al abrir la app aparece la pantalla de carga y después el formulario**
+Es normal: el shell navega al formulario que sirve `gastos-app`
+(`https://gastos-app.ilandaniele.workers.dev/app`). Ya no hay nada de Apps Script
+en el medio, así que carga rápido. Si en cambio ves "No autorizado", el shell no
+pudo dejar la sesión: falta el secreto `VIEW_KEY` en este Worker (tiene que ser el
+mismo que tiene `gastos-app`) o se venció la cookie.
+
+**"gastos-app rechazó la clave" en `/api/pending` o en `/api/test`**
+`APP_KEY` es distinta en `gastos-habitos` y en `gastos-app`. Se vuelven a cargar
+con `wrangler secret put APP_KEY` en las dos carpetas.
 
 ---
 
@@ -106,8 +118,19 @@ npx wrangler deploy
 
 ---
 
-## Lo que esto NO cambia
+## Secretos
 
-La app sigue siendo la misma de Apps Script y la planilla sigue siendo la misma.
-El Worker no guarda ningún dato tuyo: solo la suscripción de push, que es una
-dirección larga que le dice a Apple a qué teléfono avisar.
+`gastos-habitos` (`pwa/`): `ADMIN_KEY`, `APP_KEY`, `VAPID_PRIVATE_JWK`,
+`VAPID_PUBLIC_KEY` y, opcional, `VIEW_KEY`. `gastos-app` (`worker/`): `APP_KEY`,
+`VIEW_KEY`, `GEMINI_API_KEY`. `APP_KEY` tiene que ser idéntica en los dos.
+
+---
+
+## Qué guarda cada parte
+
+Los datos viven en D1 (Worker `gastos-app`); ese Worker sirve el formulario y la
+API. `gastos-habitos` no guarda ningún dato tuyo: solo la suscripción de push
+(una dirección larga que le dice a Apple a qué teléfono avisar) y los últimos
+registros de diagnóstico, en KV. Apps Script y el Sheet ya no están en el camino:
+quedan como referencia y respaldo (ver "Apagar Apps Script" en
+`docs/AUDITORIA-migracion.md`).

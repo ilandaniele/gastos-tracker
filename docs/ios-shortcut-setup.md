@@ -1,5 +1,7 @@
 # iOS Shortcut: Agregar Gasto
 
+> **Legacy:** este documento usa el webhook de Apps Script. Hoy los datos viven en D1 y se cargan desde `https://gastos-app.ilandaniele.workers.dev/app`; si el web app de Apps Script se despublica, esto deja de funcionar.
+
 ## Setup (5 min, una sola vez)
 
 1. Abrí app **Shortcuts** (Atajos) en iPhone

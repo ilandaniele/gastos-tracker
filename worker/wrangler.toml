@@ -22,7 +22,12 @@ migrations_dir = "migrations"
 # ACCESS_EMAILS = "ilan.daniele@gmail.com"
 
 
-# Sync: Apps Script (trigger cada 15 min) hace POST /api/sync con X-Sync-Key = APP_KEY.
+# Sync: el cron compartido de gastos-habitos (pwa/, cada 15 min) llama a POST /api/sync por service
+# binding con X-Sync-Key = APP_KEY. Con todos los módulos en D1 no hace nada (devuelve {omitido}).
 # El cron propio del Worker queda desactivado: el plan gratis limita a 5 por cuenta.
 [vars]
+# Access activo: app "gastos-app" en Zero Trust (política "Solo Ilan"). El Worker verifica el JWT.
+ACCESS_TEAM = "ilandaniele.cloudflareaccess.com"
+ACCESS_AUD = "34c57ce6eb89f6f441c7d8063f7ce54a40fb5fabc8afbca591cebbcc61b873da"
+ACCESS_EMAILS = "ilan.daniele@gmail.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec"

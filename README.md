@@ -1,10 +1,20 @@
 # Gastos Tracker
 
-Sistema de registro y análisis de gastos personales (Uruguay), construido sobre una
-Google Sheet + Apps Script. Entrada de gastos desde el celular, dashboard en vivo,
-escaneo OCR de tickets y auto-clasificación por categoría.
+Sistema de registro y análisis de gastos personales (Uruguay). Entrada de gastos desde
+el celular, dashboard en vivo, escaneo OCR de tickets y auto-clasificación por categoría.
+
+> **Estado actual (2026-11):** nació sobre una Google Sheet + Apps Script, pero los datos
+> viven ahora en **Cloudflare D1** y todo corre en dos Workers: `gastos-app` (`worker/`: datos,
+> formulario en `/app`, API en `/api/rpc/<función>`) y `gastos-habitos` (`pwa/`: PWA, web push
+> y el cron compartido). Apps Script y la Sheet quedan como referencia y respaldo; las
+> secciones de abajo que los describen son el sistema original. Ver
+> [`docs/AUDITORIA-migracion.md`](docs/AUDITORIA-migracion.md) (estado y checklist para
+> apagar Apps Script) y [`pwa/README.md`](pwa/README.md).
 
 ## Componentes
+
+Vigentes: Worker `gastos-app` (D1 + formulario + API), Worker `gastos-habitos` (PWA + push + cron).
+Originales (hoy legacy):
 
 - **Google Sheet** "Registro de gastos" — base de datos, una pestaña por mes.
 - **Apps Script webhook** — backend + webapp mobile (corre en la nube de Google).
@@ -18,8 +28,10 @@ gastos-tracker/
 ├── README.md
 ├── .githooks/
 │   └── pre-commit         # corta el commit si se cuela otro proyecto
+├── worker/                # Worker gastos-app: D1, formulario /app, API /api/rpc
+├── pwa/                   # Worker gastos-habitos: PWA, web push, cron
 ├── apps-script/
-│   ├── Code.gs            # código del webhook (pegar en el editor Apps Script)
+│   ├── Code.gs            # (legacy) código del webhook (pegar en el editor Apps Script)
 │   └── appsscript.json    # manifest con los OAuth scopes
 ├── cowork/
 │   └── dashboard.html     # fuente del artifact Cowork
@@ -29,7 +41,7 @@ gastos-tracker/
     └── ios-shortcut-setup.md        # atajo iOS alternativo
 ```
 
-## Quick start
+## Quick start (sistema original en Apps Script, legacy)
 
 > El Apps Script y la Sheet viven en la nube de Google. Desde cualquier computadora:
 > abrir la Sheet → **Extensions → Apps Script**. No hay que instalar nada local.

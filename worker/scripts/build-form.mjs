@@ -44,5 +44,8 @@ const shim = `<script>
 
 let html = leer('form');
 html = html.replace(/<\?!=\s*include\('([^']+)'\)\s*\?>/g, (_, n) => (n === 'form-scripts' ? shim + '\n' : '') + leer(n));
+// Apps Script agrega este meta con addMetaTag (Code.gs); acá tiene que ir en el propio HTML,
+// si no el celular renderiza a 980px de ancho.
+if (!/name=["']viewport["']/.test(html)) html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">');
 writeFileSync(join(aqui, '..', 'src', 'form.generated.html'), html);
 console.log('form.generated.html', Math.round(html.length / 1024) + ' KB');

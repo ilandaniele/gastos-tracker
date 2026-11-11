@@ -19,7 +19,13 @@ Hay dos formas de entrar:
 - **Iniciar sesión con Google** — el botón de arriba, con tu cuenta.
 - **Código por mail** — queda como respaldo por si Google falla.
 
-## 2. Clave en la app de Apps Script
+## 2. Clave en la app de Apps Script (legacy)
+
+> Desde el corte a D1 la app ya no usa Apps Script. La app que sirve el formulario es el Worker
+> `gastos-app`, que se protege con la cookie de `VIEW_KEY` y, cuando se active, con Cloudflare
+> Access (pendiente: crear la app de Access para `gastos-app.ilandaniele.workers.dev` y pasar
+> su AUD tag para definir `ACCESS_TEAM` y `ACCESS_AUD`). Sus rutas de avisos entran además con
+> `X-Sync-Key` = `APP_KEY` (solo GET). Lo de abajo aplica si Apps Script sigue publicado.
 
 La app de adentro sigue publicada como "cualquiera con el link" (es lo único
 que le permite contestarle al servidor de notificaciones sin sesión de Google),

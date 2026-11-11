@@ -180,6 +180,23 @@ self.addEventListener('push', function(event) {
   event.waitUntil((async function() {
     var titulo = '🧘 Hábitos', cuerpo = 'Cargá lo que falta del día', url = '/';
     var hora = new Date().getHours();
+    // Aviso especial (reporte mensual, día 1 a las 09:00): el cron deja en el servidor qué mostrar
+    // y se reclama una sola vez. Si no hay nada (lo normal), sigue el flujo de siempre.
+    try {
+      var ra = await conTimeout(fetch('/api/aviso', { method: 'POST', cache: 'no-store' }), 3000);
+      var da = await ra.json();
+      if (da && da.titulo) {
+        await self.registration.showNotification(da.titulo, {
+          body: da.cuerpo || '',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: 'informe',
+          renotify: true,
+          data: { url: da.url || url }
+        });
+        return;
+      }
+    } catch (e) {}
     // Aviso de tareas: el cron lo manda a las 07:00 (hora de Montevideo). El push va vacío y
     // no dice por qué se mandó, así que se distingue por la hora del teléfono: entre las 6 y
     // las 9 es el de tareas/citas del día (el de hábitos de la mañana sale a las 9 y el cierre
@@ -233,7 +250,10 @@ self.addEventListener('push', function(event) {
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
+  var destino = event.notification.data && event.notification.data.url;
   event.waitUntil((async function() {
+    // Un enlace absoluto (el reporte mensual vive en gastos-app) se abre tal cual.
+    if (destino && destino.indexOf('https://') === 0 && clients.openWindow) return clients.openWindow(destino);
     var todas = await clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (var i = 0; i < todas.length; i++) {
       if ('focus' in todas[i]) return todas[i].focus();

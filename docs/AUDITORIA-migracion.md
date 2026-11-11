@@ -47,11 +47,10 @@ Es una auditoría de solo lectura: no se cambió código.
 | Triggers de tiempo | 3 | `monthlyReportCron`, `monthTabsCron`, `dailyTasksCron` | Cron Triggers del Worker |
 | `GOOGLEFINANCE` en hoja oculta `_rate_scratch` | 1 | Cotización del dólar | Fuente HTTP (ya hay una BCU) |
 
-### Cloudflare (`pwa/`) — ya existe
-Worker `gastos-habitos`: sirve la PWA, guarda suscripciones push en KV `SUBS`, corre cron
-(`0 2,3,4,5,12 * * *`) y consulta a Apps Script qué falta cargar. Acceso protegido con
-Cloudflare Access (solo `ilan.daniele@gmail.com`). El Worker hoy es un proxy delgado delante de Apps Script, y
-**Apps Script es el que sirve la interfaz** (el Worker navega hacia la app, no la embebe).
+### Cloudflare — situación original (2026-11-10)
+Worker `gastos-habitos` (`pwa/`): sirve la PWA, guarda suscripciones push en KV `SUBS`, corre cron
+(`0 2,3,4,5,12 * * *`) y consultaba a Apps Script qué falta cargar. Era un proxy delgado delante de
+Apps Script, y Apps Script servía la interfaz. **Esto cambió: ver el estado actual en la sección 10.**
 
 ### Datos (pestañas del Sheet)
 - Una pestaña por mes (`Mayo 2026`, ..., plantilla `TEMPLATE_TAB`): tabla fija (hasta 20 filas) + tabla variable.
@@ -215,24 +214,42 @@ importar todos los meses. Con eso ya podés mirar tus gastos en la consola de D1
 Tablas extra por los módulos incluidos: `habit_days`, `meals`, `water_logs`, `exercise_logs`, `tasks`, `purchases`,
 `foreign_debts`, `foreign_movements`.
 
-## 10. Estado (2026-11-10)
+## 10. Estado (actualizado 2026-11-11)
 
-Hechas las fases 0, 1 y 2 para todos los módulos:
+Hechas las fases 0, 1 y 2 para todos los módulos, y el corte de la fase 5 (D1 como fuente de verdad):
 
 - Apps Script: ruta de solo lectura `exportAll` (versión @197) con gastos, ingresos, ahorros, tareas, compras, hábitos (días y registro de comida/agua/ejercicio) y país. La app no cambió.
 - D1 `gastos-db` (esquema en `worker/migrations/0001_init.sql` y `0002_modulos.sql`): 57 meses, 5.294 gastos, 3 ingresos, 5 ahorros, 33 tareas, 3 compras, 10 días de hábitos, 42 registros de hábitos, 102 movimientos del país en 5 meses.
 - Verificación: los totales en pesos y dólares de los 57 meses coinciden con los del Sheet (pestaña "Control" del visor, o `/api/verify`).
 - País configurable: la tabla `settings` guarda `pais_codigo` (AR), `pais_nombre`, `pais_moneda`; la bandera sale del código ISO. Cambiar de país es cambiar esas filas. Las tablas se llaman `foreign_*` y no mencionan a Argentina.
-- Visor en el Worker `gastos-app` (`worker/`): pestañas Gastos, Ingresos, Ahorros, Tareas, Compras, Hábitos, País y Control. Solo lectura.
+- Visor en el Worker `gastos-app` (`worker/`): pestañas Gastos, Ingresos, Ahorros, Tareas, Compras, Hábitos, País y Control. El visor es de solo lectura; la escritura va por el formulario de `/app` y `/api/rpc`.
 - Acceso: clave en cookie (`VIEW_KEY`) como respaldo. La verificación del JWT de Cloudflare Access ya está en el Worker y probada (`worker/test/access.test.mjs`, 11 casos), pero se activa solo al definir `ACCESS_TEAM` y `ACCESS_AUD`. Falta crear en el dashboard la app de Access para `gastos-app.ilandaniele.workers.dev` y copiar su AUD tag (el token de wrangler no tiene permiso de Access).
-- Reimportar en cualquier momento: desde `worker/`, con `APPS_SCRIPT_URL` y `APP_KEY` en el entorno, `node scripts/import.mjs --fetch --apply` (carga completa). `--parcial` carga solo mes actual y anterior.
+- Reimportar en cualquier momento: desde `worker/`, con `APPS_SCRIPT_URL` y `APP_KEY` en el entorno, `node scripts/import.mjs --fetch --apply` (carga completa). `--parcial` carga solo mes actual y anterior. **Con los módulos en `d1` una reimportación pisa lo cargado desde el Worker: no correrla salvo para recuperar datos.**
 - Fechas (migración `0003_fechas_config.sql`): `expenses.fecha_efectiva` es la fecha real si el Sheet la tiene (424 de 5.294 gastos, `fecha_origen = 'hoja'`) o el día 1 del mes de la pestaña (`'mes'`, estimada; el visor la marca con "~"). Filtros desde/hasta y orden usan esa columna. Los otros 4.870 gastos nunca tuvieron fecha en el Sheet; desde ahora el Worker nuevo debería pedirla.
 - Configuración: la tabla `config` guarda las Script Properties de Apps Script (sin claves ni secretos), vía `exportAll`; se ve en `/api/config`.
-- Sync automático: la lógica de carga vive en `worker/src/sync.js` (la usan el importador y el Worker). El cron `*/15 * * * *` vive en el Worker `gastos-habitos` (`pwa/`), que llama por service binding (`GASTOS_APP`) a `POST /api/sync` de `gastos-app` (header `X-Sync-Key` = `APP_KEY`). Cloudflare gratis permite 5 crons por cuenta y estaban usados, por eso el cron se comparte. Baja `exportAll&parcial=1` y es **diferencial**: el SQL sale en grupos (gastos de cada mes, ingresos, ahorros, tareas, compras, hábitos, país, config), cada grupo tiene una huella SHA-256 en `sync_state` y solo se escriben los grupos que cambiaron (máx. ~40 consultas por corrida; el resto queda para la siguiente). Motivo: D1 gratis limita a 100.000 filas escritas por día y reescribir todo cada 15 min lo superó. Si no cambió nada no se escribe nada ni se agrega fila a `import_log`. Si se activa Access sobre el host, `/api/sync` necesita una regla Bypass (el service binding no pasa por Access).
+- Sync automático (hoy solo sirve mientras algún módulo siga en `sheet`): la lógica de carga vive en `worker/src/sync.js` (la usan el importador y el Worker). El cron `*/15 * * * *` vive en el Worker `gastos-habitos` (`pwa/`), que llama por service binding (`GASTOS_APP`) a `POST /api/sync` de `gastos-app` (header `X-Sync-Key` = `APP_KEY`). Cloudflare gratis permite 5 crons por cuenta y estaban usados, por eso el cron se comparte. Baja `exportAll&parcial=1` y es **diferencial**: el SQL sale en grupos (gastos de cada mes, ingresos, ahorros, tareas, compras, hábitos, país, config), cada grupo tiene una huella SHA-256 en `sync_state` y solo se escriben los grupos que cambiaron (máx. ~40 consultas por corrida; el resto queda para la siguiente). Si no cambió nada no se escribe nada ni se agrega fila a `import_log`. Si se activa Access sobre el host, `/api/sync` necesita una regla Bypass (el service binding no pasa por Access).
+- Por qué diferencial (límites del plan gratis de D1): 100.000 filas escritas por día, 5.000.000 leídas por día y **máximo 50 consultas por invocación de Worker**. Reescribir todo cada 15 minutos (96 corridas por día) superó el tope de escrituras, y una corrida completa no entra en 50 consultas. Por eso se escribe solo lo que cambió y se acota cada corrida. Verificar los números vigentes en la documentación de Cloudflare.
 - Fuente de verdad por módulo: la clave `fuente_<modulo>` en `settings` vale `sheet` (por defecto: el sync pisa D1 y las escrituras se rechazan) o `d1` (el sync saltea ese módulo y las escrituras se aceptan). `POST /api/fuente {modulo, fuente:'d1'}` sincroniza una vez y pasa el módulo. Es el corte módulo por módulo.
-- API de escritura (`POST /api/rpc/<función>`, `worker/src/rpc.js` y un archivo por módulo en `worker/src/rpc/`): mismos nombres, argumentos y forma de respuesta que las funciones `*Safe` de Apps Script, con `row` = id de D1. Protegida por cookie/Access, `Content-Type: application/json` y Origin igual al del Worker.
-- Formulario servido por el Worker en `/app`: es el mismo `form.html`/`form-scripts`/`form-styles` de `apps-script/`, armado por `worker/scripts/build-form.mjs` (`src/form.generated.html`, correr de nuevo si cambia el form) con un shim de `google.script.run` que llama a `/api/rpc`. Las variables de plantilla (categorías, reglas) salen de `worker/src/form-config.json`.
+- **Corte hecho (2026-11-11): los 7 módulos (gastos, ahorros, ingresos, tareas, hábitos, país y compras) tienen fuente `d1`.** D1 es la fuente de verdad. Cuando todos están en `d1`, `/api/sync` devuelve `{omitido}` y no llama a Apps Script.
+- API de escritura (`POST /api/rpc/<función>`, `worker/src/rpc.js` y un archivo por módulo en `worker/src/rpc/`): mismos nombres, argumentos y forma de respuesta que las funciones `*Safe` de Apps Script, con `row` = id de D1. Protegida por cookie/Access, `Content-Type: application/json` y Origin igual al del Worker. Portadas todas: gastos (alta, lote, edición, borrado, dashboard, totales), ahorros, ingresos, hábitos, tareas, país y compras.
+- Formulario servido por el Worker en `/app`: es el mismo `form.html`/`form-scripts`/`form-styles` de `apps-script/`, armado por `worker/scripts/build-form.mjs` (`src/form.generated.html`, correr de nuevo si cambia el form) con un shim de `google.script.run` que llama a `/api/rpc`. Las variables de plantilla (categorías, reglas) salen de `worker/src/form-config.json`. `/app` manda `frame-ancestors 'none'`: no se puede embeber en un iframe.
+- Avisos pendientes sobre D1: `GET /api/habit-pending` y `GET /api/tasks-pending` (`worker/src/pending.js`). Entran con sesión (cookie/Access) o con `X-Sync-Key` = `APP_KEY`, solo GET y solo esas dos rutas.
+- PWA sin Apps Script: `gastos-habitos` consulta a `gastos-app` por service binding (`GASTOS_APP`). Su shell redirige a `https://gastos-app.ilandaniele.workers.dev/app` (con `VIEW_KEY` definido en `pwa/`, va a `/?key=<VIEW_KEY>&next=/app`). Push en UTC: 2, 3, 4 y 5 = 23 a 02 de Montevideo (cierre del día, hábitos), 10 = 07:00 (tareas del día, solo si hay pendientes), 12 = 09:00 (a qué hora te levantaste). El viejo push de tareas de las 12 UTC ya no existe.
+- Secretos. `gastos-app`: `APP_KEY`, `VIEW_KEY`, `GEMINI_API_KEY`. `gastos-habitos`: `ADMIN_KEY`, `APP_KEY`, `VAPID_PRIVATE_JWK`, `VAPID_PUBLIC_KEY` y, opcional, `VIEW_KEY`. `APP_KEY` tiene que ser la misma en los dos Workers.
 - Límite de Apps Script: la cuenta llegó a 200 versiones del proyecto y ya no se puede crear ni redesplegar (queda desplegada la @200). Por eso todo lo nuevo va al Worker.
-- Los meses viejos solo se refrescan con la carga completa (el sync parcial no los toca); como la app sigue escribiendo solo en el mes corriente, alcanza.
+- Los meses viejos solo se refrescaban con la carga completa (el sync parcial no los toca); con el corte a D1 ya no hace falta.
 
-Pendiente: activar Access (paso manual de arriba); terminar el port de la API de escritura (solo Compras está en producción; ahorros, ingresos, tareas, hábitos, país y gastos en curso); crons y mail (fase 4); tipo de cambio sin GOOGLEFINANCE; multi-tenant, login y cobro.
+Pendiente: **activar Access** (paso manual: crear en el dashboard la app de Access para `gastos-app.ilandaniele.workers.dev` y pasar el AUD tag para definir `ACCESS_TEAM` y `ACCESS_AUD`; hasta entonces el acceso es por `VIEW_KEY` en cookie); apagar Apps Script (checklist abajo); reporte mensual y resumen diario de tareas en el Worker (mail y cron, fase 4: en curso, ver el código); tipo de cambio sin GOOGLEFINANCE; multi-tenant, login y cobro.
+
+## 11. Apagar Apps Script
+
+Recién cuando todo lo de arriba esté andando desde el Worker. Apps Script queda solo como referencia (`Code.gs`) y el Sheet como respaldo; ya nada de lo que se usa a diario depende de ellos.
+
+1. Confirmar que `https://gastos-app.ilandaniele.workers.dev/app` carga, que se puede cargar un gasto, un hábito y una tarea, y que la PWA instalada abre el formulario.
+2. Confirmar que `POST /api/sync` con `X-Sync-Key` contesta `{omitido}` (todos los módulos en `d1`) y que `/api/fuente` muestra los 7 en `d1`.
+3. Confirmar que los avisos push siguen llegando (`/api/test?key=<ADMIN_KEY>&force=1` y `/api/diag`) sin que ninguno consulte a Apps Script.
+4. Hacer un respaldo final: exportar el Sheet (CSV/JSON) y, si hace falta, un export de D1.
+5. Borrar los triggers del proyecto de Apps Script (Triggers, en el editor): `monthlyReportCron`, `monthTabsCron`, `dailyTasksCron` y el trigger de sync cada 15 minutos si quedó alguno. Si el reporte mensual y el resumen de tareas todavía no están portados al Worker, dejar solo esos dos hasta portarlos.
+6. Dejar de publicar la web app: Deploy, Manage deployments, archivar el deployment `AKfycbw_Nom1…` (o anular el acceso "Anyone with link"). Desde ese momento los links viejos y los Atajos de iOS que apuntan a Apps Script dejan de andar.
+7. Rotar `APP_KEY` en los dos Workers (`wrangler secret put APP_KEY` en `worker/` y en `pwa/`) y sacar `APPS_SCRIPT_URL` de `worker/wrangler.toml` cuando ya no se use.
+8. Conservar el Sheet y el script como archivo de solo lectura un tiempo.

@@ -11,7 +11,8 @@
 // El cron corre en UTC. Montevideo es UTC-3 todo el año, así que
 // 2,3,4,5 UTC = 23, 00, 01, 02 local (el cierre del día), 12 UTC = 09 local
 // (la hora de levantarse) y 10 UTC = 07 local (tareas y citas del día, ver
-// avisarTareas()).
+// avisarTareas()). El día 1 de cada mes a las 12 UTC sale además el reporte
+// mensual de gastos (mail + push, ver avisarInforme()).
 
 import { sendPush } from './push.js';
 import { SHELL_HTML, SERVICE_WORKER, MANIFEST } from './ui.js';
@@ -84,6 +85,20 @@ async function pending(env, modoRaw, extra) {
 // Citas de hoy + tareas que vencen hoy + vencidas sin completar.
 async function pendingTareas(env) {
   return await consultarApp(env, '/api/tasks-pending');
+}
+
+// Pide a gastos-app que mande el informe por mail (POST /api/informe/enviar). Sin proveedor de
+// mail configurado en gastos-app contesta {ok:true, enviado:false} y no pasa nada.
+async function pedirEnvio(env, tipo) {
+  try {
+    if (!env.GASTOS_APP || !env.APP_KEY) return { ok: false, error: 'Falta binding GASTOS_APP o APP_KEY' };
+    const res = await env.GASTOS_APP.fetch('https://gastos-app/api/informe/enviar?tipo=' + encodeURIComponent(tipo),
+      { method: 'POST', headers: { 'X-Sync-Key': env.APP_KEY } });
+    const texto = await res.text();
+    try { return JSON.parse(texto); } catch (e) { return { ok: false, status: res.status, body: texto.slice(0, 150) }; }
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
 }
 
 // Todo lo que no sea de control se reenvía a gastos-app
@@ -205,6 +220,16 @@ export default {
       }
     }
 
+    // Aviso especial pendiente (el reporte mensual): el push va vacío, así que el cron deja en KV
+    // qué mostrar y el service worker lo reclama acá. Se entrega una sola vez (se borra al leerlo),
+    // para que el push de hábitos que sale a la misma hora siga mostrando lo suyo.
+    if (p === '/api/aviso' && request.method === 'POST') {
+      const aviso = await env.SUBS.get('aviso:informe', 'json');
+      if (!aviso) return json({ ok: true });
+      await env.SUBS.delete('aviso:informe');
+      return json({ ok: true, ...aviso });
+    }
+
     // Acuse de recibo del teléfono (lo llama el service worker)
     if (p === '/api/ack') {
       ctx.waitUntil(anotarConsulta(env, request, 'ACK ' + (url.searchParams.get('e') || '')));
@@ -258,16 +283,27 @@ export default {
     // El resultado del cron se guarda en KV: es la única forma de saber por qué
     // no llegó un aviso sin poder mirar los logs en vivo.
     ctx.waitUntil((async () => {
-      // 10 UTC (07:00 local): solo el aviso de tareas/citas del día. Resto de las horas:
-      // el de hábitos (cierre del día de noche, "¿a qué hora te levantaste?" a las 09:00).
-      let r = null, rt = null;
+      // 10 UTC (07:00 local): solo el aviso de tareas/citas del día (y su mail, si hay proveedor).
+      // Resto de las horas: el de hábitos (cierre del día de noche, "¿a qué hora te levantaste?"
+      // a las 09:00); el día 1 a las 12 UTC antes sale el reporte mensual.
+      let r = null, rt = null, ri = null, rm = null;
       if (horaUTC === 10) {
         try {
           rt = await avisarTareas(env);
         } catch (e) {
           rt = { ok: false, excepcion: String(e && e.stack || e) };
         }
+        rm = await pedirEnvio(env, 'tareas');
       } else {
+        if (horaUTC === 12 && t.getUTCDate() === 1) {
+          try {
+            ri = await avisarInforme(env, t);
+          } catch (e) {
+            ri = { ok: false, excepcion: String(e && e.stack || e) };
+          }
+          // Margen para que el teléfono reclame el aviso del reporte antes de que llegue el de hábitos.
+          await new Promise((ok) => setTimeout(ok, 5000));
+        }
         try {
           r = await avisar(env, 'auto', false);
         } catch (e) {
@@ -279,7 +315,7 @@ export default {
         previo.unshift({ cuando: new Date().toISOString(),
                          hora: new Intl.DateTimeFormat('es-UY', { timeZone: 'America/Montevideo',
                                  hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
-                         cron: event && event.cron, r, rt });
+                         cron: event && event.cron, r, rt, ri, rm });
         await env.SUBS.put('log:cron', JSON.stringify(previo.slice(0, 20)));
       } catch (e) {}
     })());
@@ -366,4 +402,33 @@ async function avisarTareas(env) {
     }
   }
   return { ok: true, enviados, borrados, suscripciones: subs.length, errores, estado: estado };
+}
+
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const INFORME_URL = 'https://gastos-app.ilandaniele.workers.dev/informe/mensual';
+
+// Reporte mensual (día 1, 09:00 local): pide el mail a gastos-app (no hace nada sin proveedor de
+// mail) y avisa por push. El push va vacío: el texto y el destino los deja en KV (aviso:informe)
+// y el service worker los reclama en POST /api/aviso. El enlace abre el reporte del mes anterior.
+async function avisarInforme(env, t) {
+  const mail = await pedirEnvio(env, 'mensual');
+  const prev = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1));
+  const mes = MESES[prev.getUTCMonth()] + ' ' + prev.getUTCFullYear();
+  await env.SUBS.put('aviso:informe', JSON.stringify({
+    titulo: '📊 Reporte de gastos', cuerpo: 'Ya está el reporte de ' + mes, url: INFORME_URL
+  }), { expirationTtl: 3600 });
+  const subs = await listarSubs(env);
+  let enviados = 0, borrados = 0;
+  const errores = [];
+  for (const { key, sub } of subs) {
+    try {
+      const r = await sendPush(sub, env);
+      if (r.ok) enviados++;
+      else if (r.gone) { await env.SUBS.delete(key); borrados++; }
+      else errores.push(r.status);
+    } catch (e) {
+      errores.push(String(e));
+    }
+  }
+  return { ok: true, mes, mail, enviados, borrados, suscripciones: subs.length, errores };
 }

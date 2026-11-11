@@ -562,6 +562,9 @@ async function scanTicket(env, T, [base64Image]) {
   return { ok: true, items, store: String(parsed.store || '').trim(), supermarket: parsed.supermarket === true };
 }
 
+// Lectores que reusa src/informes.js (reporte mensual por mail / web).
+export { tabDeMes, splitCategorias };
+
 // Envuelve un handler con la forma "Safe" de Apps Script: los errores salen como { ok:false, error }.
 // (llamar() en rpc.js ya lo hace, pero así addExpenseSafe devuelve { ok:true, ...resultado }.)
 export const HANDLERS = {

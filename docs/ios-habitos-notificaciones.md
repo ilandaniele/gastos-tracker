@@ -1,5 +1,10 @@
 # Notificaciones de hábitos en iPhone
 
+> **Legacy.** Estos atajos llaman a Apps Script, que ya no es la fuente de los datos. Hoy los
+> avisos los manda el Worker `gastos-habitos` por web push (23, 00, 01 y 02 para el cierre del
+> día, 07:00 tareas del día, 09:00 a qué hora te levantaste), así que no hacen falta. Si el web
+> app de Apps Script se despublica, estos atajos dejan de andar.
+
 La idea: de noche el teléfono insiste hasta que cierres el día, y a la mañana
 te pregunta una sola cosa (a qué hora te levantaste). Si ya cargaste, no
 molesta más.

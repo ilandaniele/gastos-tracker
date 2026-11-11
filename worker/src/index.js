@@ -5,8 +5,11 @@ import { buildDelta } from './sync.js';
 import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 import { habitPending, tasksPending } from './pending.js';
+import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesValido } from './informes.js';
 
 const TENANT = 'ilan';
+// Los informes son HTML estático con estilos en línea: sin scripts, sin conexiones, sin embeber.
+const CSP_INFORME = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
@@ -362,8 +365,12 @@ export default {
     // Avisos pendientes (los consulta el Worker de la PWA por service binding): además de la
     // sesión normal, entran con la clave compartida APP_KEY en X-Sync-Key. Solo GET y solo estas
     // dos rutas; cualquier otra cosa sigue exigiendo la sesión.
+    // Los informes (HTML de GET /informe/mensual y /informe/tareas, y el envío por mail con
+    // POST /api/informe/enviar) tienen la misma doble entrada: los llama el cron de la PWA.
     const esPendiente = req.method === 'GET' && (url.pathname === '/api/habit-pending' || url.pathname === '/api/tasks-pending');
-    const porClave = esPendiente && !!env.APP_KEY && eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY);
+    const esInforme = (req.method === 'GET' && (url.pathname === '/informe/mensual' || url.pathname === '/informe/tareas')) ||
+      (req.method === 'POST' && url.pathname === '/api/informe/enviar');
+    const porClave = (esPendiente || esInforme) && !!env.APP_KEY && eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY);
 
     if (!porClave && !(await autorizado(req, env))) {
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
@@ -390,6 +397,19 @@ export default {
       return json(await llamar(env, TENANT, decodeURIComponent(url.pathname.slice(9)), body && body.args));
     }
 
+    // Envío del informe por mail (solo si hay proveedor configurado, ver informes.js). Sin cuerpo:
+    // todo va en la query (?tipo=mensual|tareas, y mes=YYYY-MM opcional para el mensual).
+    if (req.method === 'POST' && url.pathname === '/api/informe/enviar') {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      try {
+        const tipo = url.searchParams.get('tipo');
+        const mes = url.searchParams.get('mes') || '';
+        const r = await enviarInforme(env, TENANT, tipo, { mes });
+        return json(r, r.ok ? 200 : (r.error && r.error.startsWith('Resend') ? 502 : 400));
+      } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
+    }
+
     if (req.method !== 'GET') return json({ ok: false, error: 'Solo lectura' }, 405);
 
     try {
@@ -400,6 +420,24 @@ export default {
       if (url.pathname.startsWith('/api/')) return await api(req, env, url);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);
+    }
+
+    if (url.pathname === '/informe/mensual' || url.pathname === '/informe/tareas') {
+      try {
+        let html;
+        if (url.pathname === '/informe/tareas') html = await tareasHoyHtml(env, TENANT);
+        else {
+          const mes = url.searchParams.get('mes') || mesPorDefecto();
+          if (!mesValido(mes)) return new Response('Mes inválido (usar YYYY-MM)', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          html = await reporteMensualHtml(env, TENANT, mes);
+        }
+        return new Response(html, { headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_INFORME
+        } });
+      } catch (e) {
+        return new Response('Error: ' + String(e && e.message || e), { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
     }
 
     if (url.pathname === '/app') {

@@ -1,7 +1,42 @@
 # Sistema de Gastos — Contexto Completo
 
 > Documento de traspaso. Leé esto (o pasáselo a una sesión nueva de Claude) para
-> retomar el proyecto desde cualquier computadora. Última actualización: Mayo 2026.
+> retomar el proyecto desde cualquier computadora. Última actualización: Mayo 2026
+> (secciones 1 a 11, que describen Apps Script); arquitectura vigente: sección 0, noviembre 2026.
+
+---
+
+## 0. Arquitectura vigente (2026-11-11)
+
+**Todo lo que sigue desde la sección 1 describe el sistema original en Google Sheet + Apps
+Script. Hoy la fuente de verdad es D1 (Cloudflare) y Apps Script quedó como referencia y
+respaldo.** Detalle de la migración en [`AUDITORIA-migracion.md`](AUDITORIA-migracion.md).
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Worker `gastos-app` | `worker/` | Datos en D1 (`gastos-db`), formulario en `/app`, API de escritura `POST /api/rpc/<función>` (mismos nombres que las funciones `*Safe` de Apps Script), visor y `/api/habit-pending`, `/api/tasks-pending`. |
+| Worker `gastos-habitos` | `pwa/` | Shell de la PWA, suscripciones y envío de web push, y el cron compartido `*/15 * * * *`. No llama a Apps Script: le pregunta a `gastos-app` por service binding `GASTOS_APP`. |
+| Apps Script + Sheet | `apps-script/Code.gs` | Legacy: referencia y respaldo. Sus triggers y el deployment web se pueden apagar (checklist en `AUDITORIA-migracion.md`, sección 11). |
+
+- **Los 7 módulos** (gastos, ahorros, ingresos, tareas, hábitos, país, compras) tienen fuente
+  `d1` (`settings.fuente_<modulo>`). `POST /api/sync` devuelve `{omitido}` y no toca Apps Script.
+- **Entrada**: la PWA abre `https://gastos-app.ilandaniele.workers.dev/app`. El formulario no
+  se embebe en un iframe porque `/app` manda `frame-ancestors 'none'`; con `VIEW_KEY` en `pwa/`
+  el shell va a `/?key=<VIEW_KEY>&next=/app` para dejar la cookie de sesión.
+- **Auth de `gastos-app`**: sesión de Cloudflare Access (cuando se active) o cookie con
+  `VIEW_KEY`. Las dos rutas de avisos también aceptan `X-Sync-Key` = `APP_KEY` (solo GET).
+  **Cloudflare Access sigue pendiente:** hay que crear la app de Access para
+  `gastos-app.ilandaniele.workers.dev` y pasar su AUD tag (`ACCESS_TEAM`, `ACCESS_AUD`).
+- **Push (UTC; Montevideo = UTC-3)**: 2, 3, 4, 5 = 23 a 02 (cierre del día, hábitos);
+  10 = 07:00 (tareas del día, solo si hay pendientes); 12 = 09:00 (a qué hora te levantaste).
+- **Secretos.** `gastos-app`: `APP_KEY`, `VIEW_KEY`, `GEMINI_API_KEY`. `gastos-habitos`:
+  `ADMIN_KEY`, `APP_KEY`, `VAPID_PRIVATE_JWK`, `VAPID_PUBLIC_KEY`, opcional `VIEW_KEY`.
+  `APP_KEY` igual en los dos.
+- **Límites de D1 gratis**: 100.000 filas escritas por día, 5.000.000 leídas por día y hasta
+  50 consultas por invocación de Worker. Por eso el sync (mientras hubo módulos en `sheet`) fue
+  diferencial: huella por grupo en `sync_state` y solo se escribe lo que cambió.
+- **Reimportar** (`worker/scripts/import.mjs`) pisa D1 con lo que haya en el Sheet: con los
+  módulos en `d1` no correrlo salvo para recuperar datos.
 
 ---
 

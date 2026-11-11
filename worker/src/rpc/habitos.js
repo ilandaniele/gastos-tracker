@@ -713,4 +713,4 @@ export const HANDLERS = {
 };
 
 // Lectores que reusa src/pending.js (avisos de hábitos).
-export { getHabitDay, parseHM };
+export { getHabitDay, parseHM, getHabitsData };

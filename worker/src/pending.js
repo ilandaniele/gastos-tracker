@@ -5,7 +5,7 @@ import { getHabitDay, parseHM } from './rpc/habitos.js';
 import { leerTareas } from './rpc/tareas.js';
 import { hoy } from './rpc/util.js';
 
-const WATER_GOAL_ML = 2400; // objetivo diario de agua
+export const WATER_GOAL_ML = 2400; // objetivo diario de agua
 // Ventanas horarias para saber si ya comió, sin depender de la etiqueta (editable a mano).
 const MEAL_WINDOWS = { desayuno: [5, 11.5], almuerzo: [11.5, 16], cena: [19, 24] };
 
@@ -154,14 +154,18 @@ export async function habitPending(env, T, opts) {
 }
 
 // Citas de hoy (con hora, ordenadas), tareas con vencimiento hoy y lo vencido sin completar.
-export async function tasksPending(env, T) {
+export async function digestHoy(env, T) {
   const hoyIso = hoy();
   const filas = (await leerTareas(env, T)).filter((f) => !f.completada);
   const citasHoy = filas.filter((f) => f.tipo === 'Cita' && f.fecha === hoyIso)
     .sort((a, b) => (a.hora || '99:99').localeCompare(b.hora || '99:99'));
   const tareasHoy = filas.filter((f) => f.tipo === 'Tarea' && f.fecha === hoyIso);
   const vencidas = filas.filter((f) => f.fecha && f.fecha < hoyIso);
-  const total = citasHoy.length + tareasHoy.length + vencidas.length;
+  return { hoy: hoyIso, citasHoy, tareasHoy, vencidas, total: citasHoy.length + tareasHoy.length + vencidas.length };
+}
+
+export async function tasksPending(env, T) {
+  const { hoy: hoyIso, citasHoy, tareasHoy, vencidas, total } = await digestHoy(env, T);
   const partes = [];
   citasHoy.forEach((c) => partes.push('📅 ' + (c.hora ? c.hora + ' ' : '') + c.texto));
   tareasHoy.forEach((t) => partes.push('☐ ' + t.texto));

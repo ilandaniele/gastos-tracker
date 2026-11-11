@@ -1,4 +1,4 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Agregar Gasto</title>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agregar Gasto</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap" rel="stylesheet">
@@ -288,6 +288,9 @@
   .ahobreak div { display: flex; flex-direction: column; gap: 2px; }
   .ahobreak span { font-size: 10px; color: rgba(255,255,255,0.7); }
   .ahobreak b { font-size: 13px; font-variant-numeric: tabular-nums; }
+  /* La tarjeta "Disponible este mes" es clara: sin esto las etiquetas (blanco 70%) no se ven. */
+  #ahoSaldoCard .ahobreak { border-top: 0; margin-top: 8px; padding-top: 0; }
+  #ahoSaldoCard .ahobreak span { color: #6b7280; }
   .ahocom { margin-top: 10px; font-size: 11px; color: rgba(255,255,255,0.65);
              font-variant-numeric: tabular-nums; }
   .ahotipo { margin: 0; padding: 10px 6px; font-size: 13px; background: #f5f5f5; color: #1a1a1a; font-weight: 600; }
