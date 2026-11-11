@@ -458,12 +458,25 @@
 </div>
 
 <div id="dashPanel" class="panel">
-  <h1 id="dashTitle">Dashboard</h1>
-  <div class="dash-toolbar">
-    <select id="dashMonth" aria-label="Mes"></select>
-    <button type="button" id="refreshDash" class="dash-refresh">↻ Recargar</button>
+  <!-- Vista del mes: navegador de mes (anterior / título que abre el selector / siguiente),
+       resumen, y la lista de gastos con buscador y filtros (ver renderDashboard en form-scripts.html). -->
+  <div class="mes-nav" id="mesNav">
+    <button type="button" id="mesPrev" class="mes-navbtn" aria-label="Mes anterior" disabled>‹</button>
+    <button type="button" id="mesTitle" class="mes-title" aria-haspopup="dialog" aria-label="Elegir mes">
+      <span id="dashTitle">Cargando…</span><span class="mes-caret" aria-hidden="true">▾</span>
+    </button>
+    <button type="button" id="mesNext" class="mes-navbtn" aria-label="Mes siguiente" disabled>›</button>
+    <button type="button" id="refreshDash" class="mes-navbtn mes-refresh" aria-label="Recargar">↻</button>
   </div>
   <div id="dashContent" class="dash-loader">Cargando datos...</div>
+</div>
+
+<!-- Selector de mes (hoja que sube desde abajo en el celular) -->
+<div id="mesSheet" role="dialog" aria-modal="true" aria-label="Elegir mes" hidden>
+  <div class="mes-sheet-box">
+    <div class="mes-sheet-head"><b>Elegí un mes</b><button type="button" id="mesSheetClose" class="mes-sheet-x" aria-label="Cerrar">×</button></div>
+    <div id="mesSheetList" class="mes-sheet-list"></div>
+  </div>
 </div>
 
 <div id="habitPanel" class="panel">
