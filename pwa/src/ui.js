@@ -16,14 +16,10 @@ export const SHELL_HTML = `<!DOCTYPE html>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #f6f7f9;
                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  /* Este shell ya no mete la app de Apps Script en un iframe: Apps Script
-     sirve su propio contenido adentro de UN iframe interno suyo (así
-     funciona google.script.run). Meterlo en un segundo iframe acá encima
-     duplicaba el anidado, y en Safari mobile (que particiona cookies/storage
-     de terceros más agresivo que desktop) eso rompía en silencio el puente
-     de postMessage que usa google.script.run: se quedaba en "Cargando..."
-     para siempre, sin error. Por eso ahora se navega de verdad a la app
-     (top-level redirect) en vez de embeberla. */
+  /* Este shell no embebe la app en un iframe: el formulario que sirve gastos-app
+     manda frame-ancestors 'none' (y en Safari mobile las cookies de terceros
+     dentro de un iframe tampoco irían). Se navega de verdad a la app
+     (top-level redirect). */
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
              color: #6b7280; font-size: 14px; }
   /* El botón solo aparece si faltan permisos. Una vez activado no molesta más. */
@@ -82,8 +78,7 @@ export const SHELL_HTML = `<!DOCTYPE html>
     setTimeout(function() { toast.classList.remove('show'); }, ms || 4000);
   }
 
-  // Navega de verdad a la app (no la mete en un iframe: ver nota arriba de
-  // #loading sobre por qué el iframe rompía google.script.run en mobile).
+  // Navega de verdad a la app (no la mete en un iframe: ver nota arriba de #loading).
   function ir() {
     if (yendo) return;
     yendo = true;
@@ -184,6 +179,29 @@ function conTimeout(promesa, ms) {
 self.addEventListener('push', function(event) {
   event.waitUntil((async function() {
     var titulo = '🧘 Hábitos', cuerpo = 'Cargá lo que falta del día', url = '/';
+    var hora = new Date().getHours();
+    // Aviso de tareas: el cron lo manda a las 07:00 (hora de Montevideo). El push va vacío y
+    // no dice por qué se mandó, así que se distingue por la hora del teléfono: entre las 6 y
+    // las 9 es el de tareas/citas del día (el de hábitos de la mañana sale a las 9 y el cierre
+    // del día de noche).
+    if (hora >= 6 && hora < 9) {
+      try { fetch('/api/ack?e=push-tareas', { cache: 'no-store' }); } catch (e) {}
+      var tt = '🗓️ Tareas de hoy', tc = 'Tenés pendientes para hoy';
+      try {
+        var rt = await conTimeout(fetch('/api/pending?tipo=tareas', { cache: 'no-store' }), 3000);
+        var dt = await rt.json();
+        if (dt && dt.msg) tc = dt.msg;
+      } catch (e) {}
+      await self.registration.showNotification(tt, {
+        body: tc,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: 'tareas',
+        renotify: true,
+        data: { url: url }
+      });
+      return;
+    }
     // Acuse de recibo: deja constancia en el servidor de que el push llegó al
     // teléfono. Sin esto no hay forma de distinguir "no llegó" de "llegó y no
     // se mostró".
@@ -210,28 +228,6 @@ self.addEventListener('push', function(event) {
       data: { url: url }
     });
 
-    // Tareas: el push no dice por qué se mandó (va vacío a propósito, ver
-    // push.js), así que esto corre en TODO push que despierte el teléfono.
-    // Se limita a la franja de la mañana para no mostrar un recordatorio de
-    // citas si lo que en realidad llegó fue el aviso de cerrar el día a la
-    // noche — la hora la da el reloj del teléfono, no el servidor.
-    var hora = new Date().getHours();
-    if (hora >= 6 && hora < 12) {
-      try {
-        var rt = await conTimeout(fetch('/api/pending?tipo=tareas', { cache: 'no-store' }), 3000);
-        var dt = await rt.json();
-        if (dt && dt.pendingNum === 1) {
-          await self.registration.showNotification('🗓️ Tareas de hoy', {
-            body: dt.msg || 'Tenés pendientes',
-            icon: '/icon-192.png',
-            badge: '/icon-192.png',
-            tag: 'tareas',
-            renotify: true,
-            data: { url: url }
-          });
-        }
-      } catch (e) {}
-    }
   })());
 });
 

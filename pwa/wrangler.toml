@@ -6,6 +6,7 @@ compatibility_date = "2026-08-01"
 # avisos push solo en minuto 0 de estas horas (ver scheduled() en src/worker.js):
 # 2,3,4,5 UTC = 23, 00, 01, 02 en Montevideo (cierre del día)
 # 12 UTC      = 09 en Montevideo (a qué hora te levantaste)
+# 10 UTC      = 07 en Montevideo (tareas y citas del día)
 [triggers]
 crons = ["*/15 * * * *"]
 
@@ -18,8 +19,10 @@ service = "gastos-app"
 binding = "SUBS"
 id = "cfbdab2a8c994ae7b35be7bad8bb40cb"
 
+# Secretos (wrangler secret put): APP_KEY (misma que gastos-app: autentica las consultas por el
+# binding), VAPID_PRIVATE_JWK, VAPID_PUBLIC_KEY, ADMIN_KEY y, opcional, VIEW_KEY (misma clave de
+# visor que gastos-app: deja la sesión puesta cuando el shell entra al formulario).
 [vars]
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec"
 VAPID_SUBJECT = "ilan.daniele@gmail.com"
 
 # Los iconos se importan como bytes desde el código

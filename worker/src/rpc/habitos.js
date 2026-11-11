@@ -711,3 +711,6 @@ export const HANDLERS = {
     return { ok: true, tab: tabDe(cur.fecha), deleted: String(cur.detalle || cur.tipo || '') + ' (' + (toNum(cur.ml) || 0) + ' ml)', total };
   } }
 };
+
+// Lectores que reusa src/pending.js (avisos de hábitos).
+export { getHabitDay, parseHM };

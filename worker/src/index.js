@@ -4,6 +4,7 @@ import UI from './ui.html';
 import { buildDelta } from './sync.js';
 import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
+import { habitPending, tasksPending } from './pending.js';
 
 const TENANT = 'ilan';
 
@@ -321,11 +322,26 @@ export default {
     // Entrada con clave: la guarda en cookie y limpia la URL.
     const k = url.searchParams.get('key');
     if (k && env.VIEW_KEY && eq(k, env.VIEW_KEY)) {
+      const cookieVk = `vk=${encodeURIComponent(k)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`;
+      // Entrada desde la PWA (otro sitio): una cookie Strict no viaja en una navegación que
+      // arranca en otro sitio ni en sus redirecciones 302. Esta página la guarda y navega a /app
+      // por su cuenta (meta refresh = navegación propia del mismo sitio), así que la cookie sí va.
+      if (url.searchParams.get('next') === '/app') {
+        return new Response('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/app"><title>Gastos</title>', {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Set-Cookie': cookieVk,
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+            'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'"
+          }
+        });
+      }
       return new Response(null, {
         status: 302,
         headers: {
           Location: '/',
-          'Set-Cookie': `vk=${encodeURIComponent(k)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`,
+          'Set-Cookie': cookieVk,
           'Cache-Control': 'no-store'
         }
       });
@@ -341,7 +357,13 @@ export default {
       catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
-    if (!(await autorizado(req, env))) {
+    // Avisos pendientes (los consulta el Worker de la PWA por service binding): además de la
+    // sesión normal, entran con la clave compartida APP_KEY en X-Sync-Key. Solo GET y solo estas
+    // dos rutas; cualquier otra cosa sigue exigiendo la sesión.
+    const esPendiente = req.method === 'GET' && (url.pathname === '/api/habit-pending' || url.pathname === '/api/tasks-pending');
+    const porClave = esPendiente && !!env.APP_KEY && eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY);
+
+    if (!porClave && !(await autorizado(req, env))) {
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
@@ -369,6 +391,10 @@ export default {
     if (req.method !== 'GET') return json({ ok: false, error: 'Solo lectura' }, 405);
 
     try {
+      if (url.pathname === '/api/habit-pending') {
+        return json(await habitPending(env, TENANT, Object.fromEntries(url.searchParams)));
+      }
+      if (url.pathname === '/api/tasks-pending') return json(await tasksPending(env, TENANT));
       if (url.pathname.startsWith('/api/')) return await api(req, env, url);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);

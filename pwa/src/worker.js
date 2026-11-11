@@ -1,17 +1,17 @@
 // Worker de notificaciones para la app de gastos y hábitos.
 //
 // Hace tres cosas:
-//   1. Sirve la PWA (el shell que envuelve la app de Apps Script en un iframe,
-//      el manifest, el service worker y los iconos). Sin esto iOS no deja
-//      mandar notificaciones: solo las manda a apps agregadas a inicio.
+//   1. Sirve la PWA (el shell que lleva a la app de gastos, el manifest, el
+//      service worker y los iconos). Sin esto iOS no deja mandar
+//      notificaciones: solo las manda a apps agregadas a inicio.
 //   2. Guarda las suscripciones de push en KV.
-//   3. Por cron pregunta a Apps Script si falta cargar algo y, si falta,
-//      manda el push.
+//   3. Por cron le pregunta a gastos-app (service binding GASTOS_APP, datos en
+//      D1) si falta cargar algo y, si falta, manda el push.
 //
 // El cron corre en UTC. Montevideo es UTC-3 todo el año, así que
-// 2,3,4,5 UTC = 23, 00, 01, 02 local (el cierre del día) y 12 UTC = 09 local
-// (la hora de levantarse — el mismo horario en el que también se avisan las
-// tareas/citas del día, ver avisarTareas()).
+// 2,3,4,5 UTC = 23, 00, 01, 02 local (el cierre del día), 12 UTC = 09 local
+// (la hora de levantarse) y 10 UTC = 07 local (tareas y citas del día, ver
+// avisarTareas()).
 
 import { sendPush } from './push.js';
 import { SHELL_HTML, SERVICE_WORKER, MANIFEST } from './ui.js';
@@ -43,39 +43,50 @@ function modoPorHora(h) {
   return '';
 }
 
-// extra: parámetros sueltos que se le pasan tal cual a Apps Script (desde,
-// hasta, date...). Sirve para probar franjas horarias sin tocar el código.
-// La app de Apps Script está publicada como "cualquiera con el link" (es lo
-// único que le permite responderle a este Worker sin sesión de Google), así que
-// pide una clave. La clave vive acá como secreto y nunca sale al navegador
-// salvo dentro del HTML que ya pasó por el login.
-function appUrl(env, extraParams) {
-  const url = new URL(env.APPS_SCRIPT_URL);
-  if (env.APP_KEY) url.searchParams.set('k', env.APP_KEY);
-  for (const [k, v] of Object.entries(extraParams || {})) url.searchParams.set(k, v);
-  return url;
+// Pregunta a gastos-app por service binding (sin pasar por internet ni por Access):
+// se autentica con la clave compartida APP_KEY en X-Sync-Key.
+async function consultarApp(env, ruta, params) {
+  if (!env.GASTOS_APP || !env.APP_KEY) throw new Error('Falta binding GASTOS_APP o APP_KEY');
+  const url = new URL('https://gastos-app' + ruta);
+  for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, v);
+  const res = await env.GASTOS_APP.fetch(url.toString(), { headers: { 'X-Sync-Key': env.APP_KEY } });
+  const texto = await res.text();
+  let data;
+  try { data = JSON.parse(texto); } catch (e) { throw new Error('gastos-app ' + res.status + ': ' + texto.slice(0, 100)); }
+  if (res.status === 401) throw new Error('gastos-app rechazó la clave (APP_KEY distinta en los dos Workers)');
+  return data;
 }
 
+// Dónde lo manda el shell: el formulario que sirve gastos-app. Ese Worker manda
+// X-Frame-Options/frame-ancestors 'none', así que no se puede embeber: el shell
+// navega a él. Si este Worker tiene VIEW_KEY (la misma clave de visor de gastos-app),
+// la usa para dejar la cookie de sesión en el primer paso (iOS guarda la cookie de la
+// app instalada aparte de Safari, y desde acá no se puede tipear una URL con ?key=).
+const APP_FORM_URL = 'https://gastos-app.ilandaniele.workers.dev/app';
+function appUrl(env) {
+  if (!env.VIEW_KEY) return APP_FORM_URL;
+  const u = new URL('https://gastos-app.ilandaniele.workers.dev/');
+  u.searchParams.set('key', env.VIEW_KEY);
+  u.searchParams.set('next', '/app');
+  return u.toString();
+}
+
+// extra: parámetros sueltos que se le pasan tal cual (desde, hasta, date...).
+// Sirve para probar franjas horarias sin tocar el código.
 async function pending(env, modoRaw, extra) {
   const modo = modoRaw === 'auto' ? modoPorHora(horaLocal()) : (modoRaw || '');
-  const url = appUrl(env);
-  url.searchParams.set('action', 'habitPending');
-  if (modo) url.searchParams.set('modo', modo);
-  for (const [k, v] of Object.entries(extra || {})) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { redirect: 'follow', cf: { cacheTtl: 0 } });
-  const data = await res.json();
+  const params = { ...(extra || {}) };
+  if (modo) params.modo = modo;
+  const data = await consultarApp(env, '/api/habit-pending', params);
   return { ...data, modoUsado: modo };
 }
 
 // Citas de hoy + tareas que vencen hoy + vencidas sin completar.
 async function pendingTareas(env) {
-  const url = appUrl(env);
-  url.searchParams.set('action', 'tasksPending');
-  const res = await fetch(url.toString(), { redirect: 'follow', cf: { cacheTtl: 0 } });
-  return await res.json();
+  return await consultarApp(env, '/api/tasks-pending');
 }
 
-// Todo lo que no sea de control se reenvía a Apps Script
+// Todo lo que no sea de control se reenvía a gastos-app
 function extraParams(searchParams) {
   const out = {};
   for (const [k, v] of searchParams) {
@@ -129,7 +140,7 @@ export default {
     const p = url.pathname;
 
     if (p === '/' || p === '/index.html') {
-      return new Response(SHELL_HTML.replace('__APP_URL__', appUrl(env).toString()), {
+      return new Response(SHELL_HTML.replace('__APP_URL__', () => appUrl(env)), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
       });
     }
@@ -237,28 +248,30 @@ export default {
   async scheduled(event, env, ctx) {
     // El cron corre cada 15 min (la cuenta gratis de Cloudflare permite solo 5 crons,
     // así que este se comparte): siempre sincroniza D1 vía gastos-app, y los avisos
-    // push salen solo en los horarios de siempre (minuto 0 de 02, 03, 04, 05 y 12 UTC).
+    // push salen solo en los horarios de siempre (minuto 0 de 02, 03, 04, 05 y 12 UTC) y
+    // el de tareas (minuto 0 de 10 UTC = 07:00 en Montevideo).
     ctx.waitUntil(sincronizarD1(env));
     const t = new Date(event && event.scheduledTime ? event.scheduledTime : Date.now());
-    if (!(t.getUTCMinutes() === 0 && [2, 3, 4, 5, 12].indexOf(t.getUTCHours()) >= 0)) return;
+    const horaUTC = t.getUTCHours();
+    if (!(t.getUTCMinutes() === 0 && [2, 3, 4, 5, 10, 12].indexOf(horaUTC) >= 0)) return;
 
     // El resultado del cron se guarda en KV: es la única forma de saber por qué
     // no llegó un aviso sin poder mirar los logs en vivo.
     ctx.waitUntil((async () => {
-      let r;
-      try {
-        r = await avisar(env, 'auto', false);
-      } catch (e) {
-        r = { ok: false, excepcion: String(e && e.stack || e) };
-      }
-      // Tareas: una sola vez al día, en el mismo horario que "¿a qué hora te
-      // levantaste?" — no tiene sentido recordar citas de noche.
-      let rt = null;
-      if (horaLocal() === 9) {
+      // 10 UTC (07:00 local): solo el aviso de tareas/citas del día. Resto de las horas:
+      // el de hábitos (cierre del día de noche, "¿a qué hora te levantaste?" a las 09:00).
+      let r = null, rt = null;
+      if (horaUTC === 10) {
         try {
           rt = await avisarTareas(env);
         } catch (e) {
           rt = { ok: false, excepcion: String(e && e.stack || e) };
+        }
+      } else {
+        try {
+          r = await avisar(env, 'auto', false);
+        } catch (e) {
+          r = { ok: false, excepcion: String(e && e.stack || e) };
         }
       }
       try {
@@ -274,7 +287,8 @@ export default {
 };
 
 // Le pide al Worker gastos-app (service binding GASTOS_APP) que actualice D1 desde
-// Apps Script. Guarda el último resultado en KV (log:sync) para poder revisarlo.
+// el Sheet (vía Apps Script, mientras algún módulo siga con fuente 'sheet').
+// Guarda el último resultado en KV (log:sync) para poder revisarlo.
 async function sincronizarD1(env) {
   let r;
   try {
@@ -297,7 +311,7 @@ async function avisar(env, modo, force, extra) {
     try {
       estado = await pending(env, modo, extra);
     } catch (e) {
-      return { ok: false, error: 'No se pudo consultar Apps Script: ' + String(e) };
+      return { ok: false, error: 'No se pudo consultar gastos-app: ' + String(e) };
     }
     // Si no falta nada, no se molesta. Es lo que hace que la insistencia se
     // apague sola cuando carga los datos.
@@ -324,13 +338,15 @@ async function avisar(env, modo, force, extra) {
 }
 
 // Igual que avisar() pero para tareas/citas — sin franjas horarias ni force,
-// porque solo se llama una vez al día (ver scheduled()).
+// porque solo se llama una vez al día (ver scheduled()). El push va vacío: el
+// service worker del teléfono (ui.js) ve que son las 6-9 de la mañana y muestra
+// '🗓️ Tareas de hoy' con el msg de /api/tasks-pending.
 async function avisarTareas(env) {
   let estado;
   try {
     estado = await pendingTareas(env);
   } catch (e) {
-    return { ok: false, error: 'No se pudo consultar Apps Script (tareas): ' + String(e) };
+    return { ok: false, error: 'No se pudo consultar gastos-app (tareas): ' + String(e) };
   }
   if (!estado || estado.pendingNum === 0) {
     return { ok: true, enviados: 0, motivo: 'nada pendiente', estado: estado };

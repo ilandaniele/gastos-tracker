@@ -624,3 +624,8 @@ export const HANDLERS = {
     return { ok: true, subcatSuspendidas: actual };
   } }
 };
+
+// Filas (con el mismo armado que getTasksData) para src/pending.js: citas y tareas de hoy.
+export async function leerTareas(env, T) {
+  return leerFilas(env, T, await leerConfig(env, T));
+}
