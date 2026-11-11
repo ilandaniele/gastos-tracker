@@ -1,7 +1,8 @@
 // Worker nuevo: visor de gastos sobre D1 (y base de la app que reemplazará a Apps Script).
 // Hoy es de SOLO LECTURA: los datos entran por scripts/import.mjs desde el Sheet.
 import UI from './ui.html';
-import { buildStatements } from './sync.js';
+import { buildDelta } from './sync.js';
+import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 
 const TENANT = 'ilan';
@@ -296,9 +297,13 @@ async function sincronizar(env) {
   if (data.errores && data.errores.length) throw new Error('Volcado con errores, no se carga: ' + JSON.stringify(data.errores).slice(0, 200));
   const f = await fuentes(env, TENANT);
   const saltear = MODULOS.filter((m) => f[m] === 'd1');
-  const { statements, counts } = buildStatements(data, { fuente: 'cron', saltear });
+  // Solo se escriben los grupos que cambiaron desde el último sync (huella en sync_state):
+  // el plan gratis de D1 limita las filas escritas por día.
+  const { results } = await env.DB.prepare('SELECT grupo, huella FROM sync_state WHERE tenant_id = ?').bind(TENANT).all();
+  const previas = Object.fromEntries(results.map((x) => [x.grupo, x.huella]));
+  const { statements, counts } = await buildDelta(data, previas, { tenant: TENANT, fuente: 'cron', saltear });
   // Una sola batch = una transacción: si algo falla no queda a medias.
-  await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
+  if (statements.length) await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   return counts;
 }
 
@@ -367,6 +372,12 @@ export default {
       if (url.pathname.startsWith('/api/')) return await api(req, env, url);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);
+    }
+
+    if (url.pathname === '/app') {
+      return new Response(renderForm(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Montevideo' }).format(new Date())), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_FORM }
+      });
     }
 
     return new Response(UI, {

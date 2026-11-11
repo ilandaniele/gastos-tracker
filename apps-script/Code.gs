@@ -64,7 +64,7 @@ const CATEGORIES = [
 // lee esa celda sigue andando. El separador no es "/" porque "Bebida/Bar" ya
 // lleva barra.
 const CAT_SEP = ' + ';
-const CAT_MAX = 2;
+const CAT_MAX = 20; // sin tope práctico: se pueden elegir todas las que hagan falta
 // Si el texto del ítem nombra una de estas (cita, amigos) va PRIMERA y la de
 // qué fue (comida, bar...) queda de segunda.
 const CATS_SOCIALES = ['Cita', 'Amigos'];
@@ -527,7 +527,7 @@ function classifyItems(item) {
   const sociales = hits.filter(c => CATS_SOCIALES.indexOf(c) >= 0);
   if (!sociales.length) return [hits[0]];
   const otra = hits.find(c => CATS_SOCIALES.indexOf(c) < 0 && c !== CAT_AHORRO);
-  return sociales.concat(otra ? [otra] : []).slice(0, CAT_MAX);
+  return sociales.concat(otra ? [otra] : []).slice(0, 2); // sugerencia automática: hasta 2
 }
 
 // Categoría(s) finales de un gasto nuevo, ya como texto para la celda.
