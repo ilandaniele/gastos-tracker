@@ -3229,7 +3229,9 @@
   var DASH_SEQ = 0;             // descarta respuestas viejas si se navega rápido
   var DASH_DATA = null;
   var DASH_INGRESOS = null;     // ingresos de todos los meses (getIngresosData), una vez por carga
-  var DASH_ANIM = '';           // 'l' | 'r': hacia dónde se desliza el contenido al cambiar de mes
+  var MES_SHEET_T = 0;          // timer que oculta la hoja de meses al terminar su animación de salida
+  var DASH_STAG = false;        // ya se hizo la entrada escalonada de la primera carga
+  var DASH_ANIM = '';         // 'l' | 'r': hacia dónde se desliza el contenido al cambiar de mes
   var DASH_CATS = [], DASH_CAT_MON = 'UYU';
   var MES_KEY = 'gastos-tracker.mes.v1';
   var MES = { view: 'gastos', group: 'dia', q: '', cat: '', card: '', tipo: '' };
@@ -3364,7 +3366,9 @@
       })
       .withFailureHandler(function(err) {
         if (seq !== DASH_SEQ) return;
-        renderDashboard({ ok: false, error: (err && err.message ? err.message : String(err)) });
+        var msg = err && err.message ? err.message : String(err);
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) msg = 'No hay conexión con el servidor. Revisá tu internet y volvé a intentar.';
+        renderDashboard({ ok: false, error: msg });
       })
       .getDashboardData(DASH_MONTH || null);
     if (!DASH_MONTHS || !opts.cache) loadDashMonths();
@@ -3416,6 +3420,8 @@
     if (!DASH_MONTHS) return;
     pintarSelectorMeses();
     var sh = document.getElementById('mesSheet');
+    clearTimeout(MES_SHEET_T);
+    sh.classList.remove('closing');
     sh.hidden = false;
     document.body.classList.add('mes-sheet-open');
     var sel = sh.querySelector('.mes-opt.sel');
@@ -3424,10 +3430,13 @@
   }
   function cerrarSelectorMes() {
     var sh = document.getElementById('mesSheet');
-    if (!sh || sh.hidden) return;
-    sh.hidden = true;
+    if (!sh || sh.hidden || sh.classList.contains('closing')) return;
     document.body.classList.remove('mes-sheet-open');
     var t = document.getElementById('mesTitle'); if (t) t.focus();
+    // Sale con animación (ver .closing en los estilos) y recién después se oculta.
+    sh.classList.add('closing');
+    clearTimeout(MES_SHEET_T);
+    MES_SHEET_T = setTimeout(function() { sh.hidden = true; sh.classList.remove('closing'); }, 190);
   }
 
   // Barras con el total (UYU) de cada mes, últimos 12; tocar una barra elige ese mes.
@@ -3618,6 +3627,13 @@
     var days = document.getElementById('mesDays');
     if (days) days.addEventListener('click', irADia);
     if (DASH_EXPENSES.length) mesVista(MES.view, true);
+    // Entrada escalonada sólo la primera vez que se pinta el mes (no al cambiar de mes ni al refrescar).
+    if (!DASH_STAG) {
+      DASH_STAG = true;
+      var filas = content.querySelectorAll('#mesView .gx');
+      for (var f = 0; f < filas.length && f < 8; f++) { filas[f].style.setProperty('--i', f); filas[f].classList.add('stag-in'); }
+      setTimeout(function() { var l = content.querySelectorAll('.stag-in'); for (var q = 0; q < l.length; q++) l[q].classList.remove('stag-in'); }, 700);
+    }
     pintarHeroComparacion();
     cargarIngresosDash();
     // "Agregar Gasto" siempre lista el mes en curso: si se está viendo otro mes,
@@ -3782,16 +3798,28 @@
           '<span class="mes-grp-tot">' + sumaTexto(s.tot) + '</span></div><div class="mes-card">' + gastosListHtml(s.items, { fecha: true, noCat: true }) + '</div></section>';
       });
     } else {
+      // Los gastos sin fecha propia (todos los fijos y los meses viejos, que en la hoja
+      // sólo tenían el mes) no son un error: van al final en dos bloques con nombre,
+      // "Fijos del mes" y "Sin día asignado", en vez de un "Sin fecha" que parece roto.
+      var rango = function(k) { return k === '~fijos' ? 1 : (k === '~sindia' ? 2 : 0); };
       lista.forEach(function(e) {
-        var d = e.fecha || '';
+        var d = e.fecha || (e.fixed ? '~fijos' : '~sindia');
         if (!mapa[d]) { mapa[d] = { key: d, items: [] }; secs.push(mapa[d]); }
         mapa[d].items.push(e);
       });
-      secs.sort(function(a, z) { return a.key === '' ? 1 : (z.key === '' ? -1 : (a.key < z.key ? 1 : -1)); });
+      secs.sort(function(a, z) {
+        var ra = rango(a.key), rz = rango(z.key);
+        if (ra !== rz) return ra - rz;
+        return a.key < z.key ? 1 : (a.key > z.key ? -1 : 0);
+      });
+      var hayConDia = secs.some(function(s) { return !rango(s.key); });
       secs.forEach(function(s) {
-        var et = diaEtiqueta(s.key), tot = sumaGastos(s.items);
-        html += '<section class="mes-sec" data-dia="' + esc(s.key) + '"><div class="mes-grp"><span class="mes-grp-name"><span><span class="mes-dia-n">' + esc(et.nombre) + '</span>' +
-          (et.rel ? ' <span class="mes-rel">' + et.rel + '</span>' : '') + '</span></span>' +
+        var r = rango(s.key), tot = sumaGastos(s.items), et, sub = '';
+        if (r === 1) { et = { nombre: 'Fijos del mes', rel: '' }; sub = 'Se repiten todos los meses'; }
+        else if (r === 2) { et = { nombre: 'Sin día asignado', rel: '' }; sub = hayConDia ? 'Cargados sin día' : 'Este mes se cargó sin día'; }
+        else et = diaEtiqueta(s.key);
+        html += '<section class="mes-sec' + (r ? ' sin' : '') + '" data-dia="' + (r ? '' : esc(s.key)) + '"><div class="mes-grp"><span class="mes-grp-name"><span><span class="mes-dia-n">' + esc(et.nombre) + '</span>' +
+          (et.rel ? ' <span class="mes-rel">' + et.rel + '</span>' : '') + (sub ? '<small>' + sub + '</small>' : '') + '</span></span>' +
           '<span class="mes-grp-tot">' + ((tot.uyu || tot.usd) ? sumaTexto(tot) : '') + '</span></div><div class="mes-card">' + gastosListHtml(s.items, { noFecha: true }) + '</div></section>';
       });
     }

@@ -926,6 +926,144 @@
     .home-grid { grid-template-columns: repeat(3, 1fr); }
     .dash-kpis { grid-template-columns: repeat(4, 1fr); }
   }
+
+  /* ==========================================================
+     PULIDO: zonas táctiles, movimiento y detalles.
+     Movimiento: ease-out fuerte para entradas y respuestas (nunca ease-in en
+     la UI), 120-260 ms, y solo se animan transform y opacity. Las entradas
+     parten de scale .95 + opacity, nunca de scale(0).
+     prefers-reduced-motion apaga los desplazamientos (--mv) y el apretado
+     (--press) y deja solo fundidos casi instantáneos (bloque al final).
+     ========================================================== */
+  :root { --ease: cubic-bezier(0.23, 1, 0.32, 1); --mv: 18px; --press: 0.97; --press-row: 0.985; }
+  body { font-variant-numeric: tabular-nums; }
+  h1, h2, h3, .mes-empty-t, .mes-hero-cmp { text-wrap: balance; }
+  p, .mes-empty-s, .gx-sub, .hhint, .task-empty { text-wrap: pretty; }
+
+  /* --- Zonas táctiles de 44px ---
+     Controles sueltos: alto real de 44px. Controles chicos (íconos, checks,
+     chips): se deja el tamaño visual y se agranda el área de toque con un
+     ::after centrado de al menos 44x44 (--hit-w en 0 donde hay vecinos pegados
+     a los costados, así el área solo crece hacia arriba y abajo). */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select { min-height: 44px; }
+  .task-filter-hoy, .argtipos button, .ahotipo, .argquien, .hsino, .hnow, .hdatetoday, .htoggle,
+  .hmodal-actions button, .tartipo, .tarimp, .tmtipo, .tmimp, #subcatCerrarBtn, #catCerrarBtn,
+  #colMenuModal .hmodal-box button, #dayPrev, #dayNext, .hmeal-input button, .hsubtask-add button,
+  .scan-btn, .hphoto, .seg button, .tar-add-trigger, .mes-pill, #clearHabit { min-height: 44px; }
+  .dash-toolbar select { font-size: 16px; padding: 10px 12px; }
+  .mes-clear { right: 2px; top: 2px; width: 44px; height: 44px; }
+  .hsubtask-row, .comp-row { min-height: 44px; }
+  .hsubtask-list { gap: 0; }
+  .scan-row { grid-template-columns: 1fr 64px 84px 36px; }
+  .scan-row .del-btn { min-height: 36px; }
+  summary.hcard-title { padding: 14px 0; margin: -14px 0 -4px; }
+
+  .hmini, .task-check, .comp-check, .hsubtask-check, .task-col-add, .task-col-menu-btn, .task-subgroup-add,
+  .task-subgroup-susp, .task-subgroup-del, .task-counter-btn, .task-col-resume, .comp-del, .hsubtask-rm,
+  .hrating-clear, .seg-sm button, .catchips button, .mes-link, .scan-row .del-btn, .quick-scroll button { position: relative; }
+  .hmini::after, .task-check::after, .comp-check::after, .hsubtask-check::after, .task-col-add::after,
+  .task-col-menu-btn::after, .task-subgroup-add::after, .task-subgroup-susp::after, .task-subgroup-del::after,
+  .task-counter-btn::after, .task-col-resume::after, .comp-del::after, .hsubtask-rm::after, .hrating-clear::after,
+  .seg-sm button::after, .catchips button::after, .mes-link::after, .scan-row .del-btn::after, .quick-scroll button::after {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: max(100%, var(--hit-w, 44px)); height: max(100%, 44px);
+  }
+  /* Los que van pegados a un texto que también se toca quedan por encima de él. */
+  .task-check, .comp-check, .hsubtask-check, .comp-del, .hsubtask-rm, .task-col-add, .task-col-menu-btn { z-index: 1; }
+  .task-subgroup-add, .task-subgroup-susp, .task-subgroup-del, .seg-sm button, .quick-scroll button, .catchips button { --hit-w: 0px; }
+  .task-subgroup-add, .task-subgroup-susp, .task-subgroup-del { min-width: 32px; min-height: 32px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .task-col-add, .task-col-menu-btn { width: 38px; height: 38px; }
+  .quick-scroll { padding-top: 2px; }
+  .quick-scroll button { min-height: 40px; }
+  .catchips { gap: 8px 6px; }
+  .catchips button { min-height: 36px; }
+  .seg-sm button { min-height: 36px; }
+
+  /* Filtros de Tareas: los botones se ajustan a su texto y no se parten en dos líneas. */
+  .task-filters .argtipos button { flex: 1 1 auto; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+  .task-filters .task-filter-hoy { flex: 0 0 auto; }
+
+  /* --- Respuesta al toque: se aprieta apenas --- */
+  button, .gx.editable, .gx.grupo, .hmeal-row, summary, .task-check, .comp-check, .hsubtask-check {
+    transition: transform 0.16s var(--ease), background-color 0.16s var(--ease);
+  }
+  button:not(:disabled):active, summary:active { transform: scale(var(--press)); }
+  .task-check:active, .comp-check:active, .hsubtask-check:active { transform: scale(0.88); }
+  .gx.editable:active, .gx.grupo:active, button.gx:active, .hmeal-row:active, .mes-opt:active { transform: scale(var(--press-row)); }
+  .home-card { transition: transform 0.16s var(--ease); box-shadow: 0 2px 8px rgba(15,23,42,0.1); }
+  .home-card:active { transform: scale(var(--press)); }
+  .mes-hero { box-shadow: 0 2px 10px rgba(15,118,110,0.16); }
+  .mes-sheet-box { box-shadow: 0 -6px 24px rgba(15,23,42,0.12); }
+
+  /* --- Detalles: foco visible y hover solo con puntero --- */
+  button:focus-visible, summary:focus-visible, select:focus-visible, [role="button"]:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid #0f766e; outline-offset: 2px;
+  }
+  .gx:focus-visible { outline-offset: -2px; }
+  @media (hover: hover) {
+    .mes-opt:hover:not(.sel), .mes-navbtn:hover:not(:disabled), .mes-title:hover { background: #f1f5f4; }
+    .quick-scroll button:hover { filter: brightness(0.96); }
+    .catchips button:not(.on):hover { background: #f5f7f7; }
+    .seg button:not(.on):hover { background: rgba(255,255,255,0.6); }
+    .hmeal-row:hover { background: #fafafa; }
+  }
+
+  /* --- Modales: entran desde scale .95 + opacity y salen igual de rápido.
+     Se quedan en display:flex y se ocultan con visibility para poder animar
+     la salida solo con CSS (sin JS). --- */
+  #mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal, #tarAddModal, #subcatModal, #catModal, #expModal, #colMenuModal {
+    display: flex; visibility: hidden; opacity: 0; pointer-events: none;
+    transition: opacity 0.16s var(--ease), visibility 0s linear 0.16s;
+  }
+  #mealModal.show, #waterModal.show, #ejerModal.show, #ahoModal.show, #argModal.show, #tarModal.show, #tarAddModal.show, #subcatModal.show, #catModal.show, #expModal.show, #colMenuModal.show {
+    visibility: visible; opacity: 1; pointer-events: auto;
+    transition: opacity 0.2s var(--ease), visibility 0s;
+  }
+  .hmodal-box { transform: scale(0.95) translateY(8px); transition: transform 0.22s var(--ease); transform-origin: 50% 50%; }
+  .show > .hmodal-box { transform: none; }
+
+  /* --- Hoja de meses: sube desde abajo (centrada y con scale en escritorio) y sale rápido --- */
+  @keyframes fadeIn { from { opacity: 0; } }
+  @keyframes fadeOut { to { opacity: 0; } }
+  @keyframes sheetIn { from { transform: translateY(100%); } }
+  @keyframes sheetOut { to { transform: translateY(100%); } }
+  @keyframes popIn { from { transform: scale(0.95); opacity: 0; } }
+  @keyframes popOut { to { transform: scale(0.95); opacity: 0; } }
+  #mesSheet:not([hidden]) { animation: fadeIn 0.2s var(--ease) backwards; }
+  #mesSheet.closing { animation: fadeOut 0.18s var(--ease) forwards; pointer-events: none; }
+  .mes-sheet-box { animation: sheetIn 0.26s var(--ease) backwards; }
+  #mesSheet.closing .mes-sheet-box { animation: sheetOut 0.2s var(--ease) forwards; }
+  @media (min-width: 860px) {
+    .mes-sheet-box { animation-name: popIn; }
+    #mesSheet.closing .mes-sheet-box { animation-name: popOut; }
+  }
+
+  /* --- Cambio de mes: el contenido nuevo entra desde el lado hacia el que se navega --- */
+  @keyframes mesInL { from { transform: translateX(var(--mv)); opacity: 0; } }
+  @keyframes mesInR { from { transform: translateX(calc(var(--mv) * -1)); opacity: 0; } }
+  .mes-anim-l .mes-grid { animation: mesInL 0.26s var(--ease); }
+  .mes-anim-r .mes-grid { animation: mesInR 0.26s var(--ease); }
+
+  /* --- Primera carga: las primeras filas entran escalonadas (máx. 8, 28 ms entre una y otra).
+     fill "backwards": al terminar no queda transform fijo, así el apretado sigue andando. --- */
+  @keyframes filaIn { from { transform: translateY(8px); opacity: 0; } }
+  .gx.stag-in { animation: filaIn 0.3s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 28ms); }
+
+  /* --- Esqueleto: aparece recién tras 180 ms, así una respuesta rápida no lo deja titilar --- */
+  @keyframes skIn { from { opacity: 0; } }
+  .mes-grid[aria-busy="true"] { animation: skIn 0.2s ease-out 0.18s backwards; }
+
+  /* --- Gastos sin día (viejos y fijos): sección tranquila al final de la lista --- */
+  .mes-sec.sin .mes-dia-n { color: #475467; }
+  .mes-sec.sin .mes-grp-name small { margin-top: 1px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root { --mv: 0px; --press: 1; --press-row: 1; }
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+    .sk { animation: none !important; }
+    #loadingOverlay .spinner, .tar-loading .tar-spin { animation-duration: 0.9s !important; }
+    .hmodal-box { transform: none; }
+  }
 </style>
 </head><body>
 <div class="tabs-wrap" id="tabsWrap" hidden>
@@ -5266,7 +5404,9 @@
   var DASH_SEQ = 0;             // descarta respuestas viejas si se navega rápido
   var DASH_DATA = null;
   var DASH_INGRESOS = null;     // ingresos de todos los meses (getIngresosData), una vez por carga
-  var DASH_ANIM = '';           // 'l' | 'r': hacia dónde se desliza el contenido al cambiar de mes
+  var MES_SHEET_T = 0;          // timer que oculta la hoja de meses al terminar su animación de salida
+  var DASH_STAG = false;        // ya se hizo la entrada escalonada de la primera carga
+  var DASH_ANIM = '';         // 'l' | 'r': hacia dónde se desliza el contenido al cambiar de mes
   var DASH_CATS = [], DASH_CAT_MON = 'UYU';
   var MES_KEY = 'gastos-tracker.mes.v1';
   var MES = { view: 'gastos', group: 'dia', q: '', cat: '', card: '', tipo: '' };
@@ -5401,7 +5541,9 @@
       })
       .withFailureHandler(function(err) {
         if (seq !== DASH_SEQ) return;
-        renderDashboard({ ok: false, error: (err && err.message ? err.message : String(err)) });
+        var msg = err && err.message ? err.message : String(err);
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) msg = 'No hay conexión con el servidor. Revisá tu internet y volvé a intentar.';
+        renderDashboard({ ok: false, error: msg });
       })
       .getDashboardData(DASH_MONTH || null);
     if (!DASH_MONTHS || !opts.cache) loadDashMonths();
@@ -5453,6 +5595,8 @@
     if (!DASH_MONTHS) return;
     pintarSelectorMeses();
     var sh = document.getElementById('mesSheet');
+    clearTimeout(MES_SHEET_T);
+    sh.classList.remove('closing');
     sh.hidden = false;
     document.body.classList.add('mes-sheet-open');
     var sel = sh.querySelector('.mes-opt.sel');
@@ -5461,10 +5605,13 @@
   }
   function cerrarSelectorMes() {
     var sh = document.getElementById('mesSheet');
-    if (!sh || sh.hidden) return;
-    sh.hidden = true;
+    if (!sh || sh.hidden || sh.classList.contains('closing')) return;
     document.body.classList.remove('mes-sheet-open');
     var t = document.getElementById('mesTitle'); if (t) t.focus();
+    // Sale con animación (ver .closing en los estilos) y recién después se oculta.
+    sh.classList.add('closing');
+    clearTimeout(MES_SHEET_T);
+    MES_SHEET_T = setTimeout(function() { sh.hidden = true; sh.classList.remove('closing'); }, 190);
   }
 
   // Barras con el total (UYU) de cada mes, últimos 12; tocar una barra elige ese mes.
@@ -5655,6 +5802,13 @@
     var days = document.getElementById('mesDays');
     if (days) days.addEventListener('click', irADia);
     if (DASH_EXPENSES.length) mesVista(MES.view, true);
+    // Entrada escalonada sólo la primera vez que se pinta el mes (no al cambiar de mes ni al refrescar).
+    if (!DASH_STAG) {
+      DASH_STAG = true;
+      var filas = content.querySelectorAll('#mesView .gx');
+      for (var f = 0; f < filas.length && f < 8; f++) { filas[f].style.setProperty('--i', f); filas[f].classList.add('stag-in'); }
+      setTimeout(function() { var l = content.querySelectorAll('.stag-in'); for (var q = 0; q < l.length; q++) l[q].classList.remove('stag-in'); }, 700);
+    }
     pintarHeroComparacion();
     cargarIngresosDash();
     // "Agregar Gasto" siempre lista el mes en curso: si se está viendo otro mes,
@@ -5819,16 +5973,28 @@
           '<span class="mes-grp-tot">' + sumaTexto(s.tot) + '</span></div><div class="mes-card">' + gastosListHtml(s.items, { fecha: true, noCat: true }) + '</div></section>';
       });
     } else {
+      // Los gastos sin fecha propia (todos los fijos y los meses viejos, que en la hoja
+      // sólo tenían el mes) no son un error: van al final en dos bloques con nombre,
+      // "Fijos del mes" y "Sin día asignado", en vez de un "Sin fecha" que parece roto.
+      var rango = function(k) { return k === '~fijos' ? 1 : (k === '~sindia' ? 2 : 0); };
       lista.forEach(function(e) {
-        var d = e.fecha || '';
+        var d = e.fecha || (e.fixed ? '~fijos' : '~sindia');
         if (!mapa[d]) { mapa[d] = { key: d, items: [] }; secs.push(mapa[d]); }
         mapa[d].items.push(e);
       });
-      secs.sort(function(a, z) { return a.key === '' ? 1 : (z.key === '' ? -1 : (a.key < z.key ? 1 : -1)); });
+      secs.sort(function(a, z) {
+        var ra = rango(a.key), rz = rango(z.key);
+        if (ra !== rz) return ra - rz;
+        return a.key < z.key ? 1 : (a.key > z.key ? -1 : 0);
+      });
+      var hayConDia = secs.some(function(s) { return !rango(s.key); });
       secs.forEach(function(s) {
-        var et = diaEtiqueta(s.key), tot = sumaGastos(s.items);
-        html += '<section class="mes-sec" data-dia="' + esc(s.key) + '"><div class="mes-grp"><span class="mes-grp-name"><span><span class="mes-dia-n">' + esc(et.nombre) + '</span>' +
-          (et.rel ? ' <span class="mes-rel">' + et.rel + '</span>' : '') + '</span></span>' +
+        var r = rango(s.key), tot = sumaGastos(s.items), et, sub = '';
+        if (r === 1) { et = { nombre: 'Fijos del mes', rel: '' }; sub = 'Se repiten todos los meses'; }
+        else if (r === 2) { et = { nombre: 'Sin día asignado', rel: '' }; sub = hayConDia ? 'Cargados sin día' : 'Este mes se cargó sin día'; }
+        else et = diaEtiqueta(s.key);
+        html += '<section class="mes-sec' + (r ? ' sin' : '') + '" data-dia="' + (r ? '' : esc(s.key)) + '"><div class="mes-grp"><span class="mes-grp-name"><span><span class="mes-dia-n">' + esc(et.nombre) + '</span>' +
+          (et.rel ? ' <span class="mes-rel">' + et.rel + '</span>' : '') + (sub ? '<small>' + sub + '</small>' : '') + '</span></span>' +
           '<span class="mes-grp-tot">' + ((tot.uyu || tot.usd) ? sumaTexto(tot) : '') + '</span></div><div class="mes-card">' + gastosListHtml(s.items, { noFecha: true }) + '</div></section>';
       });
     }
