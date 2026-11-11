@@ -9,7 +9,7 @@
 //   - month_totals se recalcula desde expenses en cada escritura (misma regla que _calcMonthTotals).
 //   - Cotización automática: fetch HTTP (sin GOOGLEFINANCE) con cache de 10 min en settings.cotiz_usd_cache.
 //   - scanTicket usa env.GEMINI_API_KEY (secreto del Worker; reemplaza a la propiedad GEMINI_KEY de Apps Script).
-import { hoy, idDe } from './util.js';
+import { hoy, idDe, fuenteDefecto } from './util.js';
 import CFG from '../form-config.json';
 
 export const MODULO = 'gastos';
@@ -220,7 +220,7 @@ async function asegurarMesActual(env, T) {
 }
 async function gastosEsD1(env, T) {
   const f = await env.DB.prepare(`SELECT valor FROM settings WHERE tenant_id = ? AND clave = 'fuente_gastos'`).bind(T).first();
-  return !!f && f.valor === 'd1';
+  return f ? f.valor === 'd1' : fuenteDefecto(T) === 'd1';
 }
 
 // ---- Lectores ------------------------------------------------------------------------------------

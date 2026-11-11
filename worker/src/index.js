@@ -5,9 +5,11 @@ import { buildDelta } from './sync.js';
 import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 import { habitPending, tasksPending } from './pending.js';
+import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaConfirmar, esHex64, CSP_LOGIN } from './cuentas.js';
 import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesValido } from './informes.js';
 
-const TENANT = 'ilan';
+// Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
+const ILAN = 'ilan';
 // Los informes son HTML estático con estilos en línea: sin scripts, sin conexiones, sin embeber.
 const CSP_INFORME = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -95,9 +97,9 @@ async function autorizado(req, env) {
 const SUMA_UYU = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(uyu_raw, 0) WHEN moneda = 'UYU' THEN monto ELSE 0 END) ELSE 0 END)`;
 const SUMA_USD = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(usd_raw, 0) WHEN moneda = 'USD' THEN monto ELSE 0 END) ELSE 0 END)`;
 
-function filtros(url) {
+function filtros(url, T) {
   const w = ['tenant_id = ?'];
-  const p = [TENANT];
+  const p = [T];
   const mes = url.searchParams.get('mes');
   if (mes && /^\d{4}-\d{2}$/.test(mes)) { w.push('mes = ?'); p.push(mes); }
   const cat = url.searchParams.get('cat');
@@ -128,8 +130,8 @@ const ORDEN = {
   monto: 'monto', concepto: 'concepto COLLATE NOCASE', categoria: 'categoria COLLATE NOCASE', mes: 'mes'
 };
 
-async function listarGastos(env, url, limit) {
-  const { where, params } = filtros(url);
+async function listarGastos(env, url, limit, T) {
+  const { where, params } = filtros(url, T);
   const col = ORDEN[url.searchParams.get('orden')] || ORDEN.fecha;
   const dir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
   const off = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
@@ -155,8 +157,8 @@ function banderaDe(codigo) {
   return String.fromCodePoint(...[...c].map((ch) => 0x1F1E6 + ch.charCodeAt(0) - 65));
 }
 
-async function ajustes(env) {
-  const r = await env.DB.prepare(`SELECT clave, valor FROM settings WHERE tenant_id = ?`).bind(TENANT).all();
+async function ajustes(env, T) {
+  const r = await env.DB.prepare(`SELECT clave, valor FROM settings WHERE tenant_id = ?`).bind(T).all();
   const s = {};
   for (const x of r.results) s[x.clave] = x.valor;
   s.pais_codigo = s.pais_codigo || 'AR';
@@ -164,24 +166,24 @@ async function ajustes(env) {
   return s;
 }
 
-async function api(req, env, url) {
+async function api(req, env, url, T) {
   const path = url.pathname;
 
   if (path === '/api/months') {
     const r = await env.DB.prepare(
       `SELECT e.mes AS mes, MAX(e.tab) AS tab, COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${SUMA_USD} AS usd
-       FROM expenses e WHERE e.tenant_id = ? GROUP BY e.mes ORDER BY e.mes DESC`).bind(TENANT).all();
+       FROM expenses e WHERE e.tenant_id = ? GROUP BY e.mes ORDER BY e.mes DESC`).bind(T).all();
     return json({ ok: true, months: r.results });
   }
 
   if (path === '/api/expenses') {
     const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
-    return json({ ok: true, ...(await listarGastos(env, url, limit)) });
+    return json({ ok: true, ...(await listarGastos(env, url, limit, T)) });
   }
 
   if (path === '/api/categories') {
     // Un gasto con 2 categorías suma su monto entero en cada una (igual que la app).
-    const { where, params } = filtros(url);
+    const { where, params } = filtros(url, T);
     const base = `FROM expenses WHERE ${where} AND es_credito = 0 AND es_ahorro = 0`;
     const monto = (m) => `CASE WHEN es_fijo = 1 THEN COALESCE(${m === 'UYU' ? 'uyu_raw' : 'usd_raw'}, 0) WHEN moneda = '${m}' THEN monto ELSE 0 END`;
     const r = await env.DB.prepare(
@@ -195,48 +197,51 @@ async function api(req, env, url) {
 
   if (path === '/api/facets') {
     const [cats, medios] = await env.DB.batch([
-      env.DB.prepare(`SELECT cat FROM (SELECT cat1 AS cat FROM expenses WHERE tenant_id = ? UNION SELECT cat2 FROM expenses WHERE tenant_id = ?) WHERE cat IS NOT NULL ORDER BY cat`).bind(TENANT, TENANT),
-      env.DB.prepare(`SELECT DISTINCT medio_pago AS m FROM expenses WHERE tenant_id = ? AND medio_pago <> '' ORDER BY m`).bind(TENANT)
+      env.DB.prepare(`SELECT cat FROM (SELECT cat1 AS cat FROM expenses WHERE tenant_id = ? UNION SELECT cat2 FROM expenses WHERE tenant_id = ?) WHERE cat IS NOT NULL ORDER BY cat`).bind(T, T),
+      env.DB.prepare(`SELECT DISTINCT medio_pago AS m FROM expenses WHERE tenant_id = ? AND medio_pago <> '' ORDER BY m`).bind(T)
     ]);
     return json({ ok: true, categories: cats.results.map((x) => x.cat), medios: medios.results.map((x) => x.m) });
   }
 
   if (path === '/api/incomes') {
-    const r = await env.DB.prepare(`SELECT id, fecha, concepto, monto, moneda, notas FROM incomes WHERE tenant_id = ? ORDER BY fecha DESC, id DESC`).bind(TENANT).all();
+    const r = await env.DB.prepare(`SELECT id, fecha, concepto, monto, moneda, notas FROM incomes WHERE tenant_id = ? ORDER BY fecha DESC, id DESC`).bind(T).all();
     return json({ ok: true, incomes: r.results });
   }
 
   if (path === '/api/savings') {
-    const r = await env.DB.prepare(`SELECT id, fecha, tipo, entidad, ticker, cantidad, precio_usd, comision_usd, monto, moneda, invertido_usd, notas FROM savings WHERE tenant_id = ? ORDER BY fecha DESC, id DESC`).bind(TENANT).all();
+    const r = await env.DB.prepare(`SELECT id, fecha, tipo, entidad, ticker, cantidad, precio_usd, comision_usd, monto, moneda, invertido_usd, notas FROM savings WHERE tenant_id = ? ORDER BY fecha DESC, id DESC`).bind(T).all();
     return json({ ok: true, savings: r.results });
   }
 
   if (path === '/api/config') {
-    const r = await env.DB.prepare(`SELECT clave, valor FROM config WHERE tenant_id = ? ORDER BY clave`).bind(TENANT).all();
+    const r = await env.DB.prepare(`SELECT clave, valor FROM config WHERE tenant_id = ? ORDER BY clave`).bind(T).all();
     return json({ ok: true, config: r.results });
   }
 
-  if (path === '/api/fuente') return json({ ok: true, fuentes: await fuentes(env, TENANT), rpc: RPC_NOMBRES });
+  if (path === '/api/fuente') {
+    if (T !== ILAN) return json({ ok: false, error: 'No disponible' }, 403);
+    return json({ ok: true, fuentes: await fuentes(env, T), rpc: RPC_NOMBRES });
+  }
 
-  if (path === '/api/settings') return json({ ok: true, settings: await ajustes(env) });
+  if (path === '/api/settings') return json({ ok: true, settings: await ajustes(env, T) });
 
   if (path === '/api/tasks') {
     const r = await env.DB.prepare(
       `SELECT id, creada, tipo, categoria, subcategoria, texto, fecha, hora, notas, completada, fecha_completada, recurrente, objetivo, contador, periodo, importancia, archivada, subtareas
-       FROM tasks WHERE tenant_id = ? ORDER BY completada, archivada, COALESCE(NULLIF(fecha, ''), '9999'), id`).bind(TENANT).all();
+       FROM tasks WHERE tenant_id = ? ORDER BY completada, archivada, COALESCE(NULLIF(fecha, ''), '9999'), id`).bind(T).all();
     const tasks = r.results.map((t) => { let s = []; try { s = JSON.parse(t.subtareas || '[]'); } catch {} return { ...t, subtareas: s }; });
     return json({ ok: true, tasks });
   }
 
   if (path === '/api/purchases') {
-    const r = await env.DB.prepare(`SELECT id, creada, texto, comprado, fecha_comprado FROM purchases WHERE tenant_id = ? ORDER BY comprado, id DESC`).bind(TENANT).all();
+    const r = await env.DB.prepare(`SELECT id, creada, texto, comprado, fecha_comprado FROM purchases WHERE tenant_id = ? ORDER BY comprado, id DESC`).bind(T).all();
     return json({ ok: true, purchases: r.results });
   }
 
   if (path === '/api/habits') {
     const [days, log] = await env.DB.batch([
-      env.DB.prepare(`SELECT fecha, levante, acoste, hs_sueno, trabajo, avance, animo, ejercicio, ejercicio_min, medite, medite_min, lei, abordajes, agua, mast, notas FROM habit_days WHERE tenant_id = ? ORDER BY fecha DESC`).bind(TENANT),
-      env.DB.prepare(`SELECT fecha, hora, kind, detalle, macro, tipo, procesado, kcal, ml, min, ingredientes FROM habit_log WHERE tenant_id = ? ORDER BY fecha DESC, hora DESC, id DESC`).bind(TENANT)
+      env.DB.prepare(`SELECT fecha, levante, acoste, hs_sueno, trabajo, avance, animo, ejercicio, ejercicio_min, medite, medite_min, lei, abordajes, agua, mast, notas FROM habit_days WHERE tenant_id = ? ORDER BY fecha DESC`).bind(T),
+      env.DB.prepare(`SELECT fecha, hora, kind, detalle, macro, tipo, procesado, kcal, ml, min, ingredientes FROM habit_log WHERE tenant_id = ? ORDER BY fecha DESC, hora DESC, id DESC`).bind(T)
     ]);
     return json({ ok: true, days: days.results, log: log.results });
   }
@@ -244,15 +249,15 @@ async function api(req, env, url) {
   // Módulo "país": movimientos y deuda por mes. Nombre, moneda y bandera salen de los ajustes.
   if (path === '/api/country') {
     const [movs, meses] = await env.DB.batch([
-      env.DB.prepare(`SELECT id, mes, fecha, tipo, detalle, usd, cotizacion, monto_local, quien, categoria FROM foreign_movements WHERE tenant_id = ? ORDER BY mes DESC, src_row DESC`).bind(TENANT),
+      env.DB.prepare(`SELECT id, mes, fecha, tipo, detalle, usd, cotizacion, monto_local, quien, categoria FROM foreign_movements WHERE tenant_id = ? ORDER BY mes DESC, src_row DESC`).bind(T),
       env.DB.prepare(`SELECT m.mes, m.deuda_antes_usd,
           (SELECT COUNT(*) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes) AS n,
           (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Gasto') AS gasto_usd,
           (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Carga') AS carga_usd,
           (SELECT COALESCE(SUM(usd), 0) FROM foreign_movements f WHERE f.tenant_id = m.tenant_id AND f.mes = m.mes AND f.tipo = 'Pago') AS pago_usd
-        FROM foreign_months m WHERE m.tenant_id = ? ORDER BY m.mes DESC`).bind(TENANT)
+        FROM foreign_months m WHERE m.tenant_id = ? ORDER BY m.mes DESC`).bind(T)
     ]);
-    return json({ ok: true, settings: await ajustes(env), months: meses.results, movements: movs.results });
+    return json({ ok: true, settings: await ajustes(env, T), months: meses.results, movements: movs.results });
   }
 
   // Compara, mes por mes, el total que calcula D1 con el que calculó el Sheet al importar.
@@ -262,18 +267,19 @@ async function api(req, env, url) {
               (SELECT ${SUMA_UYU} FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS d1_uyu,
               (SELECT ${SUMA_USD} FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS d1_usd,
               (SELECT COUNT(*) FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS filas
-       FROM month_totals t WHERE t.tenant_id = ? ORDER BY t.mes`).bind(TENANT).all();
+       FROM month_totals t WHERE t.tenant_id = ? ORDER BY t.mes`).bind(T).all();
     const meses = r.results.map((m) => {
       const du = Math.round(((m.d1_uyu || 0) - (m.sheet_uyu || 0)) * 100) / 100;
       const dd = Math.round(((m.d1_usd || 0) - (m.sheet_usd || 0)) * 100) / 100;
       return { ...m, dif_uyu: du, dif_usd: dd, ok: du === 0 && dd === 0 };
     });
-    const log = await env.DB.prepare(`SELECT * FROM import_log ORDER BY id DESC LIMIT 1`).all();
+    // import_log es global (sin tenant_id) y describe la importación del Sheet de ILAN: solo se muestra a él.
+    const log = T === ILAN ? await env.DB.prepare(`SELECT * FROM import_log ORDER BY id DESC LIMIT 1`).all() : { results: [] };
     return json({ ok: true, todoCoincide: meses.every((m) => m.ok), meses, ultimaImportacion: log.results[0] || null });
   }
 
   if (path === '/api/export.csv') {
-    const { rows } = await listarGastos(env, url, 5000);
+    const { rows } = await listarGastos(env, url, 5000, T);
     const head = ['mes', 'fecha', 'fecha_origen', 'concepto', 'monto', 'moneda', 'medio_pago', 'categoria', 'fijo', 'credito', 'ahorro', 'notas'];
     const lines = [head.join(',')].concat(rows.map((r) =>
       [r.mes, r.fecha_efectiva, r.fecha_origen, r.concepto, r.monto, r.moneda, r.medio_pago, r.categoria, r.es_fijo, r.es_credito, r.es_ahorro, r.notas].map(csvCell).join(',')));
@@ -285,11 +291,92 @@ async function api(req, env, url) {
   return json({ ok: false, error: 'Ruta no encontrada' }, 404);
 }
 
+// Tenant de la request: Access (JWT válido) o clave del visor (cookie vk) = 'ilan'; si no, la sesión
+// de la cookie sid (una consulta con JOIN, y ninguna si no hay cookie). null = sin sesión.
+async function resolverTenant(req, env) {
+  if (await autorizado(req, env)) return ILAN;
+  const s = await tenantDeSesion(env, req);
+  return s ? s.id : null;
+}
+
+const redir = (to, status = 302, cookies = []) => {
+  const h = new Headers({ Location: to, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+  for (const c of cookies) h.append('Set-Cookie', c);
+  return new Response(null, { status, headers: h });
+};
+
+const htmlLogin = (aviso, mail, status = 200) => new Response(paginaLogin(aviso, mail), {
+  status,
+  headers: {
+    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_LOGIN
+  }
+});
+
+// Rutas sin sesión: login por magic link. Devuelve null si la ruta no es una de ellas.
+async function rutaPublica(req, env, url) {
+  const path = url.pathname;
+  const origenMalo = () => { const o = req.headers.get('Origin'); return !!o && o !== url.origin; };
+
+  if (path === '/login') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      if (await resolverTenant(req, env)) return redir('/app');
+      return htmlLogin();
+    }
+    if (req.method !== 'POST') return json({ ok: false, error: 'Método no permitido' }, 405);
+    if (origenMalo()) return json({ ok: false, error: 'Origen no permitido' }, 403);
+    const ct = (req.headers.get('Content-Type') || '').toLowerCase();
+    const esJson = ct.startsWith('application/json');
+    let email = '';
+    try {
+      const txt = await req.text();
+      if (txt.length > 2000) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+      email = esJson ? String((JSON.parse(txt) || {}).email || '') : String(new URLSearchParams(txt).get('email') || '');
+    } catch { return json({ ok: false, error: 'Pedido inválido' }, 400); }
+    let r;
+    try { r = await pedirLink(env, email, env.APP_URL || url.origin, req.headers.get('CF-Connecting-IP')); }
+    catch (e) { console.error('login falló:', String(e && e.message || e)); r = { ok: false, status: 500, error: 'No pudimos procesar el pedido. Probá de nuevo en un rato.' }; }
+    const { status, ...cuerpo } = r;
+    if (esJson) return json(cuerpo, status || 200);
+    return htmlLogin({ tipo: r.ok ? 'ok' : 'error', texto: r.ok ? r.mensaje : r.error, link: r.dev_link }, email.slice(0, 254), status || 200);
+  }
+
+  if (path.startsWith('/auth/')) {
+    const token = path.slice(6);
+    const venció = () => htmlLogin({ tipo: 'error', texto: 'Ese link venció o ya se usó. Pedí uno nuevo.' }, '', 400);
+    // GET/HEAD: solo muestra el botón. No canjea ni toca D1 (escáneres de mail y prefetch hacen GET).
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      if (!esHex64(token)) return venció();
+      return new Response(paginaConfirmar(token), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_LOGIN
+        }
+      });
+    }
+    if (req.method !== 'POST') return json({ ok: false, error: 'Método no permitido' }, 405);
+    if (origenMalo()) return json({ ok: false, error: 'Origen no permitido' }, 403);
+    let r;
+    try { r = await canjearLink(env, token, req.headers.get('User-Agent')); }
+    catch (e) { console.error('canje falló:', String(e && e.message || e)); r = { ok: false }; }
+    if (!r.ok) return venció();
+    return redir('/app', 303, [cookieSesion(r.sid)]);
+  }
+
+  if (path === '/logout') {
+    if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
+    if (origenMalo()) return json({ ok: false, error: 'Origen no permitido' }, 403);
+    try { await cerrarSesion(env, req); } catch (e) { console.error('logout falló:', String(e && e.message || e)); }
+    return redir('/login', 303, [cookieSesionBorrada]);
+  }
+  return null;
+}
+
 // Sync automático: baja el volcado parcial (mes actual y anterior + módulos chicos) de
 // Apps Script y lo carga en D1. Apps Script sigue siendo la fuente de verdad.
 async function sincronizar(env) {
   // Con todos los módulos en D1 ya no hay nada que bajar del Sheet: no se llama a Apps Script.
-  const f0 = await fuentes(env, TENANT);
+  const f0 = await fuentes(env, ILAN);
   if (MODULOS.every((m) => f0[m] === 'd1')) return { omitido: 'todos los módulos están en D1' };
   if (!env.APPS_SCRIPT_URL || !env.APP_KEY) throw new Error('Faltan APPS_SCRIPT_URL / APP_KEY');
   const u = new URL(env.APPS_SCRIPT_URL);
@@ -305,9 +392,9 @@ async function sincronizar(env) {
   const saltear = MODULOS.filter((m) => f0[m] === 'd1');
   // Solo se escriben los grupos que cambiaron desde el último sync (huella en sync_state):
   // el plan gratis de D1 limita las filas escritas por día.
-  const { results } = await env.DB.prepare('SELECT grupo, huella FROM sync_state WHERE tenant_id = ?').bind(TENANT).all();
+  const { results } = await env.DB.prepare('SELECT grupo, huella FROM sync_state WHERE tenant_id = ?').bind(ILAN).all();
   const previas = Object.fromEntries(results.map((x) => [x.grupo, x.huella]));
-  const { statements, counts } = await buildDelta(data, previas, { tenant: TENANT, fuente: 'cron', saltear });
+  const { statements, counts } = await buildDelta(data, previas, { tenant: ILAN, fuente: 'cron', saltear });
   // Una sola batch = una transacción: si algo falla no queda a medias.
   if (statements.length) await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   return counts;
@@ -352,6 +439,9 @@ export default {
       });
     }
 
+    const publica = await rutaPublica(req, env, url);
+    if (publica) return publica;
+
     // Disparo del sync por Apps Script: no hay sesión de navegador, se autentica con
     // la clave compartida (APP_KEY) en un header. Solo POST, y no acepta nada del cuerpo:
     // el Worker mismo baja el volcado.
@@ -372,8 +462,11 @@ export default {
       (req.method === 'POST' && url.pathname === '/api/informe/enviar');
     const porClave = (esPendiente || esInforme) && !!env.APP_KEY && eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY);
 
-    if (!porClave && !(await autorizado(req, env))) {
+    // Las rutas por clave (cron de la PWA) son siempre del tenant original.
+    const T = porClave ? ILAN : await resolverTenant(req, env);
+    if (!T) {
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
+      if (url.pathname === '/' || url.pathname === '/app') return redir('/login');
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
@@ -387,25 +480,28 @@ export default {
       let body;
       try { body = await req.json(); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
       if (url.pathname === '/api/fuente') {
+        if (T !== ILAN) return json({ ok: false, error: 'No disponible' }, 403);
         try {
           const modulo = body && body.modulo, destino = body && body.fuente;
           if (destino === 'd1') await sincronizar(env); // D1 arranca con lo último del Sheet
-          await setFuente(env, TENANT, modulo, destino);
-          return json({ ok: true, fuentes: await fuentes(env, TENANT) });
+          await setFuente(env, T, modulo, destino);
+          return json({ ok: true, fuentes: await fuentes(env, T) });
         } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 400); }
       }
-      return json(await llamar(env, TENANT, decodeURIComponent(url.pathname.slice(9)), body && body.args));
+      return json(await llamar(env, T, decodeURIComponent(url.pathname.slice(9)), body && body.args));
     }
 
     // Envío del informe por mail (solo si hay proveedor configurado, ver informes.js). Sin cuerpo:
     // todo va en la query (?tipo=mensual|tareas, y mes=YYYY-MM opcional para el mensual).
     if (req.method === 'POST' && url.pathname === '/api/informe/enviar') {
+      // El destino del mail es MAIL_TO (el de ILAN): para otro tenant mandaría sus datos a un tercero.
+      if (T !== ILAN) return json({ ok: false, error: 'No disponible' }, 403);
       const origin = req.headers.get('Origin');
       if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
       try {
         const tipo = url.searchParams.get('tipo');
         const mes = url.searchParams.get('mes') || '';
-        const r = await enviarInforme(env, TENANT, tipo, { mes });
+        const r = await enviarInforme(env, T, tipo, { mes });
         return json(r, r.ok ? 200 : (r.error && r.error.startsWith('Resend') ? 502 : 400));
       } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
@@ -414,10 +510,10 @@ export default {
 
     try {
       if (url.pathname === '/api/habit-pending') {
-        return json(await habitPending(env, TENANT, Object.fromEntries(url.searchParams)));
+        return json(await habitPending(env, T, Object.fromEntries(url.searchParams)));
       }
-      if (url.pathname === '/api/tasks-pending') return json(await tasksPending(env, TENANT));
-      if (url.pathname.startsWith('/api/')) return await api(req, env, url);
+      if (url.pathname === '/api/tasks-pending') return json(await tasksPending(env, T));
+      if (url.pathname.startsWith('/api/')) return await api(req, env, url, T);
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);
     }
@@ -425,11 +521,11 @@ export default {
     if (url.pathname === '/informe/mensual' || url.pathname === '/informe/tareas') {
       try {
         let html;
-        if (url.pathname === '/informe/tareas') html = await tareasHoyHtml(env, TENANT);
+        if (url.pathname === '/informe/tareas') html = await tareasHoyHtml(env, T);
         else {
           const mes = url.searchParams.get('mes') || mesPorDefecto();
           if (!mesValido(mes)) return new Response('Mes inválido (usar YYYY-MM)', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-          html = await reporteMensualHtml(env, TENANT, mes);
+          html = await reporteMensualHtml(env, T, mes);
         }
         return new Response(html, { headers: {
           'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',

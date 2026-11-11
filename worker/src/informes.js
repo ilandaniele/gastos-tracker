@@ -6,6 +6,7 @@
 // + 5 previos) y las de getHabitsData (hábitos del mes); el de tareas, las de leerTareas.
 // Nada por fila. El envío por mail no toca D1 si no hay proveedor configurado.
 import { hoy } from './rpc/util.js';
+import { enviarMail } from './mail.js';
 import { tabDeMes, splitCategorias } from './rpc/gastos.js';
 import { getHabitsData } from './rpc/habitos.js';
 import { digestHoy, WATER_GOAL_ML } from './pending.js';
@@ -417,25 +418,11 @@ export async function tareasHoyHtml(env, tenant) {
 
 // ---- Envío por mail (Resend) ---------------------------------------------------------------------------------
 // Solo si hay RESEND_API_KEY y MAIL_TO (secretos/vars del Worker). MAIL_TO admite varias direcciones
-// separadas por coma. Remitente: MAIL_FROM o, por defecto, el de pruebas de Resend (que solo entrega a
-// la dirección dueña de la cuenta). RESEND_API_URL existe solo para apuntar a un mock en las pruebas.
-const RESEND_URL = 'https://api.resend.com/emails';
-
+// separadas por coma. El envío en sí vive en mail.js (lo comparte el login por magic link).
 export const hayProveedorDeMail = (env) => !!(env.RESEND_API_KEY && env.MAIL_TO);
 
-async function mandarMail(env, asunto, html) {
-  const to = String(env.MAIL_TO).split(',').map((x) => x.trim()).filter(Boolean);
-  const res = await fetch(env.RESEND_API_URL || RESEND_URL, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: env.MAIL_FROM || 'onboarding@resend.dev', to, subject: asunto, html })
-  });
-  const texto = await res.text();
-  if (!res.ok) return { ok: false, enviado: false, error: 'Resend ' + res.status + ': ' + texto.slice(0, 200) };
-  let id = '';
-  try { id = JSON.parse(texto).id || ''; } catch { /* respuesta sin JSON */ }
-  return { ok: true, enviado: true, a: to, id };
-}
+const mandarMail = (env, asunto, html) =>
+  enviarMail(env, String(env.MAIL_TO).split(',').map((x) => x.trim()).filter(Boolean), asunto, html);
 
 // tipo: 'mensual' (opts.mes opcional, por defecto el mes anterior) | 'tareas' (no manda si no hay nada).
 export async function enviarInforme(env, tenant, tipo, opts) {

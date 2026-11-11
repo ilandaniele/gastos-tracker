@@ -5,7 +5,7 @@
 // Datos: tabla tasks (subtareas en JSON en la columna `subtareas`) y tabla config, que reemplaza
 // a las Script Properties: TASKS_CATEGORIAS_V1, TASKS_SUBCATS_V1, TASKS_CAT_EMOJIS_V1,
 // TASKS_CAT_COMPLETADAS_V1, TASKS_CAT_SUSPENDIDAS_V1, TASKS_SUBCAT_SUSPENDIDAS_V1, TASKS_UI_STATE_V1.
-import { hoy, idDe } from './util.js';
+import { hoy, idDe, fuenteDefecto } from './util.js';
 
 export const MODULO = 'tareas';
 
@@ -122,7 +122,7 @@ const COLS = 'id, creada, tipo, categoria, subcategoria, texto, fecha, hora, not
 
 async function fuenteD1(env, T) {
   const r = await env.DB.prepare(`SELECT valor FROM settings WHERE tenant_id = ? AND clave = 'fuente_tareas'`).bind(T).first();
-  return !!r && r.valor === 'd1';
+  return r ? r.valor === 'd1' : fuenteDefecto(T) === 'd1';
 }
 
 // Filas tal como las arma _tasksRows de Apps Script, con el reinicio de contadores de las

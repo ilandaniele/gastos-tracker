@@ -4,7 +4,7 @@
 // cambiar de backend con un adaptador y sin reescribirse.
 //
 // Fuente de verdad por módulo (tabla settings, clave fuente_<modulo>):
-//   'sheet' (por defecto): manda el Sheet. D1 es una copia que el sync pisa; acá no se escribe.
+//   'sheet' (por defecto para 'ilan'; las cuentas nuevas arrancan en 'd1'): manda el Sheet. D1 es una copia que el sync pisa; acá no se escribe.
 //   'd1': manda D1. El sync deja de tocar ese módulo y las escrituras se aceptan.
 // Pasar un módulo a 'd1' es el corte de ese módulo (ver setFuente).
 
@@ -15,6 +15,7 @@ import * as tareas from './rpc/tareas.js';
 import * as habitos from './rpc/habitos.js';
 import * as pais from './rpc/pais.js';
 import * as gastos from './rpc/gastos.js';
+import { fuenteDefecto } from './rpc/util.js';
 
 // Un archivo por módulo en src/rpc/ (exporta MODULO y HANDLERS). Para sumar uno: importarlo acá,
 // agregarlo a MODULES y listar sus grupos de sync en GRUPOS_DE_MODULO (sync.js).
@@ -24,7 +25,7 @@ export const MODULOS = MODULES.map((m) => m.MODULO);
 export async function fuentes(env, tenant) {
   const r = await env.DB.prepare(`SELECT clave, valor FROM settings WHERE tenant_id = ? AND clave LIKE 'fuente_%'`).bind(tenant).all();
   const out = {};
-  for (const m of MODULOS) out[m] = 'sheet';
+  for (const m of MODULOS) out[m] = fuenteDefecto(tenant);
   for (const f of r.results) out[f.clave.slice(7)] = f.valor === 'd1' ? 'd1' : 'sheet';
   return out;
 }
