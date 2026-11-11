@@ -100,6 +100,11 @@
     var cardField = getField('card'); if (data.card && cardField) cardField.value = data.card;
     if (data.category) { catsAdd.set([data.category]); catTocadaAMano = true; }
     if (data.amount === undefined || data.amount === null) amountField.focus();
+    else {
+      // Los accesos rápidos quedan debajo del formulario: traer "Guardar" a la vista.
+      var sb = document.getElementById('submitBtn');
+      if (sb && sb.scrollIntoView) sb.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 
   // Hardcoded quick presets — avoids HTML attribute sanitization issues
@@ -509,6 +514,7 @@
     for (var i = 0; i < tabs.length; i++) {
       var esActiva = tabs[i].getAttribute('data-panel') === panelId;
       tabs[i].classList.toggle('active', esActiva);
+      if (esActiva) tabs[i].setAttribute('aria-current', 'page'); else tabs[i].removeAttribute('aria-current');
       // La barra de tabs scrollea horizontal (ver .tabs en el CSS): al activar
       // una que estaba fuera de vista (ej. "Arg" tocada desde un atajo, o el
       // usuario ya había scrolleado), la trae a la vista sola.
@@ -547,7 +553,7 @@
   function goHome() {
     document.getElementById('tabsWrap').hidden = true;
     var tabs2 = document.querySelectorAll('.tab');
-    for (var i2 = 0; i2 < tabs2.length; i2++) tabs2[i2].classList.remove('active');
+    for (var i2 = 0; i2 < tabs2.length; i2++) { tabs2[i2].classList.remove('active'); tabs2[i2].removeAttribute('aria-current'); }
     var panels2 = document.querySelectorAll('.panel');
     for (var j2 = 0; j2 < panels2.length; j2++) panels2[j2].classList.toggle('active', panels2[j2].id === 'homePanel');
     window.scrollTo(0, 0);
@@ -2767,7 +2773,7 @@
     var box = ahoEl('ahoList');
     if (!box) return;
     if (!AHO.posiciones.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Todavía no cargaste ningún ahorro</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Todavía no cargaste ningún ahorro</div>';
       return;
     }
     var html = '';
@@ -2797,7 +2803,7 @@
     var box = ahoEl('ahoMovs');
     if (!box) return;
     if (!AHO.movimientos.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos</div>';
       return;
     }
     var html = '';
@@ -3377,11 +3383,8 @@
   function loadDashMonths() {
     google.script.run
       .withSuccessHandler(function(r) {
-        if (!r || !r.ok) {
-          var cb = document.getElementById('dashChart');
-          if (cb) cb.textContent = '✗ ' + ((r && r.error) || 'no se pudo cargar el gráfico');
-          return;
-        }
+        if (!r || !r.ok) { mostrarErrorMeses((r && r.error) || 'Error desconocido'); return; }
+        mostrarErrorMeses(null);
         DASH_MONTHS = r;
         actualizarNavMes();
         pintarGraficoMeses();
@@ -3389,10 +3392,23 @@
         pintarSelectorMeses();
       })
       .withFailureHandler(function(err) {
-        var cb = document.getElementById('dashChart');
-        if (cb) cb.textContent = '✗ ' + (err && err.message ? err.message : err);
+        var msg = err && err.message ? err.message : String(err || 'Error desconocido');
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) msg = 'No hay conexión con el servidor. Revisá tu internet y volvé a intentar.';
+        mostrarErrorMeses(msg);
       })
       .getMonthlyTotals();
+  }
+  // Si falla la carga de los meses, el aviso queda abajo del navegador de mes con un
+  // botón para reintentar (antes el error se escribía dentro del gráfico y no se podía reintentar).
+  function mostrarErrorMeses(msg) {
+    var box = document.getElementById('mesNavErr');
+    if (!box) return;
+    if (msg == null) { box.hidden = true; box.innerHTML = ''; return; }
+    box.innerHTML = mesVacioHtml('⚠️', 'No se pudo cargar el gráfico de meses', esc(msg),
+      '<button type="button" class="mes-btn" id="mesNavRetry">Reintentar</button>');
+    box.hidden = false;
+    var b = document.getElementById('mesNavRetry');
+    if (b) b.addEventListener('click', function() { box.hidden = true; box.innerHTML = ''; loadDashMonths(); });
   }
 
   // Hoja con todos los meses (más nuevo primero) y su total.
@@ -4014,6 +4030,71 @@
     wireGastoRows(box);
     cargarIngresosMes();
   }
+
+  // Diálogos (.hmodal-box dentro de un #xxxModal que se abre con la clase "show" desde
+  // muchos lugares): en vez de tocar cada punto de apertura, un observer reacciona al
+  // cambio de clase. Al abrir: el foco va al primer control y se recuerda dónde estaba;
+  // al cerrar: el foco vuelve. Escape cierra tocando el botón de cerrar/cancelar y Tab no
+  // se escapa del diálogo.
+  (function() {
+    var boxes = document.querySelectorAll('.hmodal-box');
+    var FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    var previo = new WeakMap();
+    function visibles(box) {
+      var l = box.querySelectorAll(FOCUSABLE), out = [];
+      for (var i = 0; i < l.length; i++) if (l[i].offsetParent !== null) out.push(l[i]);
+      return out;
+    }
+    function alAbrir(modal, box) {
+      previo.set(modal, document.activeElement);
+      if (box.contains(document.activeElement)) return;
+      requestAnimationFrame(function() {
+        if (!modal.classList.contains('show')) return;
+        var l = visibles(box), primero = l[0];
+        var tactil = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+        // En el celu, enfocar un campo de texto abre el teclado de golpe: ahí el foco
+        // va al diálogo y el usuario toca el campo que quiera.
+        if (!primero || (tactil && /^(INPUT|TEXTAREA)$/.test(primero.tagName) && !/^(checkbox|radio|button|submit)$/.test(primero.type))) {
+          box.setAttribute('tabindex', '-1'); box.focus({ preventScroll: true });
+        } else primero.focus({ preventScroll: true });
+      });
+    }
+    function alCerrar(modal) {
+      var p = previo.get(modal); previo.delete(modal);
+      if (p && p.focus && document.contains(p) && (!document.activeElement || document.activeElement === document.body || modal.contains(document.activeElement))) p.focus({ preventScroll: true });
+    }
+    for (var i = 0; i < boxes.length; i++) {
+      (function(box) {
+        var modal = box.parentNode;
+        if (!modal) return;
+        var abierto = modal.classList.contains('show');
+        new MutationObserver(function() {
+          var ahora = modal.classList.contains('show');
+          if (ahora === abierto) return;
+          abierto = ahora;
+          if (ahora) alAbrir(modal, box); else alCerrar(modal);
+        }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+      })(boxes[i]);
+    }
+    function abiertoArriba() {
+      var l = document.querySelectorAll('.show > .hmodal-box');
+      return l.length ? l[l.length - 1] : null;
+    }
+    document.addEventListener('keydown', function(ev) {
+      var box = abiertoArriba();
+      if (!box) return;
+      if (ev.key === 'Escape') {
+        var cerrar = box.querySelector('.hmodal-x, button[id$="Cancel"], button[id$="CerrarBtn"]');
+        if (cerrar) { ev.preventDefault(); cerrar.click(); }
+      } else if (ev.key === 'Tab') {
+        var l = visibles(box); if (!l.length) return;
+        var a = document.activeElement;
+        if (!box.contains(a) || a === box) { ev.preventDefault(); l[ev.shiftKey ? l.length - 1 : 0].focus(); }
+        else if (ev.shiftKey && a === l[0]) { ev.preventDefault(); l[l.length - 1].focus(); }
+        else if (!ev.shiftKey && a === l[l.length - 1]) { ev.preventDefault(); l[0].focus(); }
+      }
+    });
+  })();
 
   // Selector de mes, navegación y deslizar para cambiar de mes.
   (function() {
@@ -4768,7 +4849,7 @@
     renderAgua();
     if (!box) return;
     if (!H.waters.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin tomas registradas este día</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin tomas registradas este día</div>';
       return;
     }
     var html = '';
@@ -4878,7 +4959,7 @@
     var box = hEl('ejerList');
     if (!box) return;
     if (!n) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin ejercicio registrado este día</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin ejercicio registrado este día</div>';
       return;
     }
     var html = '';
@@ -5025,7 +5106,7 @@
     var box = hEl('mealList');
     if (!box) return;
     if (!H.meals.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin comidas registradas este día</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin comidas registradas este día</div>';
       return;
     }
     var html = '';
@@ -5605,7 +5686,7 @@
     var box = hEl('argList');
     if (!box) return;
     if (!ARG.entradas.length) {
-      box.innerHTML = '<div style="color:#aaa;font-size:13px;padding:6px 2px">Sin movimientos en este mes</div>';
+      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos en este mes</div>';
       return;
     }
     var html = '';

@@ -9,7 +9,7 @@
   button:active { background: #0d5c52; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .quick-section { margin-bottom: 10px; }
-  .quick-label { font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; padding-left: 2px; }
+  .quick-label { font-size: 11px; color: #667085; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; padding-left: 2px; }
   .quick-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
   .quick-scroll::-webkit-scrollbar { height: 4px; }
   .quick-scroll::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
@@ -20,10 +20,15 @@
   .catchips button.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   .quick-scroll.fijos button { background: #fef3c7; color: #92400e; }
   .quick-scroll.fijos button:active { background: #fde68a; }
-  #status { margin-top: 14px; padding: 14px; border-radius: 8px; font-size: 14px; display: none; }
-  #status.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
-  #status.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
-  #status.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
+  /* Cajas de estado (Guardando… / ✓ / ✗): una sola definición para #status, #habStatus,
+     #argStatus, #tarStatus y #compStatus. El JS pisa className al cambiar de estado, así que se
+     enganchan con el atributo data-st y no con una clase. */
+  [data-st] { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
+  #status[data-st] { margin-top: 14px; padding: 14px; }
+  [data-st].ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
+  [data-st].draft { display: block; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+  [data-st].err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #b91c1c; }
+  [data-st].loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
   /* Overlay full-screen con spinner para mostrar mientras se guarda */
   #loadingOverlay { position: fixed; inset: 0; background: rgba(255,255,255,0.92); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; z-index: 9999; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); pointer-events: auto; }
   #loadingOverlay.show { display: flex; }
@@ -67,22 +72,22 @@
   .dash-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .dash-kpi { background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 12px; }
   .dash-kpi.big { grid-column: span 2; background: #ecfdf5; border-color: #a7f3d0; }
-  .dash-kpi-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
+  .dash-kpi-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
   .dash-kpi-val { font-size: 20px; font-weight: 700; margin-top: 2px; }
   .dash-kpi.big .dash-kpi-val { font-size: 26px; color: #0f766e; }
-  .dash-kpi-sub { font-size: 11px; color: #888; margin-top: 2px; }
+  .dash-kpi-sub { font-size: 11px; color: #667085; margin-top: 2px; }
   .dash-list { background: white; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
   .dash-list-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
   .dash-list-row:last-child { border-bottom: none; }
   .dash-list-row .name { color: #1a1a1a; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
   .dash-list-row .val { font-weight: 600; color: #0f766e; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .dash-list-row .sub { font-size: 11px; color: #888; }
+  .dash-list-row .sub { font-size: 11px; color: #667085; }
   .scan-group { margin: 8px 0 4px; }
   .scan-group label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; }
-  .scan-group input { width: 100%; box-sizing: border-box; padding: 7px 8px; font-size: 13px; border-radius: 5px; }
+  .scan-group input { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 16px; border-radius: 6px; }
   .dash-list-row.grupo { cursor: pointer; }
   .dash-list-row.grupo:active { background: #f8fafc; }
-  .dash-list-row.grupo .chev { display: inline-block; width: 14px; color: #888; transition: transform .15s; }
+  .dash-list-row.grupo .chev { display: inline-block; width: 14px; color: #667085; transition: transform .15s; }
   .dash-list-row.grupo.open .chev { transform: rotate(90deg); }
   .grupo-items { display: none; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
   .grupo-items.open { display: block; }
@@ -94,25 +99,25 @@
   .dash-toolbar { display: flex; gap: 8px; align-items: center; margin: 0 0 16px; }
   .dash-toolbar select { flex: 1; min-width: 0; padding: 8px 10px; font-size: 14px; }
   .dash-toolbar .dash-refresh { margin: 0; }
-  .dash-chart { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding: 0 2px; overflow-x: auto; }
+  .dash-chart { display: flex; align-items: flex-end; gap: 6px; height: 158px; padding: 4px 6px; margin: -4px -4px; overflow-x: auto; }
   .dash-chart-col { flex: 1 0 34px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; cursor: pointer; }
-  .dash-chart-val { font-size: 10px; color: #666; margin-bottom: 2px; white-space: nowrap; }
+  .dash-chart-val { font-size: 11px; color: #666; margin-bottom: 2px; white-space: nowrap; }
   .dash-chart-bar { width: 100%; background: #99d5cf; border-radius: 4px 4px 0 0; min-height: 2px; }
   .dash-chart-col.sel .dash-chart-bar { background: #0f766e; }
-  .dash-chart-lbl { font-size: 10px; color: #666; margin-top: 4px; }
+  .dash-chart-lbl { font-size: 11px; color: #666; margin-top: 4px; }
   .dash-refresh { width: auto; padding: 8px 14px; font-size: 13px; margin: 0 0 16px; background: #f5f5f5; color: #1a1a1a; }
   .dash-refresh:active { background: #e5e5e5; }
   /* Ticket scan */
   .scan-section { margin: 10px 0 16px; }
-  .scan-btn { background: #6366f1; color: white; padding: 12px; font-size: 14px; margin: 0; width: 100%; border-radius: 8px; border: none; font-weight: 600; }
-  .scan-btn:active { background: #4f46e5; }
+  .scan-btn { background: #4f46e5; color: white; padding: 12px; font-size: 14px; margin: 0; width: 100%; border-radius: 8px; border: none; font-weight: 600; }
+  .scan-btn:active { background: #4338ca; }
   .scan-btn.cancel { background: #f5f5f5; color: #1a1a1a; }
-  .scan-btn.save { background: #10b981; }
-  .scan-btn.save:active { background: #059669; }
+  .scan-btn.save { background: #047857; }
+  .scan-btn.save:active { background: #065f46; }
   #scanPreview { background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px; margin: 12px 0; }
   #scanPreview h3 { margin: 0 0 10px; font-size: 13px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .scan-row { display: grid; grid-template-columns: 1fr 70px 90px 26px; gap: 4px; margin-bottom: 6px; align-items: center; }
-  .scan-row input, .scan-row select { padding: 6px 6px; font-size: 12px; border-radius: 5px; }
+  .scan-row input, .scan-row select { padding: 6px 8px; font-size: 16px; border-radius: 6px; min-width: 0; }
   .scan-row .del-btn { padding: 4px 0; background: #fecaca; color: #991b1b; margin: 0; font-size: 14px; line-height: 1; width: 100%; font-weight: 700; border-radius: 5px; border: none; }
   .scan-total { display: flex; justify-content: space-between; padding: 10px 4px 12px; font-size: 13px; border-top: 1px solid #f0f0f0; margin-top: 8px; }
   .scan-total .v { font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums; }
@@ -123,16 +128,19 @@
   /* Agregar Gasto — secciones en .hcard, igual que el resto de la app
      (Tareas/Hábitos/Ahorros/Argentina); este panel era el único que no lo
      hacía, con el form flotando suelto sobre el fondo. */
-  #ingresoSummary { cursor: pointer; list-style: none; }
-  #ingresoSummary::-webkit-details-marker { display: none; }
+  #ingresoSummary, #quickSummary { cursor: pointer; list-style: none; }
+  #ingresoSummary::-webkit-details-marker, #quickSummary::-webkit-details-marker { display: none; }
+  /* Escanear ticket: una fila compacta, no una tarjeta con título */
+  .hcard.scan-card { padding: 8px; }
+  .scan-card #scanPreview { margin: 10px 0 0; }
   /* Verde en vez del teal de "Guardar gasto": un ingreso es plata que entra,
      no que sale — dos botones idénticos apilados (gasto arriba, ingreso
      abajo) se leían como si cualquiera fuera "el" botón principal. */
-  #ingAdd { background: #10b981; }
-  #ingAdd:active { background: #059669; }
+  #ingAdd { background: #047857; }
+  #ingAdd:active { background: #065f46; }
 
   /* === HABITOS === */
-  .hdate { font-size: 13px; color: #888; font-weight: 400; }
+  .hdate { font-size: 13px; color: #667085; font-weight: 400; }
   .hcard { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
   .hcard-title { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
   .hmini { width: auto; margin: 0; padding: 3px 9px; font-size: 13px; background: #f5f5f5; color: #1a1a1a; border-radius: 6px; }
@@ -144,12 +152,12 @@
   .quick-scroll.meals button { background: #ecfdf5; color: #065f46; }
   .quick-scroll.meals button:active { background: #d1fae5; }
   .hmeal-input { display: grid; grid-template-columns: 1fr 96px 46px; gap: 6px; margin-top: 10px; }
-  .hmeal-input input { padding: 10px; font-size: 15px; }
+  .hmeal-input input { padding: 10px; font-size: 16px; }
   .hmeal-input button { margin: 0; padding: 10px; font-size: 20px; font-weight: 700; background: #0f766e; }
   .hmeal-list { margin-top: 10px; }
   .hmeal-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 2px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
   .hmeal-row:last-child { border-bottom: none; }
-  .hmeal-row .mt { color: #888; font-variant-numeric: tabular-nums; font-size: 12px; min-width: 42px; }
+  .hmeal-row .mt { color: #667085; font-variant-numeric: tabular-nums; font-size: 12px; min-width: 42px; }
   .hmeal-row .mn { flex: 1; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hmeal-row .mm { font-size: 11px; color: #0f766e; background: #f0fdfa; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
   .hlabel { display: block; font-size: 12px; color: #666; margin: 14px 0 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -159,15 +167,10 @@
   .hcounter button:active { background: #e5e5e5; }
   .hcounter-val { text-align: center; min-width: 60px; }
   .hcounter-val span { font-size: 32px; font-weight: 700; color: #0f766e; display: block; line-height: 1; }
-  .hcounter-val small { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-  #habStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
-  #habStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
-  #habStatus.draft { display: block; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
-  #habStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
-  #habStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
+  .hcounter-val small { font-size: 11px; color: #667085; text-transform: uppercase; letter-spacing: 0.5px; }
   .hkpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .hkpi { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 9px 10px; }
-  .hkpi-l { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
+  .hkpi-l { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
   .hkpi-v { font-size: 19px; font-weight: 700; color: #0f766e; margin-top: 2px; }
   .hcorr { background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 13px; color: #713f12; line-height: 1.5; }
   #ejerTipo { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%231e40af' stroke-width='2'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
@@ -191,23 +194,23 @@
   .hdatebar { display: grid; grid-template-columns: 44px 1fr 44px 56px; gap: 6px; align-items: center; margin-bottom: 10px; }
   .hdatebar button { margin: 0; padding: 10px 0; font-size: 20px; background: #f5f5f5; color: #1a1a1a; border-radius: 8px; }
   .hdatebar button:active { background: #e5e5e5; }
-  .hdatebar input[type="date"] { padding: 10px 8px; font-size: 15px; text-align: center; }
+  .hdatebar input[type="date"] { padding: 10px 8px; font-size: 16px; text-align: center; }
   .hdatetoday { font-size: 13px !important; font-weight: 600; background: #f0fdfa !important; color: #0f766e !important; border: 1px solid #a7f3d0; }
   .hdirty { display: none; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 13px; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; font-weight: 600; }
   .hdirty.show { display: block; }
   .hwork-field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
   .hwork-field input { min-width: 0; font-size: 20px; font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums; }
   .hwork-field span { color: #64748b; font-size: 13px; font-weight: 600; padding-right: 4px; }
-  .hfield-hint { color: #94a3b8; font-size: 11px; margin-top: 6px; }
+  .hfield-hint { color: #667085; font-size: 11px; margin-top: 6px; }
   .hrating { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
   .hrating button { margin: 0; padding: 9px 2px 7px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; border-radius: 9px; }
   .hrating button span { display: block; font-size: 23px; line-height: 1.1; filter: grayscale(0.75); opacity: 0.72; }
-  .hrating button small { display: block; margin-top: 4px; font-size: 10px; font-weight: 700; }
+  .hrating button small { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; }
   .hrating button.activo { background: #ecfdf5; color: #0f766e; border-color: #34d399; box-shadow: 0 0 0 1px #34d399 inset; }
   .hrating button.activo span { filter: none; opacity: 1; }
-  .hrating-clear { width: auto; display: block; margin: 7px 0 0 auto; padding: 5px 8px; background: transparent; color: #94a3b8; font-size: 11px; font-weight: 600; }
+  .hrating-clear { width: auto; display: block; margin: 7px 0 0 auto; padding: 5px 8px; background: transparent; color: #667085; font-size: 11px; font-weight: 600; }
   .hrating-clear:active { background: #f1f5f9; color: #64748b; }
-  .hhint { font-size: 10px; color: #aaa; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .hhint { font-size: 11px; color: #667085; font-weight: 400; text-transform: none; letter-spacing: 0; }
   .dash-moneda { float: right; display: inline-flex; gap: 0; text-transform: none; }
   .dash-moneda button { border: 1px solid #d1d5db; background: #fff; color: #555; font-size: 11px; font-weight: 700; padding: 3px 10px; cursor: pointer; }
   .dash-moneda button:first-child { border-radius: 6px 0 0 6px; }
@@ -224,9 +227,9 @@
   .hnum-row input { text-align: center; font-size: 22px; font-weight: 700; padding: 10px 4px; font-variant-numeric: tabular-nums; color: #0f766e; }
   .hnumbtn { margin: 0; width: 54px; height: 50px; border-radius: 10px; font-size: 24px; font-weight: 700; background: #f5f5f5; color: #1a1a1a; padding: 0; }
   .hnumbtn:active { background: #e5e5e5; }
-  .hunit { font-size: 13px; color: #888; font-weight: 600; }
+  .hunit { font-size: 13px; color: #667085; font-weight: 600; }
   .hejer-input { display: grid; grid-template-columns: 1fr 72px 46px; gap: 8px; margin-top: 10px; }
-  .hejer-input input, .hejer-input select { padding: 10px; font-size: 15px; }
+  .hejer-input input, .hejer-input select { padding: 10px; font-size: 16px; }
   .hejer-input button { margin: 0; padding: 10px; font-size: 20px; font-weight: 700; background: #1d4ed8; }
 
   /* --- botones secundarios --- */
@@ -275,14 +278,14 @@
             font-variant-numeric: tabular-nums; background: rgba(255,255,255,0.16); }
   .ahogan.sube { color: #6ee7b7; }
   .ahogan.baja { color: #fca5a5; }
-  .ahorow .gan { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ahorow .gan { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .ahorow .gan.sube { color: #047857; }
   .ahorow .gan.baja { color: #b91c1c; }
-  .ahorow .gan.nada { color: #9ca3af; font-weight: 600; }
+  .ahorow .gan.nada { color: #6b7280; font-weight: 600; }
   .ahobreak { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 14px;
               border-top: 1px solid rgba(255,255,255,0.2); padding-top: 12px; }
   .ahobreak div { display: flex; flex-direction: column; gap: 2px; }
-  .ahobreak span { font-size: 10px; color: rgba(255,255,255,0.7); }
+  .ahobreak span { font-size: 11px; color: rgba(255,255,255,0.7); }
   .ahobreak b { font-size: 13px; font-variant-numeric: tabular-nums; }
   /* La tarjeta "Disponible este mes" es clara: sin esto las etiquetas (blanco 70%) no se ven. */
   #ahoSaldoCard .ahobreak { border-top: 0; margin-top: 8px; padding-top: 0; }
@@ -302,33 +305,33 @@
                  font-weight: 800; color: #047857; background: #ecfdf5; border-color: #d1fae5; }
   .ahonom { flex: 1; overflow: hidden; }
   .ahonom b { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ahonom span { font-size: 11px; color: #888; }
+  .ahonom span { font-size: 11px; color: #667085; }
   .ahoval { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ahoval b { display: block; font-size: 13px; }
-  .ahoval span { font-size: 10px; color: #888; }
+  .ahoval span { font-size: 11px; color: #667085; }
   #ahoStatus { margin-top: 10px; }
 
   .hphoto { width: 100%; margin: 10px 0 0; padding: 12px; font-size: 14px; font-weight: 600;
-             background: #6366f1; color: white; border: none; border-radius: 8px; }
-  .hphoto:active { background: #4f46e5; }
+             background: #4f46e5; color: white; border: none; border-radius: 8px; }
+  .hphoto:active { background: #4338ca; }
   #mealScanBox { display: none; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px;
                  padding: 12px; margin-top: 10px; }
   #mealScanBox.show { display: block; }
   .hscan-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px;
                 color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
-  .hscan-conf { padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+  .hscan-conf { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
   .hscan-conf.alta  { background: #dcfce7; color: #15803d; }
   .hscan-conf.media { background: #fef3c7; color: #92400e; }
   .hscan-conf.baja  { background: #fee2e2; color: #b91c1c; }
   .hscan-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .hscan-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 14px; }
   .hscan-actions button { margin: 0; padding: 12px 4px; font-size: 14px; }
-  .hmeal-row .mk { font-size: 10px; color: #94a3b8; white-space: nowrap; margin-left: 6px; }
+  .hmeal-row .mk { font-size: 11px; color: #667085; white-space: nowrap; margin-left: 6px; }
   .hdaystatus { font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 6px;
                  margin-bottom: 8px; text-align: center; letter-spacing: 0.3px; }
   .hdaystatus.con { background: #ecfdf5; color: #15803d; border: 1px solid #a7f3d0; }
-  .hdaystatus.sin { background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
-  .hsub { display: block; font-size: 10px; color: #94a3b8; font-weight: 400; margin-top: 1px; }
+  .hdaystatus.sin { background: #f8fafc; color: #667085; border: 1px solid #e2e8f0; }
+  .hsub { display: block; font-size: 11px; color: #667085; font-weight: 400; margin-top: 1px; }
   .argsaldo { background: #f0f9ff; border-color: #bae6fd; }
   .argrow { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 13px; color: #475569; }
   .argrow b { font-variant-numeric: tabular-nums; color: #0f172a; font-size: 14px; }
@@ -344,28 +347,20 @@
   .argtipos.vert { flex-direction: column; gap: 5px; }
   .argtipos.vert button { text-align: left; padding: 11px 12px; font-size: 14px; }
   .argcalc { font-size: 13px; color: #0369a1; text-align: center; margin-top: 8px; min-height: 16px; font-weight: 600; }
-  #argStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
-  #argStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
-  #argStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
-  #argStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
   .argmov { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid #f0f0f0; font-size: 13px; cursor: pointer; }
   .argmov:last-child { border-bottom: none; }
-  .argmov .at { font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700; white-space: nowrap; }
+  .argmov .at { font-size: 11px; padding: 2px 7px; border-radius: 5px; font-weight: 700; white-space: nowrap; }
   .argmov .at.carga { background: #dcfce7; color: #15803d; }
   .argmov .at.gasto { background: #fef3c7; color: #92400e; }
   .argmov .at.pago  { background: #e0e7ff; color: #3730a3; }
   .argmov .at.transferencia { background: #cffafe; color: #0e7490; }
   .argmov .ad { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .argmov .am { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .argmov .aq { font-size: 10px; color: #94a3b8; white-space: nowrap; }
+  .argmov .aq { font-size: 11px; color: #667085; white-space: nowrap; }
   .arghint { font-size: 12px; color: #64748b; background: #f8fafc; border-left: 3px solid #cbd5e1;
              padding: 7px 10px; border-radius: 0 6px 6px 0; margin: 8px 0 4px; line-height: 1.4; }
 
   /* TAREAS */
-  #tarStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
-  #tarStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
-  #tarStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
-  #tarStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
   .task-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 2px; border-bottom: 1px solid #f0f0f0; }
   .task-row:last-child { border-bottom: none; }
   /* margin-top negativo a propósito: el check es más alto que una línea de
@@ -427,7 +422,7 @@
      click en el resto del encabezado, que pliega/despliega (ver el módulo
      de drag & drop). touch-action:none para que el navegador no intente
      scrollear la página cuando el arrastre arranca justo ahí. */
-  .task-col-drag-grip { cursor: grab; color: #94a3b8; font-size: 18px; touch-action: none;
+  .task-col-drag-grip { cursor: grab; color: #667085; font-size: 18px; touch-action: none;
                         padding: 6px 8px 6px 0; margin: -6px 0; user-select: none; -webkit-user-select: none;
                         -webkit-touch-callout: none; }
   /* Flechita que gira al compactar la columna (▾ -> ◂) */
@@ -449,7 +444,7 @@
      pizarra, se tacha (tachado normal, no el fibrón de las tarjetas) y queda
      al final (ver tarPintar en el cliente). */
   .task-col.completada { opacity: 0.55; }
-  .task-col.completada .task-col-title { text-decoration: line-through; color: #94a3b8; }
+  .task-col.completada .task-col-title { text-decoration: line-through; color: #667085; }
   /* "Proyecto" suspendido: vive fuera de la pizarra, en su propia sección
      (#tarBoardSuspendidas) — tono apagado distinto del completado (acá no
      hay tachado, el proyecto no terminó, solo está en pausa) + botón directo
@@ -524,7 +519,7 @@
   .task-subgroup-head { display: flex; align-items: center; gap: 6px; margin: 0 0 7px 2px;
                         font-size: 11px; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.4px;
                         cursor: pointer; user-select: none; -webkit-user-select: none; }
-  .task-subgroup-head .n { font-size: 10px; font-weight: 700; background: #ede9fe; color: #6d28d9;
+  .task-subgroup-head .n { font-size: 11px; font-weight: 700; background: #ede9fe; color: #6d28d9;
                            padding: 1px 7px; border-radius: 999px; margin-left: auto; }
   /* Solo aparece cuando el sub-grupo terminó del todo (ver tarColBodyHtml) —
      por eso margin-left:0 en vez de auto, así queda pegado al badge de
@@ -552,8 +547,8 @@
   .tar-loading .tar-spin { width: 26px; height: 26px; border: 4px solid #e5e5e5; border-top-color: #0f766e;
                            border-radius: 50%; animation: spin 0.9s linear infinite; }
   .tar-loading.err { color: #b91c1c; }
-  .task-subgroup.sin .task-subgroup-head { color: #94a3b8; }
-  .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #94a3b8; }
+  .task-subgroup.sin .task-subgroup-head { color: #667085; }
+  .task-subgroup.sin .task-subgroup-head .n { background: #f1f5f9; color: #667085; }
   .task-subgroup .task-col-body { gap: 9px; }
   /* Compactar/expandir un sub-grupo — misma flechita y misma animación que
      una columna entera (ver .task-col-collapse). */
@@ -599,15 +594,15 @@
   .hsubcat-item .hsub-susp:active { background: #fee2e2; }
   .hsubcat-item.susp { opacity: 0.7; }
   .hsubcat-item.susp span { font-style: italic; color: #b45309; }
-  .hsubcat-empty { font-size: 12px; color: #94a3b8; padding: 8px 2px; }
+  .hsubcat-empty { font-size: 12px; color: #667085; padding: 8px 2px; }
 
   /* SUBTAREAS — checklist propio dentro de una tarea. Paleta ámbar a
      propósito (distinta del teal del check principal y del violeta de
      subcategoría) para que las tres cosas se distingan de un vistazo. */
   .task-subtasks { margin-top: 9px; padding-top: 9px; border-top: 1px dashed #e5e7eb; }
   .task-subtasks-head { display: flex; align-items: center; gap: 6px; margin: 0 0 6px;
-                        font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.4px; }
-  .task-subtasks-head .n { font-size: 10px; font-weight: 700; background: #fef3c7; color: #92400e;
+                        font-size: 11px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.4px; }
+  .task-subtasks-head .n { font-size: 11px; font-weight: 700; background: #fef3c7; color: #92400e;
                            padding: 1px 7px; border-radius: 999px; }
   .task-badge.subtasks { background: #fef3c7; color: #92400e; }
 
@@ -624,7 +619,7 @@
                 font-weight: 700; background: #fef2f2; color: #b91c1c; border-radius: 6px; line-height: 1; }
   .hsubtask-rm:active { background: #fee2e2; }
   .hsubtask-add { display: grid; grid-template-columns: 1fr 44px; gap: 8px; margin-top: 8px; }
-  .hsubtask-add input { margin: 0; padding: 10px 12px; font-size: 14px; }
+  .hsubtask-add input { margin: 0; padding: 10px 12px; font-size: 16px; }
   .hsubtask-add button { margin: 0; padding: 0; font-size: 20px; font-weight: 700; background: #d97706; }
   .hsubtask-add button:active { background: #b45309; }
 
@@ -664,16 +659,12 @@
   .comp-del { margin: 0; width: 26px; height: 26px; flex: 0 0 26px; padding: 0; font-size: 16px;
              font-weight: 700; background: #fef2f2; color: #b91c1c; border-radius: 6px; line-height: 1; }
   .comp-del:active { background: #fee2e2; }
-  #compStatus { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
-  #compStatus.ok { display: block; background: #ecfdf5; border: 1px solid #10b981; color: #15803d; }
-  #compStatus.err { display: block; background: #fef2f2; border: 1px solid #dc2626; color: #dc2626; }
-  #compStatus.loading { display: block; background: #f0f9ff; border: 1px solid #0ea5e9; color: #0369a1; }
 
   /* === PANTALLA DE INICIO === */
   .home-hero { text-align: center; padding: 22px 6px 26px; }
   .home-hero-emoji { font-size: 46px; line-height: 1; margin-bottom: 10px; }
   .home-hero h1 { font-size: 23px; margin: 0 0 4px; }
-  .home-sub { color: #888; font-size: 13px; margin: 0; }
+  .home-sub { color: #667085; font-size: 13px; margin: 0; }
   .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .home-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
                gap: 3px; text-align: left; margin: 0; width: auto; min-height: 112px;
@@ -683,21 +674,21 @@
   .home-card-icon { font-size: 26px; }
   .home-card-title { font-size: 15px; font-weight: 700; }
   .home-card-sub { font-size: 11px; opacity: 0.85; font-weight: 500; }
-  .home-add    { background: linear-gradient(135deg, #0f766e, #2dd4bf); }
+  .home-add    { background: linear-gradient(135deg, #115e59, #0f766e); }
   .home-tareas { background: linear-gradient(135deg, #4338ca, #818cf8); }
   .home-dash   { background: linear-gradient(135deg, #0369a1, #38bdf8); }
   .home-habit  { background: linear-gradient(135deg, #7c3aed, #c4b5fd); }
-  .home-aho    { background: linear-gradient(135deg, #064e3b, #10b981); }
+  .home-aho    { background: linear-gradient(135deg, #064e3b, #047857); }
   .home-arg    { background: linear-gradient(135deg, #1d4ed8, #60a5fa); }
   /* :active necesita repetir el gradiente con dos clases (mismo criterio que
      .scan-btn.save:active etc.): la regla genérica button:active del tope del
      archivo tiene más especificidad que una sola clase .home-card y taparía
      el gradiente con el teal plano si no se repite acá. */
-  .home-add:active    { background: linear-gradient(135deg, #0d5c52, #14b8a6); }
+  .home-add:active    { background: linear-gradient(135deg, #0f4f4a, #115e59); }
   .home-tareas:active { background: linear-gradient(135deg, #3730a3, #6366f1); }
   .home-dash:active   { background: linear-gradient(135deg, #075985, #0ea5e9); }
   .home-habit:active  { background: linear-gradient(135deg, #6d28d9, #a78bfa); }
-  .home-aho:active    { background: linear-gradient(135deg, #053f2e, #059669); }
+  .home-aho:active    { background: linear-gradient(135deg, #053f2e, #065f46); }
   .home-arg:active    { background: linear-gradient(135deg, #1e40af, #3b82f6); }
 
   /* =====================================================================
@@ -723,12 +714,12 @@
   .home-habit  { background: linear-gradient(135deg, #6d28d9, #8b5cf6); }
   .home-tareas { background: linear-gradient(135deg, #4338ca, #6366f1); }
   .home-arg    { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
-  .home-add    { background: linear-gradient(135deg, #0f766e, #14b8a6); }
+  .home-add    { background: linear-gradient(135deg, #115e59, #0f766e); }
   .home-dash:active   { background: linear-gradient(135deg, #075985, #0369a1); }
   .home-habit:active  { background: linear-gradient(135deg, #5b21b6, #7c3aed); }
   .home-tareas:active { background: linear-gradient(135deg, #3730a3, #4f46e5); }
   .home-arg:active    { background: linear-gradient(135deg, #1e40af, #2563eb); }
-  .home-add:active    { background: linear-gradient(135deg, #0d5c52, #0f766e); }
+  .home-add:active    { background: linear-gradient(135deg, #0f4f4a, #115e59); }
 
   /* -- navegador de mes -- */
   .mes-nav { position: sticky; top: var(--tabs-h, 0px); z-index: 9; display: flex; gap: 8px; align-items: center;
@@ -805,7 +796,8 @@
   .mes-clear[hidden] { display: none; }
   .mes-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
   .mes-scroll-x::-webkit-scrollbar { display: none; }
-  .mes-filters { display: flex; gap: 8px; margin-top: 10px; padding-bottom: 2px; }
+  /* padding + margen negativo: el anillo de foco (2px + 2px de offset) no queda recortado por el overflow del scroll */
+  .mes-filters { display: flex; gap: 8px; margin: 6px -4px 0; padding: 4px 4px 4px; }
   .mes-pill { flex: 0 0 auto; width: auto; height: 42px; padding: 0 34px 0 14px; border-radius: 21px; border: 1px solid #d5dade; background-color: #fff;
               background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23475467' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
               background-repeat: no-repeat; background-position: right 13px center; color: #344054; font-size: 15px; font-weight: 600; max-width: 70vw; text-overflow: ellipsis; }
@@ -817,6 +809,9 @@
   .mes-link:active { background: #e6f4f1; }
   .mes-btn { width: auto; display: inline-block; margin: 16px 0 0; padding: 0 22px; min-height: 46px; border-radius: 13px; background: #0f766e; color: #fff; font-size: 15px; font-weight: 700; }
   .mes-btn:active { background: #0d5c52; }
+  .mes-nav-err .mes-empty { padding: 12px 18px 14px; }
+  .mes-nav-err .mes-empty-ico { font-size: 28px; margin-bottom: 6px; }
+  .mes-nav-err .mes-btn { margin-top: 10px; }
   .mes-btn.ghost { background: #fff; color: #0f766e; border: 1px solid #b4d6d1; }
   .mes-btn.ghost:active { background: #e6f4f1; }
   #addVerMes { display: block; width: 100%; margin-top: 12px; }
@@ -837,7 +832,7 @@
   @keyframes mesFlash { 0% { box-shadow: 0 0 0 3px rgba(15,118,110,0.5); } 100% { box-shadow: 0 1px 2px rgba(16,24,40,0.04); } }
   .mes-none { padding: 22px; text-align: center; color: #667085; font-size: 14px; }
   .mes-chartcard { padding: 16px 10px 10px; }
-  .mes-chartcard .dash-chart { height: 200px; }
+  .mes-chartcard .dash-chart { height: 208px; }
 
   .gx { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 58px; border-bottom: 1px solid #f0f2f4; font-size: 15px; text-align: left; }
   .gx:last-child { border-bottom: none; }
@@ -950,8 +945,18 @@
   .mes-clear { right: 2px; top: 2px; width: 44px; height: 44px; }
   .hsubtask-row, .comp-row { min-height: 44px; }
   .hsubtask-list { gap: 0; }
-  .scan-row { grid-template-columns: 1fr 64px 84px 36px; }
+  .scan-row { grid-template-columns: 1fr 76px 100px 36px; }
   .scan-row .del-btn { min-height: 36px; }
+  /* En pantallas angostas el nombre va en su propia fila a ancho completo y
+     debajo monto / categoría / borrar (con inputs de 16px no entra todo en una). */
+  @media (max-width: 479px) {
+    .scan-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 44px;
+                grid-template-areas: "nm nm nm" "am cat del"; gap: 6px; margin-bottom: 12px; }
+    .scan-row > [data-field="name"] { grid-area: nm; }
+    .scan-row > [data-field="amount"] { grid-area: am; }
+    .scan-row > [data-field="category"] { grid-area: cat; }
+    .scan-row > .del-btn { grid-area: del; min-height: 44px; }
+  }
   summary.hcard-title { padding: 14px 0; margin: -14px 0 -4px; }
 
   .hmini, .task-check, .comp-check, .hsubtask-check, .task-col-add, .task-col-menu-btn, .task-subgroup-add,
