@@ -21,7 +21,7 @@ const aleatorio = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
 async function sha256(s) {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))));
 }
-export const esHex64 =(s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
+export const esHex64 = (s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 
 export const normalizarMail = (m) => String(m || '').trim().toLowerCase();
 export function mailValido(m) {
@@ -89,7 +89,14 @@ export async function canjearLink(env, token, ua) {
     .bind(await sha256(token), ahora).all();
   const fila = r.results && r.results[0];
   if (!r.meta.changes || !fila) return { ok: false };
+  return abrirSesion(env, fila.email, ua);
+}
 
+// Mail ya verificado (por link o por Google): tenant existente por mail o tenant nuevo, y sesión nueva.
+// Una sola batch. Devuelve { ok:true, sid, tenant, nuevo } o { ok:false }.
+async function abrirSesion(env, email, ua) {
+  const ahora = ahoraSeg();
+  const fila = { email };
   const sid = aleatorio(32);
   const idNuevo = 't_' + aleatorio(6);
   const [alta, , dueno] = await env.DB.batch([
@@ -104,6 +111,107 @@ export async function canjearLink(env, token, ua) {
   const tenant = dueno.results[0] && dueno.results[0].id;
   if (!tenant) return { ok: false };
   return { ok: true, sid, tenant, nuevo: alta.meta.changes > 0 };
+}
+
+// --- Continuar con Google (OAuth 2.0, authorization code + PKCE) -----------------------------
+// Solo se activa con GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET (secretos del Worker).
+// state + code_verifier viajan en la cookie gstate (HttpOnly, Path=/auth/google, 10 min), firmada con
+// HMAC-SHA256 usando el client secret: sin escrituras extra en D1. GOOGLE_AUTH_URL / GOOGLE_TOKEN_URL
+// existen solo para tests locales con un mock (NUNCA van en wrangler.toml).
+const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
+const GSTATE_SEG = 600;
+export const googleConfigurado = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+export const cookieGstateBorrada = 'gstate=; Path=/auth/google; Max-Age=0; HttpOnly; Secure; SameSite=Lax';
+
+const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const deB64url = (s) => {
+  const t = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  return new TextDecoder().decode(Uint8Array.from(atob(t + '='.repeat((4 - (t.length % 4)) % 4)), (c) => c.charCodeAt(0)));
+};
+async function hmacHex(clave, texto) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(clave), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(texto))));
+}
+function igualConstante(a, b) {
+  a = String(a); b = String(b);
+  let d = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return d === 0;
+}
+
+// -> { location, cookie }
+export async function googleInicio(env, base) {
+  const state = aleatorio(32);
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const reto = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  const ts = String(ahoraSeg());
+  const firma = await hmacHex(env.GOOGLE_CLIENT_SECRET, state + '.' + verifier + '.' + ts);
+  const u = new URL(env.GOOGLE_AUTH_URL || GOOGLE_AUTH);
+  u.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+  u.searchParams.set('redirect_uri', String(base).replace(/\/+$/, '') + '/auth/google/callback');
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('scope', 'openid email');
+  u.searchParams.set('state', state);
+  u.searchParams.set('code_challenge', reto);
+  u.searchParams.set('code_challenge_method', 'S256');
+  u.searchParams.set('prompt', 'select_account');
+  return {
+    location: u.toString(),
+    cookie: `gstate=${state}.${verifier}.${ts}.${firma}; Path=/auth/google; Max-Age=${GSTATE_SEG}; HttpOnly; Secure; SameSite=Lax`
+  };
+}
+
+const MSG_GOOGLE = 'No pudimos entrar con Google. Probá de nuevo o usá tu mail.';
+
+// Vuelta de Google. -> { ok:true, sid, tenant, nuevo } o { ok:false, error }. Nunca devuelve detalles de Google.
+export async function googleCallback(env, req, url, base, ua) {
+  const fallo = (motivo) => { console.error('google login:', motivo); return { ok: false, error: MSG_GOOGLE }; };
+  if (url.searchParams.get('error')) return { ok: false, error: 'Cancelaste el ingreso con Google. Si querés, probá de nuevo.' };
+  const code = url.searchParams.get('code') || '';
+  const state = url.searchParams.get('state') || '';
+  const partes = leerCookie(req, 'gstate').split('.');
+  if (partes.length !== 4 || !code || !state) return fallo('falta state/cookie/code');
+  const [cState, verifier, ts, firma] = partes;
+  const esperada = await hmacHex(env.GOOGLE_CLIENT_SECRET, cState + '.' + verifier + '.' + ts);
+  const okFirma = igualConstante(firma, esperada);
+  const okState = igualConstante(state, cState);
+  if (!okFirma || !okState) return fallo('state o firma inválidos');
+  if (!/^[0-9a-f]{64}$/.test(cState) || !/^[A-Za-z0-9_-]{43}$/.test(verifier)) return fallo('cookie mal formada');
+  if (ahoraSeg() - Number(ts) > GSTATE_SEG || ahoraSeg() < Number(ts) - 60) return fallo('cookie vencida');
+
+  let tok;
+  try {
+    const r = await fetch(env.GOOGLE_TOKEN_URL || GOOGLE_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, code_verifier: verifier,
+        redirect_uri: String(base).replace(/\/+$/, '') + '/auth/google/callback', grant_type: 'authorization_code'
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!r.ok) return fallo('token endpoint HTTP ' + r.status);
+    tok = await r.json();
+  } catch (e) { return fallo('token endpoint: ' + String(e && e.message || e)); }
+
+  // El id_token llega directo del endpoint de token por TLS: alcanza con leer y chequear los claims.
+  let c;
+  try {
+    const p = String(tok.id_token || '').split('.');
+    if (p.length !== 3) return fallo('id_token ausente o mal formado');
+    c = JSON.parse(deB64url(p[1]));
+  } catch { return fallo('id_token ilegible'); }
+  if (c.iss !== 'accounts.google.com' && c.iss !== 'https://accounts.google.com') return fallo('iss incorrecto');
+  if (c.aud !== env.GOOGLE_CLIENT_ID) return fallo('aud incorrecto');
+  if (typeof c.exp !== 'number' || c.exp <= ahoraSeg()) return fallo('id_token vencido');
+  if (c.email_verified !== true) return fallo('email no verificado');
+  const mail = normalizarMail(c.email);
+  if (!mailValido(mail)) return fallo('email ausente o inválido');
+
+  const s = await abrirSesion(env, mail, ua);
+  if (!s.ok) return fallo('no se pudo abrir la sesión');
+  return s;
 }
 
 function leerCookie(req, name) {
@@ -148,16 +256,21 @@ export function paginaConfirmar(token) {
 <p class="pie">Si no pediste este link, cerrá esta página: no pasa nada.</p>`);
 }
 
+// rel="noreferrer": es una navegación saliente a Google, no se le manda nuestra URL.
+const BOTON_GOOGLE = `<a class="g" href="/auth/google" rel="noreferrer"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Continuar con Google</span></a>
+<p class="o"><span>o</span></p>
+`;
+
 // aviso: { tipo: 'ok' | 'error', texto, link? }
-export function paginaLogin(aviso, mail) {
+export function paginaLogin(aviso, mail, google) {
   const caja = aviso
     ? '<p class="aviso ' + (aviso.tipo === 'error' ? 'err' : 'ok') + '" role="status">' + esc(aviso.texto) + '</p>'
       + (aviso.link ? '<p class="dev">DEV: <a href="' + esc(aviso.link) + '">' + esc(aviso.link) + '</a></p>' : '')
     : '';
   return paginaBase('Entrar · Gastos', `<h1>Entrá a Gastos</h1>
-<p class="sub">Sin contraseña: te mandamos un link por mail.</p>
+<p class="sub">Sin contraseña: ${google ? 'entrá con Google o te mandamos un link por mail.' : 'te mandamos un link por mail.'}</p>
 ${caja}
-<form method="post" action="/login">
+${google ? BOTON_GOOGLE : ''}<form method="post" action="/login">
 <label for="email">Tu mail</label>
 <input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" required maxlength="254" placeholder="vos@ejemplo.com" value="${esc(mail || '')}">
 <button type="submit">Mandarme el link</button>
@@ -173,8 +286,8 @@ function paginaBase(titulo, cuerpo) {
 <meta name="robots" content="noindex">
 <title>${titulo}</title>
 <style>
-:root{--bg:#f4f4f2;--card:#fff;--ink:#1c1c1a;--mut:#6b6b66;--line:#d9d9d3;--acc:#1f6f54;--acc-ink:#fff;--okbg:#e4f3ec;--errbg:#fbe9e7;--errink:#a3281b}
-@media (prefers-color-scheme:dark){:root{--bg:#121413;--card:#1c1f1d;--ink:#ecece8;--mut:#9a9a93;--line:#34383a;--acc:#4cb68f;--acc-ink:#0c1511;--okbg:#17302a;--errbg:#3a1f1c;--errink:#ff9d90}}
+:root{--bg:#f4f4f2;--card:#fff;--ink:#1c1c1a;--mut:#6b6b66;--line:#d9d9d3;--acc:#1f6f54;--acc-ink:#fff;--okbg:#e4f3ec;--errbg:#fbe9e7;--errink:#a3281b;--gbg:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#121413;--card:#1c1f1d;--ink:#ecece8;--mut:#9a9a93;--line:#34383a;--acc:#4cb68f;--acc-ink:#0c1511;--okbg:#17302a;--errbg:#3a1f1c;--errink:#ff9d90;--gbg:#131314}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -189,6 +302,11 @@ button:active{transform:translateY(1px)}
 .aviso{margin:0 0 16px;padding:12px 14px;border-radius:12px;font-size:15px}
 .aviso.ok{background:var(--okbg)}.aviso.err{background:var(--errbg);color:var(--errink)}
 .dev{font-size:12px;word-break:break-all;color:var(--mut)}
+a.g{display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 14px;font-weight:600;color:var(--ink);background:var(--gbg);border:1px solid var(--line);border-radius:12px;text-decoration:none}
+a.g:active{transform:translateY(1px)}
+a.g:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+p.o{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--mut);font-size:13px}
+p.o:before,p.o:after{content:"";flex:1;height:1px;background:var(--line)}
 .pie{margin:18px 0 0;font-size:13px;color:var(--mut)}
 </style></head>
 <body><main>

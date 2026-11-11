@@ -5,7 +5,7 @@ import { buildDelta } from './sync.js';
 import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 import { habitPending, tasksPending } from './pending.js';
-import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaConfirmar, esHex64, CSP_LOGIN } from './cuentas.js';
+import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaConfirmar, esHex64, CSP_LOGIN, googleConfigurado, googleInicio, googleCallback, cookieGstateBorrada } from './cuentas.js';
 import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesValido } from './informes.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
@@ -300,28 +300,31 @@ async function resolverTenant(req, env) {
 }
 
 const redir = (to, status = 302, cookies = []) => {
-  const h = new Headers({ Location: to, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+  const h = new Headers({ Location: to, 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin' });
   for (const c of cookies) h.append('Set-Cookie', c);
   return new Response(null, { status, headers: h });
 };
 
-const htmlLogin = (aviso, mail, status = 200) => new Response(paginaLogin(aviso, mail), {
+const htmlLogin = (aviso, mail, status = 200, google = false) => new Response(paginaLogin(aviso, mail, google), {
   status,
   headers: {
     'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_LOGIN
+    'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_LOGIN
   }
 });
 
 // Rutas sin sesión: login por magic link. Devuelve null si la ruta no es una de ellas.
 async function rutaPublica(req, env, url) {
   const path = url.pathname;
+  const G = googleConfigurado(env);
+  const login = (aviso, mail, status) => htmlLogin(aviso, mail, status, G);
+  const base = env.APP_URL || url.origin;
   const origenMalo = () => { const o = req.headers.get('Origin'); return !!o && o !== url.origin; };
 
   if (path === '/login') {
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (await resolverTenant(req, env)) return redir('/app');
-      return htmlLogin();
+      return login();
     }
     if (req.method !== 'POST') return json({ ok: false, error: 'Método no permitido' }, 405);
     if (origenMalo()) return json({ ok: false, error: 'Origen no permitido' }, 403);
@@ -338,19 +341,38 @@ async function rutaPublica(req, env, url) {
     catch (e) { console.error('login falló:', String(e && e.message || e)); r = { ok: false, status: 500, error: 'No pudimos procesar el pedido. Probá de nuevo en un rato.' }; }
     const { status, ...cuerpo } = r;
     if (esJson) return json(cuerpo, status || 200);
-    return htmlLogin({ tipo: r.ok ? 'ok' : 'error', texto: r.ok ? r.mensaje : r.error, link: r.dev_link }, email.slice(0, 254), status || 200);
+    return login({ tipo: r.ok ? 'ok' : 'error', texto: r.ok ? r.mensaje : r.error, link: r.dev_link }, email.slice(0, 254), status || 200);
+  }
+
+  // Continuar con Google (OAuth code + PKCE). Sin GOOGLE_CLIENT_ID/SECRET: 404, como si no existiera.
+  if (path === '/auth/google' || path === '/auth/google/callback') {
+    if (!G) return json({ ok: false, error: 'No encontrado' }, 404);
+    if (req.method !== 'GET') return json({ ok: false, error: 'Método no permitido' }, 405);
+    if (path === '/auth/google') {
+      const { location, cookie } = await googleInicio(env, base);
+      return redir(location, 302, [cookie]);
+    }
+    let r;
+    try { r = await googleCallback(env, req, url, base, req.headers.get('User-Agent')); }
+    catch (e) { console.error('google login falló:', String(e && e.message || e)); r = { ok: false, error: 'No pudimos entrar con Google. Probá de nuevo o usá tu mail.' }; }
+    if (!r.ok) {
+      const resp = login({ tipo: 'error', texto: r.error }, '', 400);
+      resp.headers.append('Set-Cookie', cookieGstateBorrada);
+      return resp;
+    }
+    return redir('/app', 303, [cookieSesion(r.sid), cookieGstateBorrada]);
   }
 
   if (path.startsWith('/auth/')) {
     const token = path.slice(6);
-    const venció = () => htmlLogin({ tipo: 'error', texto: 'Ese link venció o ya se usó. Pedí uno nuevo.' }, '', 400);
+    const venció = () => login({ tipo: 'error', texto: 'Ese link venció o ya se usó. Pedí uno nuevo.' }, '', 400);
     // GET/HEAD: solo muestra el botón. No canjea ni toca D1 (escáneres de mail y prefetch hacen GET).
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (!esHex64(token)) return venció();
       return new Response(paginaConfirmar(token), {
         headers: {
           'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-          'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_LOGIN
+          'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_LOGIN
         }
       });
     }
@@ -440,7 +462,12 @@ export default {
     }
 
     const publica = await rutaPublica(req, env, url);
-    if (publica) return publica;
+    if (publica) {
+      // Login y confirmación: con no-referrer Chrome manda "Origin: null" en el POST same-origin de un
+      // <form> y el chequeo de Origin lo rechazaría. same-origin no filtra nada a terceros.
+      publica.headers.set('Referrer-Policy', 'same-origin');
+      return publica;
+    }
 
     // Disparo del sync por Apps Script: no hay sesión de navegador, se autentica con
     // la clave compartida (APP_KEY) en un header. Solo POST, y no acepta nada del cuerpo:
