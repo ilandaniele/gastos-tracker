@@ -285,6 +285,9 @@ async function api(req, env, url) {
 // Sync automático: baja el volcado parcial (mes actual y anterior + módulos chicos) de
 // Apps Script y lo carga en D1. Apps Script sigue siendo la fuente de verdad.
 async function sincronizar(env) {
+  // Con todos los módulos en D1 ya no hay nada que bajar del Sheet: no se llama a Apps Script.
+  const f0 = await fuentes(env, TENANT);
+  if (MODULOS.every((m) => f0[m] === 'd1')) return { omitido: 'todos los módulos están en D1' };
   if (!env.APPS_SCRIPT_URL || !env.APP_KEY) throw new Error('Faltan APPS_SCRIPT_URL / APP_KEY');
   const u = new URL(env.APPS_SCRIPT_URL);
   u.searchParams.set('action', 'exportAll');
@@ -296,8 +299,7 @@ async function sincronizar(env) {
   try { data = JSON.parse(text); } catch { throw new Error('Volcado no es JSON: ' + text.slice(0, 100)); }
   if (!data.ok) throw new Error('Volcado dijo: ' + (data.error || 'error'));
   if (data.errores && data.errores.length) throw new Error('Volcado con errores, no se carga: ' + JSON.stringify(data.errores).slice(0, 200));
-  const f = await fuentes(env, TENANT);
-  const saltear = MODULOS.filter((m) => f[m] === 'd1');
+  const saltear = MODULOS.filter((m) => f0[m] === 'd1');
   // Solo se escriben los grupos que cambiaron desde el último sync (huella en sync_state):
   // el plan gratis de D1 limita las filas escritas por día.
   const { results } = await env.DB.prepare('SELECT grupo, huella FROM sync_state WHERE tenant_id = ?').bind(TENANT).all();
