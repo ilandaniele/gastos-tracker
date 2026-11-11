@@ -8,9 +8,18 @@
 //   'd1': manda D1. El sync deja de tocar ese módulo y las escrituras se aceptan.
 // Pasar un módulo a 'd1' es el corte de ese módulo (ver setFuente).
 
-export const MODULOS = ['compras'];
+import * as compras from './rpc/compras.js';
+import * as ahorros from './rpc/ahorros.js';
+import * as ingresos from './rpc/ingresos.js';
+import * as tareas from './rpc/tareas.js';
+import * as habitos from './rpc/habitos.js';
+import * as pais from './rpc/pais.js';
+import * as gastos from './rpc/gastos.js';
 
-const hoy = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Montevideo' }).format(new Date());
+// Un archivo por módulo en src/rpc/ (exporta MODULO y HANDLERS). Para sumar uno: importarlo acá,
+// agregarlo a MODULES y listar sus grupos de sync en GRUPOS_DE_MODULO (sync.js).
+const MODULES = [compras, ahorros, ingresos, tareas, habitos, pais, gastos];
+export const MODULOS = MODULES.map((m) => m.MODULO);
 
 export async function fuentes(env, tenant) {
   const r = await env.DB.prepare(`SELECT clave, valor FROM settings WHERE tenant_id = ? AND clave LIKE 'fuente_%'`).bind(tenant).all();
@@ -29,39 +38,15 @@ export async function setFuente(env, tenant, modulo, fuente) {
 }
 
 const falla = (m) => ({ ok: false, error: m });
-const idDe = (d) => { const n = parseInt(d && (d.row != null ? d.row : d.id), 10); if (!Number.isFinite(n) || n < 1) throw new Error('Fila inválida'); return n; };
 
-// Cada handler: (env, tenant, args) -> respuesta. `escribe` marca los que exigen fuente 'd1'.
-const HANDLERS = {
-  // ---- Compras --------------------------------------------------------------
-  getComprasSafe: { modulo: 'compras', escribe: false, run: async (env, T) => {
-    const r = await env.DB.prepare(`SELECT id, creada, texto, comprado, fecha_comprado FROM purchases WHERE tenant_id = ? ORDER BY id`).bind(T).all();
-    return { ok: true, tab: 'Compras', items: r.results.map((x) => ({ row: x.id, creada: x.creada || '', texto: x.texto, comprado: !!x.comprado, fechaComprado: x.fecha_comprado || '' })) };
-  } },
-  addCompraSafe: { modulo: 'compras', escribe: true, run: async (env, T, [d]) => {
-    const texto = String((d && d.texto) || '').trim();
-    if (!texto) throw new Error('Falta el texto');
-    const r = await env.DB.prepare(`INSERT INTO purchases (tenant_id, creada, texto, comprado) VALUES (?, ?, ?, 0)`).bind(T, hoy(), texto.slice(0, 120)).run();
-    return { ok: true, tab: 'Compras', row: r.meta.last_row_id, texto };
-  } },
-  toggleCompraSafe: { modulo: 'compras', escribe: true, run: async (env, T, [d]) => {
-    const id = idDe(d);
-    const comprado = d.comprado === true || String(d.comprado) === 'true';
-    const r = await env.DB.prepare(`UPDATE purchases SET comprado = ?, fecha_comprado = ? WHERE tenant_id = ? AND id = ?`)
-      .bind(comprado ? 1 : 0, comprado ? hoy() : null, T, id).run();
-    if (!r.meta.changes) throw new Error('Ese ítem ya no existe — recargá la lista');
-    return { ok: true, tab: 'Compras', row: id, comprado };
-  } },
-  deleteCompraSafe: { modulo: 'compras', escribe: true, run: async (env, T, [d]) => {
-    const id = idDe(d);
-    await env.DB.prepare(`DELETE FROM purchases WHERE tenant_id = ? AND id = ?`).bind(T, id).run();
-    return { ok: true, tab: 'Compras', row: id };
-  } },
-  clearBoughtComprasSafe: { modulo: 'compras', escribe: true, run: async (env, T) => {
-    const r = await env.DB.prepare(`DELETE FROM purchases WHERE tenant_id = ? AND comprado = 1`).bind(T).run();
-    return { ok: true, tab: 'Compras', borrados: r.meta.changes };
-  } }
-};
+// Cada handler: (env, tenant, args) -> respuesta. `escribe: true` marca los que exigen fuente 'd1'.
+const HANDLERS = {};
+for (const m of MODULES) {
+  for (const [nombre, h] of Object.entries(m.HANDLERS)) {
+    if (nombre in HANDLERS) throw new Error('Handler duplicado: ' + nombre);
+    HANDLERS[nombre] = { modulo: m.MODULO, ...h };
+  }
+}
 
 export const RPC_NOMBRES = Object.keys(HANDLERS);
 
