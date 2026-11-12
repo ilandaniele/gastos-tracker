@@ -1,6 +1,6 @@
 // Módulo ingresos. Contrato: ver src/rpc.js y src/rpc/compras.js (ejemplo completo).
 // Porta getIngresosData (el cliente la llama sin "Safe"), addIngresoSafe y deleteIngresoSafe de Apps Script.
-import { hoy, idDe } from './util.js';
+import { hoy, idDe, monedaLocal } from './util.js';
 
 export const MODULO = 'ingresos';
 
@@ -20,19 +20,20 @@ export const HANDLERS = {
                                     WHERE tenant_id = ? AND fecha IS NOT NULL AND fecha <> '' ORDER BY id`).bind(T).all();
     return { ok: true, ingresos: r.results.map((x) => ({
       row: x.id, fecha: x.fecha, concepto: String(x.concepto || '').trim(), monto: x.monto || 0,
-      moneda: String(x.moneda || 'UYU').toUpperCase(), notas: String(x.notas || '').trim()
+      moneda: String(x.moneda || monedaLocal(env)).toUpperCase(), notas: String(x.notas || '').trim()
     })) };
   } },
 
   addIngresoSafe: { escribe: true, run: async (env, T, [d]) => {
     const p = d || {};
-    const fecha = fechaISO(p.fecha || hoy());
+    const fecha = fechaISO(p.fecha || hoy(env));
     const concepto = String(p.concepto || '').trim();
     if (!concepto) throw new Error('Falta el concepto');
     const monto = toNumber(String(p.monto == null ? '' : p.monto).replace(',', '.'));
     if (!monto || monto <= 0) throw new Error('Monto inválido');
-    const mon = String(p.moneda || 'UYU').toUpperCase();
-    const moneda = mon === 'USD' ? 'USD' : 'UYU';
+    const L = monedaLocal(env);
+    const mon = String(p.moneda || L).toUpperCase();
+    const moneda = mon === 'USD' ? 'USD' : L;
     const notas = String(p.notas || '').trim();
     const r = await env.DB.prepare(`INSERT INTO incomes (tenant_id, fecha, concepto, monto, moneda, notas) VALUES (?, ?, ?, ?, ?, ?)`)
       .bind(T, fecha, concepto, monto, moneda, notas).run();

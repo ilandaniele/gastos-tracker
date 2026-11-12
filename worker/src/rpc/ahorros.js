@@ -2,13 +2,14 @@
 // Porta getSavingsDataSafe / addSavingsSafe / updateSavingsSafe / deleteSavingsSafe de Apps Script.
 // Las cotizaciones (precio de las acciones y dólar) se piden desde el Worker a Yahoo Finance
 // (sin API key) y se guardan en price_cache (migración 0005); no hay GOOGLEFINANCE.
-import { hoy, idDe } from './util.js';
+import { hoy, idDe, monedaLocal, fxOverride } from './util.js';
 
 export const MODULO = 'ahorros';
 
 const TIPOS = ['Acción', 'Banco', 'Bono'];
-const MONEDAS = ['USD', 'UYU'];
-const COTIZ_FALLBACK = 40.25;        // igual que Code.gs: si no hay ninguna fuente
+// Monedas de un movimiento de banco/bono: USD y la moneda local del tenant (UYU para 'ilan').
+const monedasDe = (env) => { const L = monedaLocal(env); return L === 'USD' ? ['USD'] : ['USD', L]; };
+const COTIZ_FALLBACK = 40.25;        // igual que Code.gs: si no hay ninguna fuente (solo UYU)
 const TTL_PRECIO_MS = 15 * 60 * 1000; // precios de acciones: 15 min
 const TTL_FX_MS = 10 * 60 * 1000;     // dólar: 10 min
 
@@ -89,8 +90,15 @@ async function yahooQuote(symbol) {
   } catch (e) { return null; }
 }
 
-// Pesos uruguayos por dólar. Yahoo (UYU=X) -> open.er-api.com -> último valor guardado -> 40.25.
-async function cotizacionUsdUyu(env) {
+// Moneda local por dólar. UYU (sin cambios): Yahoo (UYU=X) -> open.er-api.com -> último valor guardado -> 40.25.
+// Otra moneda L: open.er-api.com rates[L] -> último valor guardado -> null (sin cotización; no se inventa).
+// Cache global en price_cache con clave 'fx:USD<L>' (la de UYU es la misma 'fx:USDUYU' de siempre). USD: 1.
+async function cotizacionUsdLocal(env) {
+  const L = monedaLocal(env);
+  if (L === 'USD') return 1;
+  const fx = fxOverride(env, L);
+  if (fx) return fx;
+  if (L !== 'UYU') return cotizacionOtra(env, L);
   const valida = (v) => Number.isFinite(v) && v > 20 && v < 100;
   const ahora = Date.now();
   const c = (await leerCache(env, ['fx:USDUYU'])).get('fx:USDUYU');
@@ -106,6 +114,21 @@ async function cotizacionUsdUyu(env) {
   }
   if (v != null) { await guardarCache(env, [{ clave: 'fx:USDUYU', precio: v, moneda: 'UYU', precioOrig: v, at: ahora }]); return v; }
   return c && valida(c.precio) ? c.precio : COTIZ_FALLBACK;
+}
+async function cotizacionOtra(env, L) {
+  const clave = 'fx:USD' + L;
+  const valida = (v) => Number.isFinite(v) && v > 0;
+  const ahora = Date.now();
+  const c = (await leerCache(env, [clave])).get(clave);
+  if (c && valida(c.precio) && ahora - c.at < TTL_FX_MS) return c.precio;
+  try {
+    const r = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      const j = await r.json(); const x = toNumber(j && j.rates && j.rates[L]);
+      if (valida(x)) { await guardarCache(env, [{ clave, precio: x, moneda: L, precioOrig: x, at: ahora }]); return x; }
+    }
+  } catch (e) { /* sigue al respaldo */ }
+  return c && valida(c.precio) ? c.precio : null;
 }
 
 // Precio en DÓLARES de varios tickers. Cache de 15 min en price_cache; si la fuente falla se usa el
@@ -183,7 +206,7 @@ async function leerMovimientos(env, T) {
 // Valúa cada movimiento con el precio del día y arma los totales (= _savingsRepaint sin escribir hoja).
 async function valuar(env, filas) {
   const tickers = [...new Set(filas.filter((f) => f.tipo === 'Acción' && f.ticker).map((f) => f.ticker))];
-  const [precios, cot] = await Promise.all([preciosUsd(env, tickers), cotizacionUsdUyu(env)]);
+  const [precios, cot] = await Promise.all([preciosUsd(env, tickers), cotizacionUsdLocal(env)]);
   let enAcciones = 0, enBanco = 0, enBonos = 0, invertidoAcciones = 0, comisiones = 0;
   for (const f of filas) {
     let precioHoy = null, valor = 0;
@@ -203,7 +226,7 @@ async function valuar(env, filas) {
   return {
     cot,
     totales: {
-      totalUsd, totalUyu: totalUsd * cot, cotizacion: cot, enAcciones, enBanco, enBonos,
+      totalUsd, totalUyu: cot == null ? null : totalUsd * cot, cotizacion: cot, enAcciones, enBanco, enBonos,
       invertidoAcciones, comisionesUsd: comisiones, gananciaUsd, gananciaPct: pct(gananciaUsd, invertidoAcciones)
     }
   };
@@ -241,28 +264,32 @@ function posiciones(filas) {
 // Saldo del banco: depósitos - gastos que salen del banco del mes + ingresos del mes.
 // Gastos = fijos del mes + variables que no son efectivo (mismo criterio que _monthExpenseTotals).
 async function saldo(env, T, filas) {
-  const [anio, mm] = hoy().split('-');
+  const [anio, mm] = hoy(env).split('-');
+  const L = monedaLocal(env);
   const mes = `${anio}-${mm}`;
   const mesActual = `${MESES[+mm - 1]} ${anio}`;
   const [g, ing] = await Promise.all([
     env.DB.prepare(`SELECT
         COALESCE(SUM(CASE WHEN es_fijo = 1 THEN COALESCE(uyu_raw, 0)
-                          WHEN moneda = 'UYU' AND monto > 0 AND LOWER(COALESCE(medio_pago, '')) NOT LIKE '%efectivo%' THEN monto ELSE 0 END), 0) AS uyu,
+                          WHEN moneda = ? AND monto > 0 AND LOWER(COALESCE(medio_pago, '')) NOT LIKE '%efectivo%' THEN monto ELSE 0 END), 0) AS uyu,
         COALESCE(SUM(CASE WHEN es_fijo = 1 THEN COALESCE(usd_raw, 0)
                           WHEN moneda = 'USD' AND monto > 0 AND LOWER(COALESCE(medio_pago, '')) NOT LIKE '%efectivo%' THEN monto ELSE 0 END), 0) AS usd
-      FROM expenses WHERE tenant_id = ? AND mes = ?`).bind(T, mes).first(),
-    env.DB.prepare(`SELECT UPPER(COALESCE(moneda, 'UYU')) AS moneda, COALESCE(SUM(monto), 0) AS total
-                    FROM incomes WHERE tenant_id = ? AND substr(fecha, 1, 7) = ? GROUP BY 1`).bind(T, mes).all()
+      FROM expenses WHERE tenant_id = ? AND mes = ?`).bind(L, T, mes).first(),
+    env.DB.prepare(`SELECT UPPER(COALESCE(moneda, ?)) AS moneda, COALESCE(SUM(monto), 0) AS total
+                    FROM incomes WHERE tenant_id = ? AND substr(fecha, 1, 7) = ? GROUP BY 1`).bind(L, T, mes).all()
   ]);
-  const ingUyu = ing.results.filter((x) => x.moneda !== 'USD').reduce((s, x) => s + x.total, 0);
-  const ingUsd = ing.results.filter((x) => x.moneda === 'USD').reduce((s, x) => s + x.total, 0);
+  // Moneda local USD: no hay segunda moneda; todo va al bucket local ("uyu") y el de USD queda vacío.
+  const soloLocal = L === 'USD';
+  const gUsd = soloLocal ? 0 : g.usd;
+  const ingUyu = ing.results.filter((x) => soloLocal || x.moneda !== 'USD').reduce((s, x) => s + x.total, 0);
+  const ingUsd = ing.results.filter((x) => !soloLocal && x.moneda === 'USD').reduce((s, x) => s + x.total, 0);
   const banco = filas.filter((f) => f.tipo === 'Banco');
   const suma = (m) => banco.filter((f) => f.moneda === m).reduce((s, f) => s + (f.monto || 0), 0);
-  const hayUyu = banco.some((f) => f.moneda === 'UYU'), hayUsd = banco.some((f) => f.moneda === 'USD');
+  const hayUyu = banco.some((f) => f.moneda === L), hayUsd = !soloLocal && banco.some((f) => f.moneda === 'USD');
   return {
-    uyu: hayUyu ? Math.round((suma('UYU') - g.uyu + ingUyu) * 100) / 100 : null,
-    usd: hayUsd ? Math.round((suma('USD') - g.usd + ingUsd) * 100) / 100 : null,
-    mesActual, gastosUyu: g.uyu, gastosUsd: g.usd, ingresosUyu: ingUyu, ingresosUsd: ingUsd
+    uyu: hayUyu ? Math.round((suma(L) - g.uyu + ingUyu) * 100) / 100 : null,
+    usd: hayUsd ? Math.round((suma('USD') - gUsd + ingUsd) * 100) / 100 : null,
+    mesActual, gastosUyu: g.uyu, gastosUsd: gUsd, ingresosUyu: ingUyu, ingresosUsd: ingUsd
   };
 }
 
@@ -271,7 +298,7 @@ async function normalizar(env, p) {
   const tipoRaw = String(p.tipo || '').trim();
   const tipo = TIPOS.find((t) => stripAccents(t) === stripAccents(tipoRaw));
   if (!tipo) throw new Error('Tipo inválido: usá ' + TIPOS.join(', '));
-  const fecha = fechaISO(p.fecha || hoy());
+  const fecha = fechaISO(p.fecha || hoy(env));
   const notas = String(p.notas || '').trim();
 
   if (tipo === 'Acción') {
@@ -330,8 +357,13 @@ async function normalizar(env, p) {
   const monto = num(p.monto);
   if (monto == null || monto <= 0) throw new Error('Monto inválido');
   const mon = String(p.moneda || 'USD').toUpperCase();
-  const moneda = MONEDAS.includes(mon) ? mon : 'USD';
-  const invertidoUsd = moneda === 'UYU' ? monto / (await cotizacionUsdUyu(env)) : monto;
+  const moneda = monedasDe(env).includes(mon) ? mon : 'USD';
+  let invertidoUsd = monto;
+  if (moneda !== 'USD') {
+    const cot = await cotizacionUsdLocal(env);
+    if (!cot) throw new Error('No hay cotización USD/' + moneda + ' disponible ahora: probá de nuevo en un rato o cargalo en USD');
+    invertidoUsd = monto / cot;
+  }
   return { fecha, tipo, entidad, ticker: '', cantidad: '', precioUsd: '', comisionUsd: '', monto, moneda, invertidoUsd, notas };
 }
 
@@ -347,7 +379,7 @@ export const HANDLERS = {
   getSavingsDataSafe: { escribe: false, run: async (env, T) => {
     const filas = await leerMovimientos(env, T);
     const [v, s] = await Promise.all([valuar(env, filas), saldo(env, T, filas)]);
-    return { ok: true, tab: 'Ahorros', movimientos: filas, posiciones: posiciones(filas), totales: v.totales, tipos: TIPOS, monedas: MONEDAS, saldo: s };
+    return { ok: true, tab: 'Ahorros', movimientos: filas, posiciones: posiciones(filas), totales: v.totales, tipos: TIPOS, monedas: monedasDe(env), saldo: s };
   } },
 
   addSavingsSafe: { escribe: true, run: async (env, T, [d]) => {

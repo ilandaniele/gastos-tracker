@@ -63,15 +63,14 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
 
 ## Lo que falta
 
-- **Cloudflare Access**: hoy cubre todo el host con la política "Solo Ilan"; `/login`, `/auth/*` (incluye `/auth/google` y
-  `/auth/google/callback`) y `/logout` tienen que quedar
-  fuera (bypass) o usar otro host para clientes, si no nadie más llega a la página.
+- **Cloudflare Access**: eliminado de `gastos-app`. Quedan variables `ACCESS_*` en wrangler.toml (inofensivas).
 - **Mail con dominio verificado**: el remitente de pruebas de Resend (`onboarding@resend.dev`) solo entrega al dueño
   de la cuenta. Hace falta un dominio verificado (SPF/DKIM) para mandar a clientes.
-- **Onboarding**: `onboarding_listo = 0` no dispara nada todavía (país, moneda, zona horaria, medios de pago, categorías).
-- **Config que sigue siendo de Ilan** (código, no por tenant): medios de pago (`CARDS` en `rpc/gastos.js`; un tenant
-  nuevo solo puede usar esos), categorías y reglas (`form-config.json`), zona horaria `America/Montevideo`
-  (`rpc/util.js`, `pending.js`, `form`), meta de agua, cotización UYU/USD.
+- **Onboarding y config por cuenta**: hecho (paso 2, ver MULTI-TENANT-PASO2.md). Cada cuenta elige país, moneda local,
+  zona horaria, medios y categorías en `/onboarding`; la moneda no se cambia después. Las cuentas nuevas arrancan sin los
+  accesos rápidos de ejemplo (son de Ilan) y sin los módulos Argentina y hábitos íntimos.
+- **Personal de Ilan que sigue en el código**: presets de Accesos rápidos (comercios y montos de Uruguay), meta de agua,
+  cotización de respaldo de 40 y textos del módulo Argentina. La cotización de monedas distintas de UYU/USD es null si no hay caché.
 - **Límites y abuso**: alta abierta a cualquier mail; sin cuotas por tenant (filas, requests); sin renovación
   deslizante de sesión; sin borrado de cuenta/exportación; las IP se guardan ~2 h (limpieza oportunista).
 - **Push y avisos por tenant**: el cron de la PWA y el push diario solo atienden a `ilan`; informes por mail también.

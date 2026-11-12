@@ -23,6 +23,40 @@
   .catchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
   .catchips button { width: auto; margin: 0; padding: 7px 11px; font-size: 13px; font-weight: 500; border-radius: 16px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; }
   .catchips button.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  /* Desplegable de categorías (selección múltiple): botón con las elegidas + panel en el flujo. */
+  .catdd { margin-bottom: 4px; }
+  .catdd .catdd-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 46px; margin: 0; padding: 10px 14px;
+    background: #fff; color: #1a1a1a; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 16px; font-weight: 500; text-align: left; }
+  .catdd .catdd-btn:active { background: #f5f5f5; }
+  .catdd .catdd-btn[aria-expanded="true"] { border-color: #0f766e; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .catdd .catdd-btn.vacio .catdd-txt { color: #667085; }
+  .catdd-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .catdd-flecha { flex: 0 0 auto; width: 8px; height: 8px; margin: -4px 2px 0; border-right: 2px solid #475467; border-bottom: 2px solid #475467; transform: rotate(45deg); }
+  .catdd-btn[aria-expanded="true"] .catdd-flecha { transform: rotate(-135deg); margin-top: 4px; }
+  .catdd-panel { border: 1px solid #0f766e; border-top: 0; border-radius: 0 0 8px 8px; background: #fff; padding: 6px; }
+  .catdd-panel[hidden] { display: none; }
+  .catdd-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 2px 4px; }
+  .catdd .catdd-op { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; padding: 0 8px; border-radius: 6px;
+    font-size: 15px; font-weight: 500; color: #1a1a1a; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .catdd .catdd-op:active { background: #f2f4f7; }
+  .catdd .catdd-op input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: #0f766e;
+    -webkit-appearance: checkbox; appearance: auto; }
+  .catdd .catdd-op:has(input:disabled) { color: #98a2b3; cursor: not-allowed; }
+  .catdd .catdd-op:has(input:checked) { background: #f0fdfa; }
+  .catdd-pie { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 6px 2px 0; }
+  .catdd-aviso { flex: 1 1 auto; font-size: 13px; color: #b42318; }
+  .catdd .catdd-listo { width: auto; min-height: 44px; margin: 0; padding: 0 20px; font-size: 15px; }
+  .catdd .catdd-btn:focus-visible, .catdd .catdd-listo:focus-visible, .catdd .catdd-op input:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+  /* "Se paga el mes siguiente" (debajo de Medio de pago, en Agregar y en Editar gasto). */
+  .paga-luego[hidden] { display: none; }
+  .paga-luego .paga-luego-op { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0 0; font-size: 15px; font-weight: 500;
+    color: #1a1a1a; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .paga-luego .paga-luego-op input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: #0f766e;
+    -webkit-appearance: checkbox; appearance: auto; }
+  .paga-luego .paga-luego-op:has(input:disabled) { cursor: default; color: #475467; }
+  .paga-luego .paga-luego-op input:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+  .paga-luego-ayuda { margin: -4px 0 0 30px; font-size: 13px; color: #475467; }
+  .paga-luego-ayuda[hidden] { display: none; }
   .quick-scroll.fijos button { background: #fef3c7; color: #92400e; }
   .quick-scroll.fijos button:active { background: #fde68a; }
   /* Cajas de estado (Guardando… / ✓ / ✗): una sola definición para #status, #habStatus,
@@ -695,6 +729,19 @@
   .home-habit:active  { background: linear-gradient(135deg, #6d28d9, #a78bfa); }
   .home-aho:active    { background: linear-gradient(135deg, #053f2e, #065f46); }
   .home-arg:active    { background: linear-gradient(135deg, #1e40af, #3b82f6); }
+  /* Sin el módulo Argentina quedan 5 tarjetas: la última ocupa el ancho entero. */
+  .home-grid > .home-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* Barra de cuenta (Ajustes / Salir), discreta al pie de la home. */
+  .home-cuenta { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+  .home-cuenta[hidden] { display: none; }
+  .home-cuenta a, .home-cuenta button { display: inline-flex; align-items: center; justify-content: center;
+    width: auto; min-height: 44px; min-width: 44px; margin: 0; padding: 0 16px; border-radius: 10px;
+    border: 1px solid #e5e5e5; background: #fff; color: #475467; font-size: 14px; font-weight: 600;
+    text-decoration: none; cursor: pointer; }
+  .home-cuenta a:active, .home-cuenta button:active { background: #f2f4f7; }
+  .home-cuenta button:disabled { opacity: 0.6; }
+  .home-cuenta-st { text-align: center; font-size: 13px; color: #b42318; margin-top: 8px; }
+  .home-cuenta-st:empty { display: none; }
 
   /* =====================================================================
      VISTA DEL MES (pestaña Dash) + pulido general
@@ -1123,6 +1170,12 @@
       <span class="home-card-sub">Cuentas con mamá</span>
     </button>
   </div>
+  <!-- Cuenta (solo en el Worker: form-scripts.html la muestra si hay TENANT_CFG) -->
+  <nav class="home-cuenta" id="homeCuenta" aria-label="Cuenta" hidden>
+    <a href="/onboarding" id="ajustesLink">⚙️ Ajustes</a>
+    <button type="button" id="logoutBtn">Salir</button>
+  </nav>
+  <div id="homeCuentaSt" class="home-cuenta-st" role="status" aria-live="polite"></div>
 </div>
 
 <div id="addPanel" class="panel">
@@ -1201,8 +1254,12 @@
       <option>Efectivo UYU</option>
       <option>Efectivo USD</option>
     </select>
-    <label id="catLbl">Categorías (podés elegir varias)</label>
-    <div class="catchips" id="catBox" role="group" aria-labelledby="catLbl"></div>
+    <div class="paga-luego" id="fPagaLuegoBox">
+      <label class="paga-luego-op" for="fPagaLuego"><input type="checkbox" id="fPagaLuego" aria-describedby="fPagaLuegoAyuda"> Se paga el mes siguiente</label>
+      <p class="paga-luego-ayuda" id="fPagaLuegoAyuda" hidden>Las tarjetas de crédito ya se pagan luego</p>
+    </div>
+    <label id="catLbl" for="catBoxBtn">Categorías (podés elegir varias)</label>
+    <div class="catdd" id="catBox" data-label="catLbl"></div>
     <div class="row">
       <div><label for="fDate">Fecha</label><input id="fDate" name="date" type="date" value="<?= today ?>"></div>
       <div><label for="fCotiz">Cotización USD</label><input id="fCotiz" name="cotizacion" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="auto (BCU)" autocomplete="off"></div>
@@ -1867,8 +1924,8 @@
     <div class="hcard-title">💳 Disponible este mes <span id="ahoSaldoMes" class="hhint"></span></div>
     <div id="ahoSaldoUyu" class="ahobreak" hidden>
       <div><span>$ disponible</span><b id="ahoSaldoUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#667085"><span data-ccy>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#667085"><span data-ccy>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
     </div>
     <div id="ahoSaldoUsd" class="ahobreak" hidden>
       <div><span>US$ disponible</span><b id="ahoSaldoUsdVal">US$ 0</b></div>
@@ -2121,8 +2178,12 @@
         </select>
       </div>
     </div>
-    <label class="hlabel" id="grpLbl9">Categorías (podés elegir varias)</label>
-    <div class="catchips" id="expCats" role="group" aria-labelledby="grpLbl9"></div>
+    <div class="paga-luego">
+      <label class="paga-luego-op" for="expPagaLuego"><input type="checkbox" id="expPagaLuego" aria-describedby="expPagaLuegoAyuda"> Se paga el mes siguiente</label>
+      <p class="paga-luego-ayuda" id="expPagaLuegoAyuda" hidden>Las tarjetas de crédito ya se pagan luego</p>
+    </div>
+    <label class="hlabel" id="grpLbl9" for="expCatsBtn">Categorías (podés elegir varias)</label>
+    <div class="catdd" id="expCats" data-label="grpLbl9"></div>
     <div class="row">
       <div><label class="hlabel" for="expFecha">Fecha</label><input type="date" id="expFecha"></div>
       <div><label class="hlabel" for="expCotiz">Cotización USD</label><input type="text" id="expCotiz" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="opcional" autocomplete="off"></div>
@@ -2143,6 +2204,9 @@
 </div>
 
 <script>
+  // Config pública de la cuenta (moneda local, medios, módulos): la inyecta el Worker
+  // (src/form.js reemplaza el marcador). En Apps Script queda null = comportamiento de siempre.
+  var TENANT_CFG    = /*TENANT_CFG*/null;
   // Reglas y categorías inyectadas desde Code.gs: una sola fuente de verdad.
   var CAT_RULES_RAW = <?!= catRulesJson ?>;
   var CATEGORIAS    = <?!= categoriasJson ?>;
@@ -2180,6 +2244,90 @@
 })();
 </script>
 <script>
+  // === Config de la cuenta (multi-tenant) ===
+  // TENANT_CFG la inyecta el Worker (src/form.js) con { pais, moneda, medios, modulos }.
+  // Sin ella (Apps Script) todo queda como siempre: moneda local UYU y todos los módulos.
+  var TENANT = (typeof TENANT_CFG !== 'undefined' && TENANT_CFG) ? TENANT_CFG : null;
+  var LOCAL_CCY = (TENANT && /^[A-Z]{3}$/.test(String(TENANT.moneda || ''))) ? TENANT.moneda : 'UYU';
+  var MODULOS = (TENANT && TENANT.modulos) || {};
+  var MOD_RAPIDOS = MODULOS.accesosRapidos !== false;
+  var MOD_PAIS = MODULOS.pais !== false;
+  // Hábitos íntimos de Ilan (abordajes, masturbación): siguen a `personal` si existe, si no a `pais`.
+  var MOD_PERSONAL = (typeof MODULOS.personal === 'boolean') ? MODULOS.personal : MOD_PAIS;
+  var MEDIOS = (TENANT && Array.isArray(TENANT.medios) && TENANT.medios.length) ? TENANT.medios : null;
+  var DEFAULT_CARD = MEDIOS ? String(MEDIOS[0]) : 'Débito UYU';
+  // ¿Existe ese medio de pago en el select? (un preset con una tarjeta que la cuenta no tiene no la pisa)
+  function hayMedio(card) {
+    var s = document.getElementById('fCard');
+    if (!s) return false;
+    for (var i = 0; i < s.options.length; i++) if (s.options[i].value === card) return true;
+    return false;
+  }
+  (function aplicarCuenta() {
+    function ocultar(el) { if (el) el.style.display = 'none'; }
+    function quitar(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+    // Selects de moneda: la opción 'UYU' pasa a ser la moneda local; sin ARS fuera del módulo
+    // Argentina; sin duplicados (moneda local USD o ARS).
+    if (LOCAL_CCY !== 'UYU' || !MOD_PAIS) {
+      ['fCurrency', 'ingMoneda', 'ahoMoneda', 'amMoneda'].forEach(function(id) {
+        var s = document.getElementById(id);
+        if (!s) return;
+        var vistos = {};
+        Array.prototype.slice.call(s.options).forEach(function(o) {
+          if (o.value === 'UYU') { o.value = LOCAL_CCY; o.textContent = LOCAL_CCY; }
+          if (vistos[o.value] || (o.value === 'ARS' && !MOD_PAIS && LOCAL_CCY !== 'ARS')) { quitar(o); return; }
+          vistos[o.value] = true;
+        });
+      });
+      var ccyLbls = document.querySelectorAll('[data-ccy]');
+      for (var k = 0; k < ccyLbls.length; k++) ccyLbls[k].textContent = ccyLbls[k].textContent.replace('UYU', LOCAL_CCY);
+    }
+    // Cotización: "auto (BCU)" solo tiene sentido en pesos uruguayos; con moneda local USD no hay cotización.
+    var cot = document.getElementById('fCotiz');
+    if (cot && LOCAL_CCY !== 'UYU') cot.placeholder = 'auto';
+    if (LOCAL_CCY === 'USD') {
+      if (cot) ocultar(cot.parentNode);
+      var cot2 = document.getElementById('expCotiz');
+      if (cot2) ocultar(cot2.parentNode);
+    }
+    if (!MOD_RAPIDOS) ocultar(document.getElementById('quickDetails'));
+    if (!MOD_PAIS) {
+      quitar(document.querySelector('.tab[data-panel="argPanel"]'));
+      quitar(document.querySelector('.home-card[data-panel="argPanel"]'));
+      ocultar(document.getElementById('argPanel'));
+    }
+    if (!MOD_PERSONAL) {
+      ['abordInput', 'mastInput'].forEach(function(id) {
+        var el = document.getElementById(id);
+        while (el && !(el.classList && el.classList.contains('hcard'))) el = el.parentNode;
+        ocultar(el);
+      });
+    }
+    // Ajustes / Salir: solo en el Worker (con cuenta).
+    var barra = document.getElementById('homeCuenta');
+    if (barra && TENANT) {
+      barra.hidden = false;
+      var salir = document.getElementById('logoutBtn');
+      if (salir) salir.addEventListener('click', function() {
+        var st = document.getElementById('homeCuentaSt');
+        salir.disabled = true;
+        if (st) st.textContent = '';
+        // fetch y no <form>: /app va con Referrer-Policy no-referrer y un form mandaría
+        // "Origin: null", que /logout rechaza. referrerPolicy acá asegura el Origin real.
+        fetch('/logout', {
+          method: 'POST', credentials: 'same-origin', referrerPolicy: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: '{}'
+        }).then(function(r) {
+          if (r.ok || r.redirected) { location.assign('/login'); return; }
+          throw new Error('HTTP ' + r.status);
+        }).catch(function() {
+          salir.disabled = false;
+          if (st) st.textContent = 'No se pudo cerrar la sesión. Probá de nuevo.';
+        });
+      });
+    }
+  })();
+
   function setStatus(text, cls) {
     var el = document.getElementById('status');
     el.className = cls || '';
@@ -2231,40 +2379,143 @@
     if (document.visibilityState === 'visible') refreshDateToToday();
   });
 
-  // Selector de categorías: chips que se prenden/apagan, tantas como haga falta.
-  // El gasto se guarda con todas en la misma celda ("Cita + Comida + ...").
+  // Selector de categorías: desplegable de selección múltiple. Un botón muestra las elegidas
+  // y abre un panel (dentro del flujo, así no lo corta el viewport) con un checkbox por
+  // categoría. Se cierra con Escape, clic afuera o "Listo". El gasto se guarda con todas en
+  // la misma celda ("Cita + Comida + ..."); get/set devuelven y reciben el mismo array de
+  // siempre, en el orden en que se eligieron.
+  var CAT_MAX = 20; // mismo tope que CAT_MAX del servidor (Code.gs / rpc/gastos.js)
+  var catDdN = 0;
   function catChips(box, onUser) {
     var lista = (typeof CATEGORIAS !== 'undefined' && CATEGORIAS.length) ? CATEGORIAS
       : ['Bebida/Bar','Comida','Entretenimiento','Gimnasio','Hogar','Limpieza','Regalos','Ropa','Salud','Servicios','Suscripciones','Transporte','Viajes','Otros'];
     var sel = [];
-    var botones = {};
-    function pintar() {
-      lista.forEach(function(c) {
-        var on = sel.indexOf(c) >= 0;
-        botones[c].className = on ? 'on' : '';
-        botones[c].setAttribute('aria-pressed', on ? 'true' : 'false');
-      });
-    }
-    lista.forEach(function(c) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = c;
-      b.addEventListener('click', function() {
-        var i = sel.indexOf(c);
-        if (i >= 0) sel.splice(i, 1); else sel.push(c);
+    var checks = {};
+    var pre = box.id || ('catdd' + (++catDdN));
+    var lblId = box.getAttribute('data-label') || '';
+    box.className = 'catdd';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = pre + 'Btn';
+    btn.className = 'catdd-btn';
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-controls', pre + 'Panel');
+    var txt = document.createElement('span');
+    txt.id = pre + 'Txt';
+    txt.className = 'catdd-txt';
+    btn.appendChild(txt);
+    var flecha = document.createElement('span');
+    flecha.className = 'catdd-flecha';
+    flecha.setAttribute('aria-hidden', 'true');
+    btn.appendChild(flecha);
+    if (lblId) btn.setAttribute('aria-labelledby', lblId + ' ' + txt.id);
+
+    var panel = document.createElement('div');
+    panel.id = pre + 'Panel';
+    panel.className = 'catdd-panel';
+    panel.setAttribute('role', 'group');
+    panel.setAttribute('aria-label', 'Categorías');
+    panel.hidden = true;
+    var grilla = document.createElement('div');
+    grilla.className = 'catdd-lista';
+    panel.appendChild(grilla);
+    lista.forEach(function(c, i) {
+      var l = document.createElement('label');
+      l.className = 'catdd-op';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = pre + 'Op' + i;
+      cb.value = c;
+      cb.addEventListener('change', function() {
+        var k = sel.indexOf(c);
+        if (cb.checked && k < 0) {
+          if (sel.length >= CAT_MAX) { cb.checked = false; return; }
+          sel.push(c);
+        } else if (!cb.checked && k >= 0) sel.splice(k, 1);
         pintar();
         if (onUser) onUser();
       });
-      botones[c] = b;
-      box.appendChild(b);
+      var s = document.createElement('span');
+      s.textContent = c;
+      l.appendChild(cb);
+      l.appendChild(s);
+      checks[c] = cb;
+      grilla.appendChild(l);
+    });
+    var pie = document.createElement('div');
+    pie.className = 'catdd-pie';
+    var aviso = document.createElement('span');
+    aviso.className = 'catdd-aviso';
+    aviso.setAttribute('role', 'status');
+    aviso.setAttribute('aria-live', 'polite');
+    pie.appendChild(aviso);
+    var listo = document.createElement('button');
+    listo.type = 'button';
+    listo.className = 'catdd-listo';
+    listo.textContent = 'Listo';
+    pie.appendChild(listo);
+    panel.appendChild(pie);
+    box.appendChild(btn);
+    box.appendChild(panel);
+
+    function pintar() {
+      var lleno = sel.length >= CAT_MAX;
+      lista.forEach(function(c) {
+        var on = sel.indexOf(c) >= 0;
+        checks[c].checked = on;
+        checks[c].disabled = lleno && !on;
+      });
+      txt.textContent = sel.length ? sel.join(', ') : 'Elegí categorías';
+      btn.classList.toggle('vacio', !sel.length);
+      aviso.textContent = lleno ? ('Máximo ' + CAT_MAX + ' categorías') : '';
+    }
+    function abierto() { return !panel.hidden; }
+    function abrir() {
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      var primero = sel.length ? checks[sel[0]] : checks[lista[0]];
+      if (primero) primero.focus();
+    }
+    function cerrar(devolverFoco) {
+      if (!abierto()) return;
+      panel.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+      if (devolverFoco) btn.focus();
+    }
+    btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    listo.addEventListener('click', function() { cerrar(true); });
+    box.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape' && abierto()) {
+        // Que no lo agarre también el Escape global (cierra el modal de editar gasto).
+        ev.preventDefault(); ev.stopPropagation(); cerrar(true); return;
+      }
+      if (ev.key === 'ArrowDown' && ev.target === btn && !abierto()) { ev.preventDefault(); abrir(); return; }
+      if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && ev.target.type === 'checkbox') {
+        var cbs = Array.prototype.filter.call(grilla.querySelectorAll('input'), function(x) { return !x.disabled; });
+        var i = cbs.indexOf(ev.target);
+        var j = i + (ev.key === 'ArrowDown' ? 1 : -1);
+        if (j >= 0 && j < cbs.length) { ev.preventDefault(); cbs[j].focus(); }
+      }
+      // Enter sobre un checkbox lo marca (como Espacio), en vez de mandar el formulario.
+      if (ev.key === 'Enter' && ev.target.type === 'checkbox') { ev.preventDefault(); ev.target.click(); }
+    });
+    // Clic/toque afuera: cierra sin mover el foco. Foco que sale con Tab: también.
+    document.addEventListener('pointerdown', function(ev) {
+      if (abierto() && !box.contains(ev.target)) cerrar(false);
+    });
+    box.addEventListener('focusout', function(ev) {
+      if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false);
     });
     pintar();
     return {
       get: function() { return sel.slice(); },
       set: function(arr) {
-        sel = (arr || []).filter(function(c, i, a) { return botones[c] && a.indexOf(c) === i; });
+        sel = (arr || []).filter(function(c, i, a) { return checks[c] && a.indexOf(c) === i; }).slice(0, CAT_MAX);
         pintar();
-      }
+      },
+      cerrar: function() { cerrar(false); }
     };
   }
   var catTocadaAMano = false;
@@ -2272,13 +2523,47 @@
   catsAdd.set(['Otros']);
   var catsEdit = catChips(document.getElementById('expCats'));
 
+  // "Se paga el mes siguiente": el gasto no suma al total del mes (como las tarjetas de crédito).
+  // Con un medio de crédito queda tildado y deshabilitado; al pasar a otro medio se destilda.
+  // Va como pagaDespues: true|false en addExpenseSafe/updateExpenseSafe.
+  var RE_MEDIO_CREDITO = /cr[eé]dito|\boca\b/i;
+  function pagaLuegoCtl(cbId, selId, ayudaId) {
+    var cb = document.getElementById(cbId), sel = document.getElementById(selId), ay = document.getElementById(ayudaId);
+    function sync() {
+      if (!cb || !sel) return;
+      var cred = RE_MEDIO_CREDITO.test(sel.value || '');
+      if (cred) { cb.checked = true; cb.disabled = true; }
+      else if (cb.disabled) { cb.disabled = false; cb.checked = false; }
+      if (ay) ay.hidden = !cred;
+    }
+    if (sel) sel.addEventListener('change', sync);
+    sync();
+    return {
+      sync: sync,
+      set: function(v) { if (!cb) return; cb.disabled = false; cb.checked = !!v; sync(); },
+      get: function() { return !!(cb && cb.checked); }
+    };
+  }
+  var pagaAdd = pagaLuegoCtl('fPagaLuego', 'fCard', 'fPagaLuegoAyuda');
+  var pagaEdit = pagaLuegoCtl('expPagaLuego', 'expCard', 'expPagaLuegoAyuda');
+  // Un acceso rápido de gasto fijo (kind 'fijo') va a la tabla de fijos: ahí no aplica.
+  var quickFijo = false;
+  function mostrarPagaAdd() {
+    var box = document.getElementById('fPagaLuegoBox');
+    if (box) box.hidden = quickFijo;
+  }
+
   function fillQuick(data) {
+    quickFijo = data.kind === 'fijo';
+    mostrarPagaAdd();
     var itemField = getField('item');
     if (itemField) itemField.value = data.item || '';
     var amountField = getField('amount');
     if (data.amount !== undefined && data.amount !== null) amountField.value = data.amount;
-    var curField = getField('currency'); if (data.currency && curField) curField.value = data.currency;
-    var cardField = getField('card'); if (data.card && cardField) cardField.value = data.card;
+    // Los presets están en 'UYU' (los de Ilan): en otra cuenta van en su moneda local.
+    var curField = getField('currency'); if (data.currency && curField) curField.value = data.currency === 'UYU' ? LOCAL_CCY : data.currency;
+    var cardField = getField('card'); if (data.card && cardField && hayMedio(data.card)) cardField.value = data.card;
+    pagaAdd.sync();
     if (data.category) { catsAdd.set([data.category]); catTocadaAMano = true; }
     if (data.amount === undefined || data.amount === null) amountField.focus();
     else {
@@ -2410,15 +2695,17 @@
     var cardField = getField('card');
     if (!itemField || !cardField) return;
     var v = itemField.value.trim();
-    var matched = 'Débito UYU'; // default
+    var matched = DEFAULT_CARD; // default
     for (var i = 0; i < AUTO_CARD_RULES.length; i++) {
-      if (AUTO_CARD_RULES[i].re.test(v)) { matched = AUTO_CARD_RULES[i].card; break; }
+      if (AUTO_CARD_RULES[i].re.test(v) && hayMedio(AUTO_CARD_RULES[i].card)) { matched = AUTO_CARD_RULES[i].card; break; }
     }
     cardField.value = matched;
+    pagaAdd.sync();
   }
   (function(){
     var itemField = getField('item');
     if (itemField) itemField.addEventListener('input', function() {
+      if (quickFijo) { quickFijo = false; mostrarPagaAdd(); }
       autoCorrectCard();
       autoClasificar();
     });
@@ -2438,7 +2725,10 @@
       var f = document.getElementById('f');
       f.reset();
       catTocadaAMano = false;
+      catsAdd.cerrar();
       catsAdd.set(['Otros']);
+      quickFijo = false; mostrarPagaAdd();
+      pagaAdd.set(false);
       // Local date, not UTC (avoids next-day glitch in evening)
       var n = new Date();
       var iso = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
@@ -2497,6 +2787,7 @@
     // ("Cita + Comida") para que el servidor no lo pise con las reglas de texto.
     var cats = catsAdd.get();
     if (cats.length) { data.category = cats[0]; data.categories = cats.join(' + '); }
+    if (!quickFijo) data.pagaDespues = pagaAdd.get();
     setLocked(true);
     setStatus('Guardando...', 'loading');
     google.script.run
@@ -2590,7 +2881,7 @@
     container.innerHTML = html;
     var totEl = document.getElementById('scanTotal');
     var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(normDec(e.amount))||0); }, 0);
-    totEl.textContent = fmt(tot, 'UYU');
+    totEl.textContent = fmt(tot, LOCAL_CCY);
     document.getElementById('scanPreview').style.display = 'block';
     // Wire delete buttons
     var dels = container.querySelectorAll('[data-del]');
@@ -2618,7 +2909,7 @@
           scannedItems[idx][fld] = fld === 'amount' ? (parseFloat(normDec(el.value)) || 0) : el.value;
           if (fld === 'amount') {
             var tot = scannedItems.reduce(function(s,e){ return s + (parseFloat(normDec(e.amount))||0); }, 0);
-            document.getElementById('scanTotal').textContent = fmt(tot, 'UYU');
+            document.getElementById('scanTotal').textContent = fmt(tot, LOCAL_CCY);
           }
         });
       })(inputs[ii]);
@@ -2634,14 +2925,14 @@
   document.getElementById('saveAll').addEventListener('click', function(){
     if (!scannedItems.length) return;
     var cardField = getField('card');
-    var defaultCard = cardField ? cardField.value : 'Débito UYU';
+    var defaultCard = cardField ? cardField.value : DEFAULT_CARD;
     var dateField = getField('date');
     var date = dateField ? dateField.value : '';
     var batch = scannedItems.map(function(it){
       return {
         item: it.name,
         amount: it.amount,
-        currency: 'UYU',
+        currency: LOCAL_CCY,
         card: defaultCard,
         category: it.category,
         date: date
@@ -4993,7 +5284,7 @@
       var det = m.tipo === 'Acción'
         ? (m.ticker + ' · ' + m.cantidad + ' x ' + ahoUsd(m.precioUsd) +
            (m.comisionUsd ? ' + ' + ahoUsd(m.comisionUsd) + ' com.' : ''))
-        : (m.entidad + (m.moneda === 'UYU' ? ' · $ ' + m.monto : ' · US$ ' + m.monto));
+        : (m.entidad + (m.moneda === LOCAL_CCY ? ' · $ ' + m.monto : ' · US$ ' + m.monto));
       html += '<div class="hmeal-row" data-row="' + m.row + '">' +
         '<span class="mt">' + esc((m.fecha || '').slice(5)) + '</span>' +
         '<span class="mn">' + esc(det) + '</span>' +
@@ -5280,7 +5571,7 @@
     var payload = {
       concepto: concepto,
       monto: monto,
-      moneda: (ingEl('ingMoneda') && ingEl('ingMoneda').value) || 'UYU',
+      moneda: (ingEl('ingMoneda') && ingEl('ingMoneda').value) || LOCAL_CCY,
       fecha: (ingEl('ingFecha') && ingEl('ingFecha').value) || todayISO(),
       notas: (ingEl('ingNotas') && ingEl('ingNotas').value.trim()) || ''
     };
@@ -5390,17 +5681,19 @@
       if (!cur) {
         return new Intl.NumberFormat('es-UY', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
       }
-      // UYU: sin decimales (montos enteros). USD/ARS: 2 decimales.
-      var maxFrac = cur === 'UYU' ? 0 : 2;
+      // UYU: sin decimales (montos enteros). USD/ARS: 2 decimales. Moneda local de otra cuenta:
+      // símbolo corto ($, R$, €) y sin decimales si es de las que no los usan (ARS, CLP, COP, PYG).
+      var esLocal = cur === LOCAL_CCY && cur !== 'UYU' && cur !== 'USD';
+      var maxFrac = (cur === 'UYU' || (esLocal && /^(ARS|CLP|COP|PYG)$/.test(cur))) ? 0 : 2;
       return new Intl.NumberFormat('es-UY', {
         style: 'currency',
         currency: cur,
-        currencyDisplay: 'symbol',
+        currencyDisplay: esLocal ? 'narrowSymbol' : 'symbol',
         minimumFractionDigits: 0,
         maximumFractionDigits: maxFrac
       }).format(n);
     } catch(e) {
-      var sym = cur === 'USD' ? 'US$ ' : '$ ';
+      var sym = cur === 'USD' ? 'US$ ' : (cur === 'UYU' || cur === LOCAL_CCY) ? '$ ' : cur + ' ';
       return sym + n.toFixed(cur === 'UYU' ? 0 : 2);
     }
   }
@@ -5419,7 +5712,7 @@
   var MES_SHEET_T = 0;          // timer que oculta la hoja de meses al terminar su animación de salida
   var DASH_STAG = false;        // ya se hizo la entrada escalonada de la primera carga
   var DASH_ANIM = '';         // 'l' | 'r': hacia dónde se desliza el contenido al cambiar de mes
-  var DASH_CATS = [], DASH_CAT_MON = 'UYU';
+  var DASH_CATS = [], DASH_CAT_MON = LOCAL_CCY;
   var MES_KEY = 'gastos-tracker.mes.v1';
   var MES = { view: 'gastos', group: 'dia', q: '', cat: '', card: '', tipo: '' };
   try {
@@ -5453,8 +5746,50 @@
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
     return h;
   }
-  function catTile(name, big) {
-    return '<span class="gx-ico' + (big ? ' big' : '') + '" style="--h:' + catHue(name) + '" aria-hidden="true">' + catIco(name) + '</span>';
+  function catTile(name, big, item) {
+    return '<span class="gx-ico' + (big ? ' big' : '') + '" style="--h:' + catHue(name) + '" aria-hidden="true">' + (itemIco(item) || catIco(name)) + '</span>';
+  }
+  // Ícono por producto (el nombre del gasto manda; si no se reconoce, se usa el de la categoría).
+  // Se prueba en orden sobre el nombre en minúsculas y sin tildes; el primero que coincide gana.
+  var ITEM_ICO = [
+    [/\b(antel )?(movil|celular|cel|plan de datos)\b/, '📱'],
+    [/\b(antel )?(internet|wifi|fibra|net)\b/, '📶'],
+    [/\b(luz|ute|electricidad)\b/, '💡'],
+    [/\b(ose|agua potable)\b/, '🚰'],
+    [/\b(alquiler|renta)\b/, '🏠'],
+    [/\b(gastos comunes|gc|expensas)\b/, '🏢'],
+    [/\b(tributos?|contribucion|impuestos?|patente)\b/, '🧾'],
+    [/\b(itau )?(paquete|banco)\b/, '🏦'],
+    [/\b(oca|credito|tarjeta)\b/, '💳'],
+    [/\b(sandra|psicolog\w*|terapia|coaching)\b/, '🧠'],
+    [/\bviandas?\b/, '🍱'],
+    [/\bble\b/, '📞'],
+    [/\b(blue ?cross|mutualista|emergencia|seguro medico)\b/, '⚕️'],
+    [/\b(gimnasio|gym)\b/, '🏋️'],
+    [/\b(futbol|padel|tenis)\b/, '⚽'],
+    [/\b(bus|omnibus|colectivo|boleto)\b/, '🚌'],
+    [/\b(uber|cabify|taxi|didi)\b/, '🚕'],
+    [/\b(nafta|combustible|gasoil|estacionamiento)\b/, '⛽'],
+    [/\b(cafe|cafeteria)\b/, '☕'],
+    [/\b(frog|fernet|cerveza|birra|bar|trago|vino)\b/, '🍺'],
+    [/\b(disco|devoto|tata|super\w*|mercado|feria)\b/, '🛒'],
+    [/\b(claude|chatgpt|gpt|openai|anthropic|copilot|github)\b/, '🤖'],
+    [/\b(netflix|cine|disney|hbo|max)\b/, '🎬'],
+    [/\b(spotify|musica|youtube)\b/, '🎵'],
+    [/\b(farma\w*|medicament\w*|remedio|pastillas?)\b/, '💊'],
+    [/\b(regalo|regalos)\b/, '🎁'],
+    [/\b(ropa|zapatillas|remera|campera)\b/, '👕'],
+    [/\b(pelu\w*|barberia|corte)\b/, '💈'],
+    [/\b(pizza|pizzas)\b/, '🍕'],
+    [/\b(empanadas?)\b/, '🥟'],
+    [/\b(agua|powerade|gatorade|jugo|refresco|coca)\b/, '🥤'],
+    [/\b(helado|postre)\b/, '🍦']
+  ];
+  function itemIco(item) {
+    var t = mesNorm(item);
+    if (!t) return '';
+    for (var i = 0; i < ITEM_ICO.length; i++) if (ITEM_ICO[i][0].test(t)) return ITEM_ICO[i][1];
+    return '';
   }
   // Misma regla que los totales del servidor: el gasto con tarjeta de crédito no suma
   // (suma su pago) y el ahorro/inversión queda afuera.
@@ -5474,7 +5809,7 @@
   }
   function sumaTexto(s) {
     var p = [];
-    if (s.uyu) p.push(fmt(s.uyu, 'UYU'));
+    if (s.uyu) p.push(fmt(s.uyu, LOCAL_CCY));
     if (s.usd) p.push(fmt(s.usd, 'USD'));
     return p.length ? p.join(' + ') : '$ 0';
   }
@@ -5603,7 +5938,7 @@
       var actual = m.tab === DASH_MONTHS.current;
       html += '<button type="button" class="mes-opt' + (m.tab === sel ? ' sel' : '') + '" data-tab="' + esc(m.tab) + '"' + (m.tab === sel ? ' aria-current="true"' : '') + '>' +
         '<span class="mes-opt-name">' + esc(MES_LARGO[m.month]) + (actual ? ' <small>mes actual</small>' : '') + '</span>' +
-        '<span class="mes-opt-tot">' + (m.total != null && isFinite(m.total) ? fmt(m.total, 'UYU') : '') + '</span></button>';
+        '<span class="mes-opt-tot">' + (m.total != null && isFinite(m.total) ? fmt(m.total, LOCAL_CCY) : '') + '</span></button>';
     }
     box.innerHTML = html;
     var btns = box.querySelectorAll('.mes-opt');
@@ -5647,7 +5982,7 @@
     box.innerHTML = ms.map(function(m) {
       var h = Math.max(2, Math.round(m.total / max * 100));
       var lbl = MES_CORTO[m.month] + (m.month === 0 || ms[0] === m ? ' ' + String(m.year).slice(2) : '');
-      return '<button type="button" class="dash-chart-col' + (m.tab === elegido ? ' sel' : '') + '" data-tab="' + esc(m.tab) + '" aria-label="' + esc(m.tab + ': ' + fmt(m.total, 'UYU')) + '">' +
+      return '<button type="button" class="dash-chart-col' + (m.tab === elegido ? ' sel' : '') + '" data-tab="' + esc(m.tab) + '" aria-label="' + esc(m.tab + ': ' + fmt(m.total, LOCAL_CCY)) + '">' +
         '<span class="dash-chart-val">' + fmt(Math.round(m.total / 1000)) + 'k</span>' +
         '<span class="dash-chart-bar" style="height:' + h + '%"></span>' +
         '<span class="dash-chart-lbl">' + lbl + '</span></button>';
@@ -5703,14 +6038,14 @@
     var nombre = String(data.tab || '').split(' ')[0].toLowerCase();
     var h = '<section class="mes-hero" aria-label="Resumen del mes">';
     h += '<div class="mes-hero-label">Gastado en ' + esc(nombre) + '</div>';
-    h += '<div class="mes-hero-total">' + fmt(t.uyuInUyu, 'UYU') + '</div>';
-    h += '<div class="mes-hero-split"><span>' + fmt(t.uyu, 'UYU') + '</span>' + (t.usd ? '<span>' + fmt(t.usd, 'USD') + '</span>' : '') +
-      (data.cotizacion ? '<span class="mes-hero-cot">dólar a ' + fmt(data.cotizacion) + '</span>' : '') + '</div>';
+    h += '<div class="mes-hero-total">' + fmt(t.uyuInUyu, LOCAL_CCY) + '</div>';
+    h += '<div class="mes-hero-split"><span>' + fmt(t.uyu, LOCAL_CCY) + '</span>' + (t.usd ? '<span>' + fmt(t.usd, 'USD') + '</span>' : '') +
+      (data.cotizacion && LOCAL_CCY !== 'USD' ? '<span class="mes-hero-cot">dólar a ' + fmt(data.cotizacion) + '</span>' : '') + '</div>';
     h += '<div class="mes-hero-cmp" id="mesCmp"></div>';
     h += ritmoDiasHtml(data);
     h += '<div class="mes-stats">' +
-      '<div><span>Fijos</span><b>' + fmt(t.fixedUyu, 'UYU') + (t.fixedUsd ? ' + ' + fmt(t.fixedUsd, 'USD') : '') + '</b></div>' +
-      '<div><span>Variables · ' + (data.variableCount || 0) + '</span><b>' + fmt(t.varUyu, 'UYU') + (t.varUsd ? ' + ' + fmt(t.varUsd, 'USD') : '') + '</b></div>' +
+      '<div><span>Fijos</span><b>' + fmt(t.fixedUyu, LOCAL_CCY) + (t.fixedUsd ? ' + ' + fmt(t.fixedUsd, 'USD') : '') + '</b></div>' +
+      '<div><span>Variables · ' + (data.variableCount || 0) + '</span><b>' + fmt(t.varUyu, LOCAL_CCY) + (t.varUsd ? ' + ' + fmt(t.varUsd, 'USD') : '') + '</b></div>' +
       '<div id="mesIng" hidden></div><div id="mesBal" hidden></div></div>';
     return h + '</section>';
   }
@@ -5727,9 +6062,9 @@
     if (prev.total == null || !(prev.total > 0) || tCur == null) { box.textContent = ''; return; }
     var nombrePrev = MES_LARGO[prev.month].toLowerCase();
     var pct = Math.round(tCur / prev.total * 100);
-    if (cur.tab === DASH_MONTHS.current) box.textContent = 'Va el ' + pct + '% de lo que se gastó en ' + nombrePrev + ' (' + fmt(prev.total, 'UYU') + ')';
+    if (cur.tab === DASH_MONTHS.current) box.textContent = 'Va el ' + pct + '% de lo que se gastó en ' + nombrePrev + ' (' + fmt(prev.total, LOCAL_CCY) + ')';
     else if (pct === 100) box.textContent = 'Igual que ' + nombrePrev;
-    else box.textContent = (pct > 100 ? (pct - 100) + '% más' : (100 - pct) + '% menos') + ' que ' + nombrePrev + ' (' + fmt(prev.total, 'UYU') + ')';
+    else box.textContent = (pct > 100 ? (pct - 100) + '% más' : (100 - pct) + '% menos') + ' que ' + nombrePrev + ' (' + fmt(prev.total, LOCAL_CCY) + ')';
   }
 
   // Ingresos del mes y lo que queda (ingresos − gastos), si hay ingresos cargados ese mes.
@@ -5760,9 +6095,9 @@
     });
     if (!uyu && !usd) { elI.hidden = true; elB.hidden = true; return; }
     var t = DASH_DATA.totals || {};
-    var ing = [uyu ? fmt(uyu, 'UYU') : '', usd ? fmt(usd, 'USD') : ''].filter(Boolean).join(' + ');
+    var ing = [uyu ? fmt(uyu, LOCAL_CCY) : '', usd ? fmt(usd, 'USD') : ''].filter(Boolean).join(' + ');
     var bal = [];
-    if (uyu) bal.push({ v: uyu - (t.uyu || 0), c: 'UYU' });
+    if (uyu) bal.push({ v: uyu - (t.uyu || 0), c: LOCAL_CCY });
     if (usd) bal.push({ v: usd - (t.usd || 0), c: 'USD' });
     var neg = bal.some(function(b) { return b.v < 0; });
     elI.hidden = false; elB.hidden = false;
@@ -5851,7 +6186,7 @@
     if (!box) return;
     if (v === 'cats') {
       box.innerHTML = '<div class="mes-sec"><div class="mes-sec-head"><h2>Por categoría</h2><span id="dashCatMon" class="seg seg-sm">' +
-        '<button type="button" data-mon="USD">USD</button><button type="button" data-mon="UYU">UYU</button></span></div>' +
+        (LOCAL_CCY === 'USD' ? '' : '<button type="button" data-mon="USD">USD</button>') + '<button type="button" data-mon="' + LOCAL_CCY + '">' + LOCAL_CCY + '</button></span></div>' +
         '<div class="mes-card" id="dashCats"></div></div>' +
         '<div class="mes-sec" id="mesCards"></div>';
       var monBtns = box.querySelectorAll('#dashCatMon button');
@@ -6060,7 +6395,7 @@
     var mon = DASH_CAT_MON, key = mon === 'USD' ? 'usd' : 'uyu';
     // Si el mes no tiene gastos en esa moneda pero sí en la otra, mostrar la otra.
     if (!DASH_CATS.some(function(c) { return (c[key] || 0) > 0; }) && DASH_CATS.some(function(c) { return (c[key === 'usd' ? 'uyu' : 'usd'] || 0) > 0; })) {
-      mon = DASH_CAT_MON = (mon === 'USD' ? 'UYU' : 'USD'); key = mon === 'USD' ? 'usd' : 'uyu';
+      mon = DASH_CAT_MON = (mon === 'USD' ? LOCAL_CCY : 'USD'); key = mon === 'USD' ? 'usd' : 'uyu';
     }
     var bs = document.querySelectorAll('#dashCatMon button');
     for (var b = 0; b < bs.length; b++) {
@@ -6130,7 +6465,7 @@
     if (e.credito) tags += '<span class="gx-tag cred">💳 se paga luego</span>';
     else if (e.ahorro) tags += '<span class="gx-tag aho">🏦 ahorro, no suma</span>';
     var muted = (e.credito || e.ahorro) ? ' muted' : '';
-    return '<div class="' + cls + '"' + attr + '>' + catTile(cats[0]) +
+    return '<div class="' + cls + '"' + attr + '>' + catTile(cats[0], false, e.item) +
       '<div class="gx-main"><div class="gx-name">' + esc(e.item) + '</div>' + ((sub.length || tags) ? '<div class="gx-sub">' + sub.join('<i class="sep"></i>') + (tags ? (sub.length ? ' ' : '') + tags : '') + '</div>' : '') + '</div>' +
       '<div class="gx-amt' + muted + '">' + fmt(e.amount, e.currency) + '</div></div>';
   }
@@ -6341,7 +6676,7 @@
       .sort(function(a, z) { return String(z.fecha).localeCompare(String(a.fecha)); });
     var uyu = 0, usd = 0;
     lista.forEach(function(i) { if (i.moneda === 'USD') usd += i.monto; else uyu += i.monto; });
-    if (tot) tot.textContent = [uyu ? fmt(uyu, 'UYU') : '', usd ? fmt(usd, 'USD') : ''].filter(Boolean).join(' + ');
+    if (tot) tot.textContent = [uyu ? fmt(uyu, LOCAL_CCY) : '', usd ? fmt(usd, 'USD') : ''].filter(Boolean).join(' + ');
     if (!lista.length) { box.innerHTML = '<div class="task-empty">Todavía no cargaste ingresos este mes</div>'; return; }
     box.innerHTML = lista.map(function(i) {
       var f = i.fecha ? esc(String(i.fecha).slice(8, 10) + '/' + String(i.fecha).slice(5, 7)) : '';
@@ -6360,8 +6695,10 @@
     DASH_EDIT_ROW = row;
     if (hEl('expItem'))   hEl('expItem').value   = e.item || '';
     if (hEl('expAmount')) hEl('expAmount').value = e.amount != null ? e.amount : '';
-    if (hEl('expCard'))   hEl('expCard').value   = e.card || 'Débito UYU';
+    if (hEl('expCard'))   hEl('expCard').value   = e.card || DEFAULT_CARD;
+    pagaEdit.set(!!e.credito); // con medio de crédito sync() lo deja tildado y deshabilitado
     // La celda puede traer varias categorías ("Cita + Comida"): un chip prendido por cada una.
+    catsEdit.cerrar();
     catsEdit.set(String(e.category || '').split('+').map(function(c) { return c.trim(); }).filter(Boolean));
     if (hEl('expFecha'))  hEl('expFecha').value  = e.fecha || '';
     if (hEl('expCotiz'))  hEl('expCotiz').value  = e.cotizacion != null ? e.cotizacion : '';
@@ -6409,7 +6746,8 @@
         category: catsEdit.get().join(' + '),
         date: (hEl('expFecha') && hEl('expFecha').value) || '',
         cotizacion: normDec(hEl('expCotiz') && hEl('expCotiz').value),
-        notes: (hEl('expNotas') && hEl('expNotas').value.trim()) || ''
+        notes: (hEl('expNotas') && hEl('expNotas').value.trim()) || '',
+        pagaDespues: pagaEdit.get()
       });
   });
 

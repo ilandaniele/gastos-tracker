@@ -16,6 +16,7 @@ import * as habitos from './rpc/habitos.js';
 import * as pais from './rpc/pais.js';
 import * as gastos from './rpc/gastos.js';
 import { fuenteDefecto } from './rpc/util.js';
+import { cargarCfg } from './tenantcfg.js';
 
 // Un archivo por módulo en src/rpc/ (exporta MODULO y HANDLERS). Para sumar uno: importarlo acá,
 // agregarlo a MODULES y listar sus grupos de sync en GRUPOS_DE_MODULO (sync.js).
@@ -51,10 +52,13 @@ for (const m of MODULES) {
 
 export const RPC_NOMBRES = Object.keys(HANDLERS);
 
-export async function llamar(env, tenant, nombre, args) {
+// cfg = config del tenant (src/tenantcfg.js). index.js la pasa ya cargada (sale de la misma fila que resolvió
+// el tenant); si no viene se lee acá, una vez por llamada. Los handlers la reciben como env.cfg.
+export async function llamar(env, tenant, nombre, args, cfg) {
   const h = Object.prototype.hasOwnProperty.call(HANDLERS, nombre) ? HANDLERS[nombre] : null;
   if (!h) return falla('Función desconocida: ' + nombre);
   try {
+    env = { ...env, cfg: cfg || await cargarCfg(env, tenant) };
     if (h.escribe) {
       const f = await fuentes(env, tenant);
       if (f[h.modulo] !== 'd1') return falla(`El módulo ${h.modulo} todavía lo maneja el Sheet: pasalo a D1 antes de escribir`);

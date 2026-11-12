@@ -9,24 +9,44 @@
 //   - month_totals se recalcula desde expenses en cada escritura (misma regla que _calcMonthTotals).
 //   - Cotización automática: fetch HTTP (sin GOOGLEFINANCE) con cache de 10 min en settings.cotiz_usd_cache.
 //   - scanTicket usa env.GEMINI_API_KEY (secreto del Worker; reemplaza a la propiedad GEMINI_KEY de Apps Script).
-import { hoy, idDe, fuenteDefecto } from './util.js';
-import CFG from '../form-config.json';
+//
+// Multi-tenant (paso 2): medios de pago, categorías, reglas, moneda local y zona horaria salen de env.cfg
+// (src/tenantcfg.js; lo inyecta llamar() en rpc.js). Sin env.cfg se usan los defaults de 'ilan' (= lo de antes).
+// Las columnas/campos "uyu" (uyu_raw, mixed_uyu, totals.uyu...) significan "moneda local" del tenant.
+import { hoy, idDe, fuenteDefecto, tzDe, monedaLocal, fxOverride } from './util.js';
+import { DEFAULTS_ILAN, ILAN } from '../tenantcfg.js';
 
 export const MODULO = 'gastos';
 
 // ---- Constantes (Code.gs) -------------------------------------------------------------------
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+// Plantilla de gastos fijos: es de 'ilan' (las cuentas nuevas no tienen plantilla).
 const FIXED_LABELS = ['Alquiler', 'Gastos comunes', 'Tributos domiciliarios', 'Antel Internet', 'Luz', 'Itau paquete', 'Itaú paquete', 'Sandra Psicologa',
   'Antel móvil', 'Viandas', 'Ble', 'BlueCross', 'Gimnasio', 'Itaú Crédito', 'Oca'];
-const CARDS = ['Débito UYU', 'Crédito OCA', 'Crédito Itaú UYU', 'Crédito Itaú USD', 'Débito USD', 'Efectivo UYU', 'Efectivo USD'];
-const COTIZ_FALLBACK = 40.25;
+const plantillaFijos = (T) => (T === ILAN ? FIXED_LABELS : []);
+const COTIZ_FALLBACK = 40.25; // solo UYU
 const COTIZ_TTL_MS = 10 * 60 * 1000;
 const CAT_SEP = ' + ';
 const CAT_MAX = 20;
 const CAT_AHORRO = 'Acciones/Bonos/Ahorros';
-const CATEGORIES = CFG.categorias;
-const CATS_SOCIALES = CFG.catsSociales;
-const CAT_RULES = CFG.catRules.map((r) => [new RegExp(r.source, r.flags), r.cat]);
+
+// Config del tenant (medios, categorías, reglas). Las reglas se compilan una vez por objeto cfg.
+const cfgDe = (env) => (env && env.cfg) || DEFAULTS_ILAN;
+const reglasCompiladas = new WeakMap();
+function reglasDe(cfg) {
+  let r = reglasCompiladas.get(cfg);
+  if (!r) {
+    r = (cfg.catRules || []).map((x) => { try { return [new RegExp(x.source, x.flags), x.cat]; } catch { return null; } }).filter(Boolean);
+    reglasCompiladas.set(cfg, r);
+  }
+  return r;
+}
+// Fallback de cotización USD->local cuando no hay ninguna: UYU conserva el 40.25 histórico; USD es 1; otra moneda, 1
+// (solo afecta el total "mixto" de un mes sin ninguna cotización conocida).
+const fallbackCotiz = (L) => (L === 'UYU' ? COTIZ_FALLBACK : 1);
+// ¿El importe va al bucket "usd" (segunda moneda)? Si la moneda local ES USD no hay segunda moneda: todo va al
+// bucket local ("uyu") con código USD y cotización 1.
+const esUsdAparte = (moneda, L) => moneda === 'USD' && L !== 'USD';
 // Los fijos "reales" de un mes nuevo son los de la plantilla (FIXED_LABELS) más los que se hayan sumado
 // a la tabla fija desde que existe la plantilla actual; los de meses viejos son basura de otros layouts.
 const FIJOS_DESDE = '2026-05';
@@ -38,9 +58,14 @@ const toNumber = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n
 const r2 = (n) => Math.round(n * 100) / 100;
 const r6 = (n) => Math.round(n * 1e6) / 1e6;
 const esTarjetaCredito = (h) => /cr[eé]dito|\boca\b/i.test(String(h || ''));
+// es_credito de un gasto variable: tarjeta de crédito, o el usuario marcó "Se paga el mes siguiente" (pagaDespues).
+// Así no suma al total del mes (su pago entra por otro lado) y sale como "se paga luego". Sin el campo (o
+// distinto de true) queda como siempre: lo decide solo el medio de pago.
+const esCreditoDe = (card, pagaDespues) => (esTarjetaCredito(card) || pagaDespues === true ? 1 : 0);
 const esAhorro = (c) => /ahorro|acciones|bonos/i.test(String(c || ''));
-const monedaDeTarjeta = (h) => /usd|d[oó]lar/i.test(String(h || '')) ? 'USD' : 'UYU';
-const mesActual = () => hoy().slice(0, 7);
+// L = moneda local del tenant (monedaLocal(env)).
+const monedaDeTarjeta = (h, L) => /usd|d[oó]lar/i.test(String(h || '')) ? 'USD' : L;
+const mesActual = (env) => hoy(env).slice(0, 7);
 
 const tabDeMes = (mes) => `${MONTH_NAMES[parseInt(mes.slice(5, 7), 10) - 1]} ${mes.slice(0, 4)}`;
 // "Mayo 2026" -> '2026-05'; null si no es nombre de mes.
@@ -51,9 +76,9 @@ function mesDeTab(name) {
   return idx < 0 ? null : `${m[2]}-${String(idx + 1).padStart(2, '0')}`;
 }
 
-// 'YYYY-MM-DD' real (sin pasar por Date de UTC); sin fecha = hoy en Montevideo.
-function normFecha(date) {
-  if (date == null || date === '') return hoy();
+// 'YYYY-MM-DD' real (sin pasar por Date de UTC); sin fecha = hoy en la zona del tenant.
+function normFecha(date, env) {
+  if (date == null || date === '') return hoy(env);
   const s = String(date).trim();
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) {
@@ -63,7 +88,7 @@ function normFecha(date) {
   }
   const d = new Date(s);
   if (isNaN(d.getTime())) throw new Error('Fecha inválida: ' + date);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Montevideo' }).format(d);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tzDe(env) }).format(d);
 }
 
 // ---- Categorías (clasificador de Code.gs con las reglas de form-config.json) ------------------
@@ -77,25 +102,26 @@ function joinCategorias(arr) {
   (arr || []).forEach((c) => { const s = String(c || '').trim(); if (s && out.indexOf(s) < 0) out.push(s); });
   return out.slice(0, CAT_MAX).join(CAT_SEP);
 }
-function classifyItems(item) {
+function classifyItems(item, cfg) {
   if (!item) return ['Otros'];
   const s = String(item).trim();
   const hits = [];
-  for (const [re, cat] of CAT_RULES) if (re.test(s) && hits.indexOf(cat) < 0) hits.push(cat);
+  const sociales0 = cfg.catsSociales || [];
+  for (const [re, cat] of reglasDe(cfg)) if (re.test(s) && hits.indexOf(cat) < 0) hits.push(cat);
   if (!hits.length) return ['Otros'];
   if (hits[0] === CAT_AHORRO) return [CAT_AHORRO];
-  const sociales = hits.filter((c) => CATS_SOCIALES.indexOf(c) >= 0);
+  const sociales = hits.filter((c) => sociales0.indexOf(c) >= 0);
   if (!sociales.length) return [hits[0]];
-  const otra = hits.find((c) => CATS_SOCIALES.indexOf(c) < 0 && c !== CAT_AHORRO);
+  const otra = hits.find((c) => sociales0.indexOf(c) < 0 && c !== CAT_AHORRO);
   return sociales.concat(otra ? [otra] : []).slice(0, 2);
 }
-function resolverCategorias(item, category, category2, categories) {
-  const valida = (c) => CATEGORIES.indexOf(c) >= 0;
+function resolverCategorias(item, category, category2, categories, cfg) {
+  const valida = (c) => cfg.categorias.indexOf(c) >= 0;
   if (categories) {
     const lista = splitCategorias(categories).filter(valida);
     if (lista.length) return joinCategorias(lista);
   }
-  const auto = classifyItems(item);
+  const auto = classifyItems(item, cfg);
   let lista;
   if (auto[0] !== 'Otros') lista = auto.slice();
   else if (category && category !== 'Transporte') lista = splitCategorias(category);
@@ -105,48 +131,58 @@ function resolverCategorias(item, category, category2, categories) {
   return joinCategorias(lista);
 }
 
-// ---- Cotización USD/UYU ------------------------------------------------------------------------
-const cotizValida = (v) => Number.isFinite(v) && v > 20 && v < 100;
+// ---- Cotización USD -> moneda local ----------------------------------------------------------------
+// UYU: rango razonable 20..100 (igual que antes). Otras monedas: cualquier valor positivo.
+const cotizValida = (v, L = 'UYU') => Number.isFinite(v) && (L === 'UYU' ? v > 20 && v < 100 : v > 0);
 async function traerJson(url) {
   const r = await fetch(url, { signal: AbortSignal.timeout(4000), headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
 // Fuentes HTTP en orden; la primera con un valor razonable gana.
-const FUENTES_COTIZ = [
-  ['open.er-api.com', async () => (await traerJson('https://open.er-api.com/v6/latest/USD')).rates.UYU],
-  ['currency-api', async () => (await traerJson('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json')).usd.uyu],
-  ['currency-api (pages)', async () => (await traerJson('https://latest.currency-api.pages.dev/v1/currencies/usd.json')).usd.uyu]
+const fuentesCotiz = (L) => [
+  ['open.er-api.com', async () => (await traerJson('https://open.er-api.com/v6/latest/USD')).rates[L]],
+  ['currency-api', async () => (await traerJson('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json')).usd[L.toLowerCase()]],
+  ['currency-api (pages)', async () => (await traerJson('https://latest.currency-api.pages.dev/v1/currencies/usd.json')).usd[L.toLowerCase()]]
 ];
-async function traerCotizacion() {
-  for (const [nombre, f] of FUENTES_COTIZ) {
-    try { const v = Number(await f()); if (cotizValida(v)) return { rate: r6(v), source: nombre }; } catch { /* siguiente fuente */ }
+async function traerCotizacion(L) {
+  for (const [nombre, f] of fuentesCotiz(L)) {
+    try { const v = Number(await f()); if (cotizValida(v, L)) return { rate: r6(v), source: nombre }; } catch { /* siguiente fuente */ }
   }
   return null;
 }
 // Orden: cache fresca (10 min) > fuente HTTP > cache vieja > fallback fijo.
+// La cache vive en settings del tenant: 'cotiz_usd_cache' para UYU (la clave de siempre), 'cotiz_usd<moneda>_cache' para otras.
+// Moneda local USD: cotización 1. Moneda local != UYU sin ninguna fuente ni cache: null (no se inventa un número).
 export async function cotizacionAuto(env, T) {
-  const fila = await env.DB.prepare(`SELECT valor FROM settings WHERE tenant_id = ? AND clave = 'cotiz_usd_cache'`).bind(T).first();
+  const L = monedaLocal(env);
+  if (L === 'USD') return { rate: 1, source: 'USD' };
+  const fx = fxOverride(env, L);
+  if (fx) return { rate: fx, source: 'FX_TEST_RATES' };
+  const clave = L === 'UYU' ? 'cotiz_usd_cache' : `cotiz_usd${L.toLowerCase()}_cache`;
+  const fila = await env.DB.prepare(`SELECT valor FROM settings WHERE tenant_id = ? AND clave = ?`).bind(T, clave).first();
   let cache = null;
   try { cache = fila && JSON.parse(fila.valor); } catch { cache = null; }
-  if (cache && cotizValida(cache.rate) && Date.now() - cache.at < COTIZ_TTL_MS) return { rate: cache.rate, source: cache.source + ' (cache)' };
-  const nueva = await traerCotizacion();
+  if (cache && cotizValida(cache.rate, L) && Date.now() - cache.at < COTIZ_TTL_MS) return { rate: cache.rate, source: cache.source + ' (cache)' };
+  const nueva = await traerCotizacion(L);
   if (nueva) {
     try {
-      await env.DB.prepare(`INSERT INTO settings (tenant_id, clave, valor) VALUES (?, 'cotiz_usd_cache', ?) ON CONFLICT (tenant_id, clave) DO UPDATE SET valor = excluded.valor`)
-        .bind(T, JSON.stringify({ rate: nueva.rate, at: Date.now(), source: nueva.source })).run();
+      await env.DB.prepare(`INSERT INTO settings (tenant_id, clave, valor) VALUES (?, ?, ?) ON CONFLICT (tenant_id, clave) DO UPDATE SET valor = excluded.valor`)
+        .bind(T, clave, JSON.stringify({ rate: nueva.rate, at: Date.now(), source: nueva.source })).run();
     } catch { /* la cache es opcional */ }
     return nueva;
   }
-  if (cache && cotizValida(cache.rate)) return { rate: cache.rate, source: cache.source + ' (cache vieja)' };
-  return { rate: COTIZ_FALLBACK, source: 'fallback' };
+  if (cache && cotizValida(cache.rate, L)) return { rate: cache.rate, source: cache.source + ' (cache vieja)' };
+  return { rate: L === 'UYU' ? COTIZ_FALLBACK : null, source: 'fallback' };
 }
 
 // ---- Totales (misma regla que _calcMonthTotals) --------------------------------------------------
 // `rows` en orden de hoja: la cotización "última vista" depende del orden de la tabla variable.
-function calcTotales(rows) {
+// L = moneda local; "uyu" en los nombres = moneda local.
+function calcTotales(rows, L = 'UYU') {
   let fixedUyu = 0, fixedUsd = 0, varUyu = 0, varUsd = 0, mixedUyu = 0, lastCotiz = null;
-  const rc = (v) => { const c = toNumber(v); return c && c > 20 ? c : null; };
+  const minimo = L === 'UYU' ? 20 : 0;
+  const rc = (v) => { const c = toNumber(v); return c && c > minimo ? c : null; };
   const fijas = [], vars = [];
   for (const r of rows) {
     if (r.es_fijo) {
@@ -157,11 +193,11 @@ function calcTotales(rows) {
       const c = rc(r.cotizacion);
       if (c) lastCotiz = c;
       if (!r.monto || r.es_credito || r.es_ahorro) continue; // tarjeta de crédito y ahorro no entran al total
-      const usd = r.moneda === 'USD';
+      const usd = esUsdAparte(r.moneda, L);
       vars.push({ uyu: usd ? 0 : r.monto, usd: usd ? r.monto : 0, cotiz: c });
     }
   }
-  const fallback = lastCotiz || COTIZ_FALLBACK;
+  const fallback = lastCotiz || fallbackCotiz(L);
   fijas.forEach((r) => { fixedUyu += r.uyu; fixedUsd += r.usd; mixedUyu += r.uyu + r.usd * (r.cotiz || fallback); });
   vars.forEach((r) => { varUyu += r.uyu; varUsd += r.usd; mixedUyu += r.uyu + r.usd * (r.cotiz || fallback); });
   return {
@@ -180,7 +216,7 @@ async function filasDelMes(env, T, mes) {
 
 // Recalcula month_totals de un mes desde expenses (y lo crea si no existía).
 async function recalcularMes(env, T, mes) {
-  const t = calcTotales(await filasDelMes(env, T, mes));
+  const t = calcTotales(await filasDelMes(env, T, mes), monedaLocal(env));
   await env.DB.prepare(`INSERT INTO month_totals (tenant_id, mes, tab, uyu, usd, mixed_uyu, mixed_usd) VALUES (?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT (tenant_id, mes) DO UPDATE SET tab = excluded.tab, uyu = excluded.uyu, usd = excluded.usd, mixed_uyu = excluded.mixed_uyu, mixed_usd = excluded.mixed_usd`)
     .bind(T, mes, tabDeMes(mes), r6(t.uyu), r6(t.usd), t.mixedUyu, t.mixedUsd).run();
@@ -189,11 +225,11 @@ async function recalcularMes(env, T, mes) {
 
 // ---- Lectura: fila de D1 -> objeto del dashboard ---------------------------------------------------
 const fechaIso = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f : '');
-function aGasto(r) {
+function aGasto(r, L) {
   if (r.es_fijo) {
     const uyu = r.uyu_raw || 0, usd = r.usd_raw || 0;
     return {
-      row: r.id, item: r.concepto, amount: usd ? usd : uyu, currency: usd ? 'USD' : 'UYU', card: '', category: r.categoria || '',
+      row: r.id, item: r.concepto, amount: usd ? usd : uyu, currency: usd ? 'USD' : L, card: '', category: r.categoria || '',
       fecha: fechaIso(r.fecha), cotizacion: r.cotizacion == null ? null : r.cotizacion, notas: '', fixed: true, uyuRaw: uyu, usdRaw: usd, ahorro: !!r.es_ahorro
     };
   }
@@ -215,7 +251,7 @@ function ordenarPorFechaDesc(filas) {
 
 // El mes en curso existe aunque no tenga datos (en el Sheet el trigger diario crea la hoja).
 async function asegurarMesActual(env, T) {
-  const mes = mesActual();
+  const mes = mesActual(env);
   await env.DB.prepare(`INSERT OR IGNORE INTO month_totals (tenant_id, mes, tab, uyu, usd, mixed_uyu, mixed_usd) VALUES (?, ?, ?, 0, 0, 0, 0)`).bind(T, mes, tabDeMes(mes)).run();
 }
 async function gastosEsD1(env, T) {
@@ -225,7 +261,8 @@ async function gastosEsD1(env, T) {
 
 // ---- Lectores ------------------------------------------------------------------------------------
 async function getDashboardData(env, T, [month]) {
-  const actual = mesActual();
+  const actual = mesActual(env);
+  const L = monedaLocal(env);
   const mes = (month && mesDeTab(month)) ? mesDeTab(month) : actual;
   const tabName = tabDeMes(mes);
   const [filasR, mtR] = await env.DB.batch([
@@ -234,10 +271,10 @@ async function getDashboardData(env, T, [month]) {
   ]);
   const filas = filasR.results;
   if (mes !== actual && !mtR.results.length && !filas.length) return { ok: false, error: 'Tab "' + tabName + '" no existe' };
-  const mt = calcTotales(filas);
+  const mt = calcTotales(filas, L);
 
-  const fixedRows = filas.filter((r) => r.es_fijo && (r.uyu_raw || r.usd_raw)).map(aGasto);
-  const varRows = filas.filter((r) => !r.es_fijo && r.monto).map(aGasto);
+  const fixedRows = filas.filter((r) => r.es_fijo && (r.uyu_raw || r.usd_raw)).map((r) => aGasto(r, L));
+  const varRows = filas.filter((r) => !r.es_fijo && r.monto).map((r) => aGasto(r, L));
 
   const catSums = {};
   for (const v of fixedRows.concat(varRows)) {
@@ -246,11 +283,11 @@ async function getDashboardData(env, T, [month]) {
     for (const key of (cats.length ? cats : ['Otros'])) {
       if (!catSums[key]) catSums[key] = { name: key, uyu: 0, usd: 0 };
       if (v.fixed) { catSums[key].uyu += v.uyuRaw; catSums[key].usd += v.usdRaw; }
-      else if (v.currency === 'USD') catSums[key].usd += v.amount;
+      else if (esUsdAparte(v.currency, L)) catSums[key].usd += v.amount;
       else catSums[key].uyu += v.amount;
     }
   }
-  const catFallback = mt.mixedUsd && mt.mixedUyu ? mt.mixedUyu / mt.mixedUsd : COTIZ_FALLBACK;
+  const catFallback = mt.mixedUsd && mt.mixedUyu ? mt.mixedUyu / mt.mixedUsd : fallbackCotiz(L);
   const byCategory = Object.values(catSums)
     .map((c) => ({ name: c.name, uyu: r2(c.uyu), usd: r2(c.usd) }))
     .sort((a, b) => (b.uyu + b.usd * catFallback) - (a.uyu + a.usd * catFallback));
@@ -272,7 +309,7 @@ async function getDashboardData(env, T, [month]) {
 
 // Meses disponibles + total en UYU de los últimos 12 (del más viejo al más nuevo).
 async function getMonthlyTotals(env, T) {
-  const actual = mesActual();
+  const actual = mesActual(env);
   const r = await env.DB.prepare(`SELECT mes, tab, mixed_uyu FROM month_totals WHERE tenant_id = ? ORDER BY mes`).bind(T).all();
   const lista = r.results.slice();
   if (!lista.some((m) => m.mes === actual)) {
@@ -305,14 +342,15 @@ async function resolverCotizacion(env, T, ctx, cotInput) {
 async function etiquetasFijas(env, T, ctx) {
   if (!ctx.fijas) {
     const r = await env.DB.prepare(`SELECT DISTINCT concepto FROM expenses WHERE tenant_id = ? AND es_fijo = 1 AND mes >= ?`).bind(T, FIJOS_DESDE).all();
-    const vistos = new Set(FIXED_LABELS);
-    ctx.fijas = FIXED_LABELS.concat(r.results.map((x) => x.concepto).filter((c) => c && !vistos.has(c) && vistos.add(c)));
+    const plantilla = plantillaFijos(T);
+    const vistos = new Set(plantilla);
+    ctx.fijas = plantilla.concat(r.results.map((x) => x.concepto).filter((c) => c && !vistos.has(c) && vistos.add(c)));
   }
   return ctx.fijas;
 }
 
 // findFixedRow: exacto (sin acentos) gana; si no, el texto tipeado es prefijo (>= 4) de una etiqueta de la plantilla.
-function buscarFijo(etiquetas, item, existentes) {
+function buscarFijo(etiquetas, item, existentes, plantilla) {
   const target = stripAccents(item);
   if (!target) return null;
   const candidatas = existentes.map((e) => e.concepto).concat(etiquetas);
@@ -320,7 +358,7 @@ function buscarFijo(etiquetas, item, existentes) {
   if (target.length >= 4) {
     for (const l of candidatas) {
       const n = stripAccents(l);
-      if (n.indexOf(target) === 0 && FIXED_LABELS.some((f) => stripAccents(f) === n)) return l;
+      if (n.indexOf(target) === 0 && plantilla.some((f) => stripAccents(f) === n)) return l;
     }
   }
   return null;
@@ -328,7 +366,7 @@ function buscarFijo(etiquetas, item, existentes) {
 
 async function tarjetaCanonica(env, T, ctx, mes, card) {
   const t = stripAccents(card);
-  const c = CARDS.find((x) => stripAccents(x) === t);
+  const c = cfgDe(env).medios.find((x) => stripAccents(x) === t);
   if (c) return c;
   if (!ctx.tarjetas[mes]) {
     const r = await env.DB.prepare(`SELECT DISTINCT medio_pago FROM expenses WHERE tenant_id = ? AND mes = ? AND es_fijo = 0 AND medio_pago IS NOT NULL`).bind(T, mes).all();
@@ -350,24 +388,25 @@ async function planAlta(env, T, ctx, data, grupo) {
   const amt = toNumber(d.amount);
   if (!item || amt === null || amt <= 0 || !d.currency || !d.card) throw new Error('Faltan campos requeridos o monto inválido: item, amount>0, currency, card');
   const { cotizacion, cotizSource } = await resolverCotizacion(env, T, ctx, d.cotizacion);
-  const fecha = normFecha(d.date);
+  const fecha = normFecha(d.date, env);
   const mes = fecha.slice(0, 7), tab = tabDeMes(mes);
   const currency = String(d.currency);
+  const cfg = cfgDe(env), L = monedaLocal(env);
 
   // --- Gasto fijo: pisa el monto del mes (UYU o USD según la moneda) de la fila de la tabla de fijos.
   const etiquetas = await etiquetasFijas(env, T, ctx);
   const existentes = (await env.DB.prepare(`SELECT * FROM expenses WHERE tenant_id = ? AND mes = ? AND es_fijo = 1`).bind(T, mes).all()).results;
-  const label = buscarFijo(etiquetas, item, existentes);
+  const label = buscarFijo(etiquetas, item, existentes, plantillaFijos(T));
   if (label) {
-    const usdMoneda = currency.toUpperCase() === 'USD';
+    const usdMoneda = esUsdAparte(currency.toUpperCase(), L);
     const ex = existentes.find((e) => stripAccents(e.concepto) === stripAccents(label)) || null;
     const prev = ex ? (usdMoneda ? ex.usd_raw : ex.uyu_raw) : 0;
     const uyu = usdMoneda ? (ex ? ex.uyu_raw || 0 : 0) : amt;
     const usd = usdMoneda ? amt : (ex ? ex.usd_raw || 0 : 0);
-    const cat = joinCategorias(classifyItems(label));
+    const cat = joinCategorias(classifyItems(label, cfg));
     const cats = splitCategorias(cat);
     const cotizFila = usdMoneda ? cotizacion : (ex ? ex.cotizacion : null);
-    const monto = usd ? usd : uyu, moneda = usd ? 'USD' : 'UYU';
+    const monto = usd ? usd : uyu, moneda = usd ? 'USD' : L;
     let id;
     if (ex) {
       await env.DB.prepare(`UPDATE expenses SET monto = ?, moneda = ?, uyu_raw = ?, usd_raw = ?, categoria = ?, cat1 = ?, cat2 = ?, es_ahorro = ?, fecha = ?, fecha_efectiva = ?, fecha_origen = 'manual', cotizacion = ?
@@ -387,15 +426,15 @@ async function planAlta(env, T, ctx, data, grupo) {
 
   // --- Gasto variable: el medio de pago decide la moneda y si es tarjeta de crédito.
   const card = await tarjetaCanonica(env, T, ctx, mes, String(d.card).trim());
-  const categoria = resolverCategorias(item, d.category, d.category2, d.categories);
+  const categoria = resolverCategorias(item, d.category, d.category2, d.categories, cfg);
   const cats = splitCategorias(categoria);
   const notes = d.notes ? String(d.notes).trim() : '';
   const stmt = env.DB.prepare(`INSERT INTO expenses (${COLS_ALTA.join(', ')}) VALUES (${COLS_ALTA.map(() => '?').join(', ')})`)
-    .bind(T, mes, tab, null, item, amt, monedaDeTarjeta(card), null, null, card, 0, esTarjetaCredito(card) ? 1 : 0, esAhorro(categoria) ? 1 : 0,
+    .bind(T, mes, tab, null, item, amt, monedaDeTarjeta(card, L), null, null, card, 0, esCreditoDe(card, d.pagaDespues), esAhorro(categoria) ? 1 : 0,
       categoria, cats[0] || null, cats[1] || null, fecha, cotizacion, notes || null, grupo ? grupo.id : null, grupo ? grupo.nombre : null, fecha, 'manual');
   return {
     mes, fijo: false, hecho: false, stmt,
-    resultado: { tab, cotizSource, written: { item, amount: amt, currency, card, category: categoria, cotizacion: cotizacion || null, notes: notes || null } }
+    resultado: { tab, cotizSource, written: { item, amount: amt, currency, card, category: categoria, cotizacion: cotizacion || null, notes: notes || null, ...(d.pagaDespues === true ? { pagaDespues: true } : {}) } }
   };
 }
 
@@ -480,14 +519,14 @@ async function updateExpense(env, T, [data]) {
   // Fecha nueva: si cambia de mes el gasto se mueve a ese mes (las fechas son reales).
   let fecha = r.fecha, fechaEf = r.fecha_efectiva, origen = r.fecha_origen, mes = r.mes;
   if (p.date) {
-    fecha = fechaEf = normFecha(p.date);
+    fecha = fechaEf = normFecha(p.date, env);
     origen = 'manual';
     mes = fecha.slice(0, 7);
   }
   await env.DB.prepare(`UPDATE expenses SET mes = ?, tab = ?, concepto = ?, monto = ?, moneda = ?, medio_pago = ?, es_credito = ?, es_ahorro = ?,
                           categoria = ?, cat1 = ?, cat2 = ?, fecha = ?, fecha_efectiva = ?, fecha_origen = ?, cotizacion = ?, notas = ?
                         WHERE tenant_id = ? AND id = ?`)
-    .bind(mes, tabDeMes(mes), item, amt, monedaDeTarjeta(card), card, esTarjetaCredito(card) ? 1 : 0, esAhorro(categoria) ? 1 : 0,
+    .bind(mes, tabDeMes(mes), item, amt, monedaDeTarjeta(card, monedaLocal(env)), card, esCreditoDe(card, p.pagaDespues), esAhorro(categoria) ? 1 : 0,
       categoria, cats[0] || null, cats[1] || null, fecha, fechaEf, origen, cotiz, notes || null, T, id).run();
   await recalcularMes(env, T, mes);
   if (mes !== r.mes) await recalcularMes(env, T, r.mes);
@@ -500,7 +539,7 @@ async function setExpenseCategory(env, T, [month, rowRaw, item, category]) {
   const partes = splitCategorias(category);
   if (!Number.isFinite(row) || !item || !partes.length) return { ok: false, error: 'Faltan month/row/item/category' };
   if (partes.length > CAT_MAX) return { ok: false, error: 'Máximo ' + CAT_MAX + ' categorías' };
-  const mala = partes.find((c) => !CATEGORIES.includes(c));
+  const mala = partes.find((c) => !cfgDe(env).categorias.includes(c));
   if (mala) return { ok: false, error: 'Categoría inválida: ' + mala };
   const cat = joinCategorias(partes);
   const r = await env.DB.prepare(`SELECT * FROM expenses WHERE tenant_id = ? AND id = ?`).bind(T, row).first();
@@ -514,26 +553,39 @@ async function setExpenseCategory(env, T, [month, rowRaw, item, category]) {
 }
 
 // ---- OCR de tickets (Gemini) --------------------------------------------------------------------------------
+const mismaLista = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+function nombrePais(codigo) {
+  if (!codigo || codigo === 'XX') return '';
+  try { const n = new Intl.DisplayNames(['es'], { type: 'region' }).of(codigo); return n && n !== codigo ? n : ''; } catch { return ''; }
+}
+// Prompt de Gemini. 'ilan' con sus categorías de siempre (UYU, Uruguay) recibe el texto original tal cual;
+// cualquier otro caso arma uno con el país, la moneda y las categorías del tenant.
+function promptTicket(cfg, L) {
+  if (L === 'UYU' && cfg.pais === 'UY' && mismaLista(cfg.categorias, DEFAULTS_ILAN.categorias)) return PROMPT_TICKET_ILAN;
+  const pais = nombrePais(cfg.pais);
+  const tiene = (c) => cfg.categorias.includes(c);
+  const reglas = ['1. IGNORÁ líneas de total, subtotal, IVA/impuestos, cambio, redondeo, descuento general, propina. ',
+    '2. Si hay descuento aplicado a un item específico (ej "2x1", "20% off", "ahorro $X"), restalo del precio. '];
+  if (tiene('Bebida/Bar') && tiene('Comida')) reglas.push('3. Si una bebida está en restaurant/bar → Bebida/Bar. Si es en supermercado → Comida. ');
+  if (tiene('Limpieza')) reglas.push('4. Productos limpieza (jabón, lavandina, papel higiénico, esponja) → Limpieza. ');
+  if (tiene('Viajes') && tiene('Transporte')) reglas.push('4b. Viajes es para gastos de viajar: pasajes, vuelos, hotel, hostel, Airbnb, excursiones, free shop, alquiler de auto, peajes de ruta. Un ómnibus o taxi urbano del día a día es Transporte, no Viajes. ');
+  reglas.push('5. Si no podés leer una línea, omitila — NO inventes. ',
+    '6. store = nombre del comercio como figura en el ticket, "" si no se lee. ',
+    '7. supermarket = true SOLO si es un supermercado/autoservicio/almacén con muchos productos de compra; false para restaurantes, bares, farmacias, ropa, transporte y el resto. ');
+  return 'Analizá esta foto de un ticket de comercio' + (pais ? ' en ' + pais : '') + '. Por cada línea de producto/servicio comprado extraé: ' +
+    'name (nombre item, máximo 40 chars, sin código de barras), ' +
+    'amount (precio FINAL en ' + L + ' después de aplicar descuentos visibles por item, número positivo), ' +
+    'category (UNA de estas exactas: ' + cfg.categorias.join(', ') + '). ' +
+    'REGLAS: ' + reglas.join('') +
+    'Devolvé SOLO JSON válido con shape {"store":string,"supermarket":boolean,"items":[{"name":string,"amount":number,"category":string},...]}.';
+}
+
 // Secreto requerido: GEMINI_API_KEY (wrangler secret put GEMINI_API_KEY). Sin él devuelve ok:false.
 async function scanTicket(env, T, [base64Image]) {
   const key = env.GEMINI_API_KEY;
   if (!key) return { ok: false, error: 'Falta GEMINI_API_KEY' };
   if (!base64Image) return { ok: false, error: 'No se recibió imagen' };
-  const prompt = 'Analizá esta foto de un ticket de comercio en Uruguay. Por cada línea de producto/servicio comprado extraé: ' +
-    'name (nombre item, máximo 40 chars, sin código de barras), ' +
-    'amount (precio FINAL en UYU después de aplicar descuentos visibles por item, número positivo), ' +
-    'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros). ' +
-    'REGLAS: ' +
-    '1. IGNORÁ líneas de total, subtotal, IVA, cambio, redondeo, descuento general, propina. ' +
-    '2. Si hay descuento aplicado a un item específico (ej "2x1", "20% off", "ahorro $X"), restalo del precio. ' +
-    '3. Si una bebida está en restaurant/bar → Bebida/Bar. Si es en supermercado → Comida. ' +
-    '4. Productos limpieza (jabón, lavandina, papel higiénico, esponja) → Limpieza. ' +
-    '4b. Viajes es para gastos de viajar: pasajes, vuelos, hotel, hostel, Airbnb, excursiones, ' +
-    'free shop, alquiler de auto, peajes de ruta. Un ómnibus o taxi urbano del día a día es Transporte, no Viajes. ' +
-    '5. Si no podés leer una línea, omitila — NO inventes. ' +
-    '6. store = nombre del comercio como figura en el ticket (ej "Tienda Inglesa", "Devoto"), "" si no se lee. ' +
-    '7. supermarket = true SOLO si es un supermercado/autoservicio/almacén con muchos productos de compra (Tienda Inglesa, Disco, Devoto, Géant, Ta-Ta, Macro Mercado, Frigorífico, etc.); false para restaurantes, bares, farmacias, ropa, transporte y el resto. ' +
-    'Devolvé SOLO JSON válido con shape {"store":string,"supermarket":boolean,"items":[{"name":string,"amount":number,"category":string},...]}.';
+  const prompt = promptTicket(cfgDe(env), monedaLocal(env));
   const body = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: String(base64Image) } }] }],
     generationConfig: {
@@ -561,6 +613,22 @@ async function scanTicket(env, T, [base64Image]) {
   const items = (parsed.items || []).filter((it) => it && it.name && it.amount > 0);
   return { ok: true, items, store: String(parsed.store || '').trim(), supermarket: parsed.supermarket === true };
 }
+
+const PROMPT_TICKET_ILAN = 'Analizá esta foto de un ticket de comercio en Uruguay. Por cada línea de producto/servicio comprado extraé: ' +
+    'name (nombre item, máximo 40 chars, sin código de barras), ' +
+    'amount (precio FINAL en UYU después de aplicar descuentos visibles por item, número positivo), ' +
+    'category (UNA de estas exactas: Transporte, Comida, Bebida/Bar, Salud, Suscripciones, Entretenimiento, Hogar, Limpieza, Ropa, Regalos, Gimnasio, Servicios, Viajes, Acciones/Bonos/Ahorros, Otros). ' +
+    'REGLAS: ' +
+    '1. IGNORÁ líneas de total, subtotal, IVA, cambio, redondeo, descuento general, propina. ' +
+    '2. Si hay descuento aplicado a un item específico (ej "2x1", "20% off", "ahorro $X"), restalo del precio. ' +
+    '3. Si una bebida está en restaurant/bar → Bebida/Bar. Si es en supermercado → Comida. ' +
+    '4. Productos limpieza (jabón, lavandina, papel higiénico, esponja) → Limpieza. ' +
+    '4b. Viajes es para gastos de viajar: pasajes, vuelos, hotel, hostel, Airbnb, excursiones, ' +
+    'free shop, alquiler de auto, peajes de ruta. Un ómnibus o taxi urbano del día a día es Transporte, no Viajes. ' +
+    '5. Si no podés leer una línea, omitila — NO inventes. ' +
+    '6. store = nombre del comercio como figura en el ticket (ej "Tienda Inglesa", "Devoto"), "" si no se lee. ' +
+    '7. supermarket = true SOLO si es un supermercado/autoservicio/almacén con muchos productos de compra (Tienda Inglesa, Disco, Devoto, Géant, Ta-Ta, Macro Mercado, Frigorífico, etc.); false para restaurantes, bares, farmacias, ropa, transporte y el resto. ' +
+    'Devolvé SOLO JSON válido con shape {"store":string,"supermarket":boolean,"items":[{"name":string,"amount":number,"category":string},...]}.';
 
 // Lectores que reusa src/informes.js (reporte mensual por mail / web).
 export { tabDeMes, splitCategorias };

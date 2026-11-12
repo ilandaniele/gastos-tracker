@@ -42,8 +42,8 @@ const mesAnterior = (mes) => {
   if (m === 1) { y -= 1; m = 12; } else m -= 1;
   return `${y}-${String(m).padStart(2, '0')}`;
 };
-const resolverMes = (monthOpt) => {
-  if (!monthOpt) return hoy().slice(0, 7);
+const resolverMes = (monthOpt, env) => {
+  if (!monthOpt) return hoy(env).slice(0, 7);
   const mes = mesDeTab(monthOpt);
   if (!mes) throw new Error('No existe la hoja "' + monthOpt + '"');
   return mes;
@@ -134,12 +134,12 @@ export const HANDLERS = {
   // Lee el mes entero: entradas (por fecha desc) + totales. Mes sin bloque -> exists:false.
   getArgentinaDataSafe: { escribe: false, run: async (env, T, [monthOpt]) => {
     let mes;
-    try { mes = resolverMes(monthOpt); } catch (e) { return { ok: false, error: e.message }; }
+    try { mes = resolverMes(monthOpt, env); } catch (e) { return { ok: false, error: e.message }; }
     const tab = tabDe(mes);
     let blk = await leerBloque(env, T, mes);
     // El mes en curso siempre tiene bloque en Apps Script (ensureCurrentMonthTabs): se muestra con la
     // deuda heredada del mes anterior, sin persistir nada (se fija recién al cargar el primer movimiento).
-    if (!blk && mes === hoy().slice(0, 7)) blk = { deudaAntes: await deudaFinMesAnterior(env, T, mes) };
+    if (!blk && mes === hoy(env).slice(0, 7)) blk = { deudaAntes: await deudaFinMesAnterior(env, T, mes) };
     if (!blk) {
       return { ok: true, tab, exists: false, entradas: [], totales: totalesDe([]), tipos: TIPOS, quienes: QUIENES, categorias: categoriasOrdenadas() };
     }
@@ -176,8 +176,8 @@ export const HANDLERS = {
       }
     }
 
-    const fecha = p.fecha ? fechaIso(p.fecha) : hoy();
-    const mes = p.month ? resolverMes(p.month) : fecha.slice(0, 7);
+    const fecha = p.fecha ? fechaIso(p.fecha) : hoy(env);
+    const mes = p.month ? resolverMes(p.month, env) : fecha.slice(0, 7);
     const q = String(p.quien || '').trim();
     const quien = QUIENES.find((x) => stripAccents(x) === stripAccents(q)) || (tipo === 'Pago' ? 'Mamá' : 'Mía');
 
@@ -195,7 +195,7 @@ export const HANDLERS = {
     const p = data || {};
     const row = parseInt(p.row, 10);
     if (!Number.isFinite(row)) throw new Error('Fila inválida');
-    const mes = resolverMes(p.month);
+    const mes = resolverMes(p.month, env);
     const tab = tabDe(mes);
     const cur = await env.DB.prepare(`SELECT * FROM foreign_movements WHERE tenant_id = ? AND mes = ? AND id = ?`).bind(T, mes, row).first();
     if (!cur) {
@@ -250,7 +250,7 @@ export const HANDLERS = {
     const p = data || {};
     const row = parseInt(p.row, 10);
     if (!Number.isFinite(row)) throw new Error('Fila inválida');
-    const mes = resolverMes(p.month);
+    const mes = resolverMes(p.month, env);
     const cur = await env.DB.prepare(`SELECT tipo, detalle FROM foreign_movements WHERE tenant_id = ? AND mes = ? AND id = ?`).bind(T, mes, row).first();
     if (!cur) {
       if (!(await leerBloque(env, T, mes))) throw new Error('Esta hoja no tiene sección de Argentina');
@@ -263,7 +263,7 @@ export const HANDLERS = {
   // Fija la deuda que viene arrastrada de meses anteriores (setArgDeudaAntes; args: [mes, usd]).
   // El cliente del form no la llama hoy; está por paridad con Apps Script (acción argDeudaAntes).
   setArgDeudaAntes: { escribe: true, run: async (env, T, [monthOpt, usdRaw]) => {
-    const mes = resolverMes(monthOpt);
+    const mes = resolverMes(monthOpt, env);
     await asegurarBloque(env, T, mes);
     const usd = toNumber(String(usdRaw == null ? '' : usdRaw).replace(',', '.')) || 0;
     await env.DB.prepare(`UPDATE foreign_months SET deuda_antes_usd = ? WHERE tenant_id = ? AND mes = ?`).bind(usd, T, mes).run();

@@ -12,14 +12,14 @@ export const HANDLERS = {
   addCompraSafe: { escribe: true, run: async (env, T, [d]) => {
     const texto = String((d && d.texto) || '').trim();
     if (!texto) throw new Error('Falta el texto');
-    const r = await env.DB.prepare(`INSERT INTO purchases (tenant_id, creada, texto, comprado) VALUES (?, ?, ?, 0)`).bind(T, hoy(), texto.slice(0, 120)).run();
+    const r = await env.DB.prepare(`INSERT INTO purchases (tenant_id, creada, texto, comprado) VALUES (?, ?, ?, 0)`).bind(T, hoy(env), texto.slice(0, 120)).run();
     return { ok: true, tab: 'Compras', row: r.meta.last_row_id, texto };
   } },
   toggleCompraSafe: { escribe: true, run: async (env, T, [d]) => {
     const id = idDe(d);
     const comprado = d.comprado === true || String(d.comprado) === 'true';
     const r = await env.DB.prepare(`UPDATE purchases SET comprado = ?, fecha_comprado = ? WHERE tenant_id = ? AND id = ?`)
-      .bind(comprado ? 1 : 0, comprado ? hoy() : null, T, id).run();
+      .bind(comprado ? 1 : 0, comprado ? hoy(env) : null, T, id).run();
     if (!r.meta.changes) throw new Error('Ese ítem ya no existe — recargá la lista');
     return { ok: true, tab: 'Compras', row: id, comprado };
   } },

@@ -18,6 +18,40 @@
   .catchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
   .catchips button { width: auto; margin: 0; padding: 7px 11px; font-size: 13px; font-weight: 500; border-radius: 16px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; }
   .catchips button.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  /* Desplegable de categorías (selección múltiple): botón con las elegidas + panel en el flujo. */
+  .catdd { margin-bottom: 4px; }
+  .catdd .catdd-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 46px; margin: 0; padding: 10px 14px;
+    background: #fff; color: #1a1a1a; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 16px; font-weight: 500; text-align: left; }
+  .catdd .catdd-btn:active { background: #f5f5f5; }
+  .catdd .catdd-btn[aria-expanded="true"] { border-color: #0f766e; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .catdd .catdd-btn.vacio .catdd-txt { color: #667085; }
+  .catdd-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .catdd-flecha { flex: 0 0 auto; width: 8px; height: 8px; margin: -4px 2px 0; border-right: 2px solid #475467; border-bottom: 2px solid #475467; transform: rotate(45deg); }
+  .catdd-btn[aria-expanded="true"] .catdd-flecha { transform: rotate(-135deg); margin-top: 4px; }
+  .catdd-panel { border: 1px solid #0f766e; border-top: 0; border-radius: 0 0 8px 8px; background: #fff; padding: 6px; }
+  .catdd-panel[hidden] { display: none; }
+  .catdd-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 2px 4px; }
+  .catdd .catdd-op { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; padding: 0 8px; border-radius: 6px;
+    font-size: 15px; font-weight: 500; color: #1a1a1a; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .catdd .catdd-op:active { background: #f2f4f7; }
+  .catdd .catdd-op input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: #0f766e;
+    -webkit-appearance: checkbox; appearance: auto; }
+  .catdd .catdd-op:has(input:disabled) { color: #98a2b3; cursor: not-allowed; }
+  .catdd .catdd-op:has(input:checked) { background: #f0fdfa; }
+  .catdd-pie { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 6px 2px 0; }
+  .catdd-aviso { flex: 1 1 auto; font-size: 13px; color: #b42318; }
+  .catdd .catdd-listo { width: auto; min-height: 44px; margin: 0; padding: 0 20px; font-size: 15px; }
+  .catdd .catdd-btn:focus-visible, .catdd .catdd-listo:focus-visible, .catdd .catdd-op input:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+  /* "Se paga el mes siguiente" (debajo de Medio de pago, en Agregar y en Editar gasto). */
+  .paga-luego[hidden] { display: none; }
+  .paga-luego .paga-luego-op { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 6px 0 0; font-size: 15px; font-weight: 500;
+    color: #1a1a1a; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .paga-luego .paga-luego-op input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: #0f766e;
+    -webkit-appearance: checkbox; appearance: auto; }
+  .paga-luego .paga-luego-op:has(input:disabled) { cursor: default; color: #475467; }
+  .paga-luego .paga-luego-op input:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+  .paga-luego-ayuda { margin: -4px 0 0 30px; font-size: 13px; color: #475467; }
+  .paga-luego-ayuda[hidden] { display: none; }
   .quick-scroll.fijos button { background: #fef3c7; color: #92400e; }
   .quick-scroll.fijos button:active { background: #fde68a; }
   /* Cajas de estado (Guardando… / ✓ / ✗): una sola definición para #status, #habStatus,
@@ -690,6 +724,19 @@
   .home-habit:active  { background: linear-gradient(135deg, #6d28d9, #a78bfa); }
   .home-aho:active    { background: linear-gradient(135deg, #053f2e, #065f46); }
   .home-arg:active    { background: linear-gradient(135deg, #1e40af, #3b82f6); }
+  /* Sin el módulo Argentina quedan 5 tarjetas: la última ocupa el ancho entero. */
+  .home-grid > .home-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* Barra de cuenta (Ajustes / Salir), discreta al pie de la home. */
+  .home-cuenta { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+  .home-cuenta[hidden] { display: none; }
+  .home-cuenta a, .home-cuenta button { display: inline-flex; align-items: center; justify-content: center;
+    width: auto; min-height: 44px; min-width: 44px; margin: 0; padding: 0 16px; border-radius: 10px;
+    border: 1px solid #e5e5e5; background: #fff; color: #475467; font-size: 14px; font-weight: 600;
+    text-decoration: none; cursor: pointer; }
+  .home-cuenta a:active, .home-cuenta button:active { background: #f2f4f7; }
+  .home-cuenta button:disabled { opacity: 0.6; }
+  .home-cuenta-st { text-align: center; font-size: 13px; color: #b42318; margin-top: 8px; }
+  .home-cuenta-st:empty { display: none; }
 
   /* =====================================================================
      VISTA DEL MES (pestaña Dash) + pulido general

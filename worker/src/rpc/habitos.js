@@ -8,7 +8,7 @@
 //   habit_log:  una fila por comida / agua / ejercicio (kind). `row` = id de la fila.
 // El Sheet guardaba una hoja por mes ("Hábitos Julio 2026"); acá el mes sale de la fecha ISO y el
 // nombre de la "hoja" (campo `tab` de las respuestas) se reconstruye con tabDe().
-import { hoy } from './util.js';
+import { hoy, ahoraHM } from './util.js';
 
 export const MODULO = 'habitos';
 
@@ -97,11 +97,11 @@ function waterLabel(ml) {
   return 'Botella grande';
 }
 
-const ahoraHM = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Montevideo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+// ahoraHM(env) viene de util.js (zona del tenant).
 
 // Fecha ISO válida (acepta 'YYYY-MM-DD...' como parseLocalDate); sin valor = hoy.
-function fechaDe(d) {
-  if (vacio(d)) return hoy();
+function fechaDe(d, env) {
+  if (vacio(d)) return hoy(env);
   const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) {
     const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
@@ -112,8 +112,8 @@ function fechaDe(d) {
 const tabDe = (fecha) => PREFIJO + MESES[+fecha.slice(5, 7) - 1] + ' ' + fecha.slice(0, 4);
 
 // 'Hábitos Julio 2026' | '2026-07' | null -> { tab, ym:'2026-07' } (null = mes actual)
-function mesDe(monthOpt) {
-  if (vacio(monthOpt)) { const h = hoy(); return { tab: tabDe(h), ym: h.slice(0, 7) }; }
+function mesDe(monthOpt, env) {
+  if (vacio(monthOpt)) { const h = hoy(env); return { tab: tabDe(h), ym: h.slice(0, 7) }; }
   const s = String(monthOpt).trim();
   const iso = s.match(/^(\d{4})-(\d{2})$/);
   if (iso && +iso[2] >= 1 && +iso[2] <= 12) return { tab: tabDe(iso[0] + '-01'), ym: iso[0] };
@@ -253,7 +253,7 @@ async function classifyMeal(env, text, hora) {
 // ---- Día: leer ---------------------------------------------------------------------------------------
 
 async function getHabitDay(env, T, dateOpt) {
-  const fecha = fechaDe(dateOpt), tab = tabDe(fecha);
+  const fecha = fechaDe(dateOpt, env), tab = tabDe(fecha);
   if (!(await mesExiste(env, T, fecha.slice(0, 7)))) return { ok: true, exists: false, date: fecha, tab, meals: [], waters: [], ejercicios: [] };
 
   const row = await getDiaRow(env, T, fecha);
@@ -371,7 +371,7 @@ async function replaceWater(env, T, p, fecha) {
     const ml = toNum(String(src.ml != null ? src.ml : '').replace(',', '.'));
     if (ml == null || ml <= 0) throw new Error('Cantidad de agua inválida en la toma ' + (i + 1));
     const pt = parseHM(src.hora);
-    return { ml, hora: pt == null ? ahoraHM() : fmtHM(pt), tipo: String(src.tipo || '').trim() || waterLabel(ml) };
+    return { ml, hora: pt == null ? ahoraHM(env) : fmtHM(pt), tipo: String(src.tipo || '').trim() || waterLabel(ml) };
   });
   const st = [env.DB.prepare(`DELETE FROM habit_log WHERE tenant_id = ? AND fecha = ? AND kind = 'agua'`).bind(T, fecha)];
   for (const w of waters) {
@@ -382,7 +382,7 @@ async function replaceWater(env, T, p, fecha) {
   return { ok: true, tab, date: fecha, total, waters };
 }
 
-function normEjercicio(src, idx) {
+function normEjercicio(src, idx, env) {
   const s = src || {};
   const donde = idx != null ? ' en la entrada ' + (idx + 1) : '';
   const tipo = String(s.tipo || s.ejercicio || s.detalle || '').trim();
@@ -397,7 +397,7 @@ function normEjercicio(src, idx) {
     min = Math.round(n);
   }
   const pt = parseHM(s.hora);
-  return { tipo, min, hora: pt == null ? ahoraHM() : fmtHM(pt) };
+  return { tipo, min, hora: pt == null ? ahoraHM(env) : fmtHM(pt) };
 }
 
 async function replaceEjercicios(env, T, p, fecha) {
@@ -405,7 +405,7 @@ async function replaceEjercicios(env, T, p, fecha) {
   if (p.month && p.month !== tab) throw new Error('La fecha ' + fecha + ' no pertenece a "' + p.month + '"');
   const raw = Array.isArray(p.ejercicios) ? p.ejercicios : [];
   if (raw.length > 30) throw new Error('Demasiados ejercicios para un solo día');
-  const ejers = raw.map((item, i) => normEjercicio(item, i));
+  const ejers = raw.map((item, i) => normEjercicio(item, i, env));
   const st = [env.DB.prepare(`DELETE FROM habit_log WHERE tenant_id = ? AND fecha = ? AND kind = 'ejercicio'`).bind(T, fecha)];
   for (const e of ejers) {
     st.push(env.DB.prepare(`INSERT INTO habit_log (tenant_id, fecha, hora, kind, detalle, tipo, min) VALUES (?, ?, ?, 'ejercicio', ?, ?, ?)`).bind(T, fecha, e.hora, e.tipo, e.tipo, e.min || null));
@@ -419,7 +419,7 @@ async function replaceEjercicios(env, T, p, fecha) {
 // Devuelve el día releído (ids de las filas pueden haber cambiado).
 async function saveHabitDay(env, T, data) {
   const p = data || {};
-  const fecha = fechaDe(p.date);
+  const fecha = fechaDe(p.date, env);
   p.date = fecha;
   const dayFields = ['levante', 'acoste', 'trabajo', 'avance', 'animo', 'ejercicio', 'ejercicioMin', 'medite', 'mediteMin', 'lei', 'notas', 'mast', 'abordajes'];
   const hasDayChanges = !!p.clear || dayFields.some((f) => p[f] !== undefined);
@@ -448,10 +448,10 @@ const avg = (arr) => {
 const sum = (arr) => arr.filter((x) => x != null).reduce((s, x) => s + x, 0);
 
 async function getHabitsData(env, T, monthOpt) {
-  const { tab, ym } = mesDe(monthOpt);
+  const { tab, ym } = mesDe(monthOpt, env);
   if (!ym) return { ok: false, error: 'Hoja "' + tab + '" no existe todavía' };
   // En el Sheet la hoja del mes en curso siempre existe (se crea sola): acá el mes actual vale aunque esté vacío.
-  if (ym !== hoy().slice(0, 7) && !(await mesExiste(env, T, ym))) return { ok: false, error: 'Hoja "' + tab + '" no existe todavía' };
+  if (ym !== hoy(env).slice(0, 7) && !(await mesExiste(env, T, ym))) return { ok: false, error: 'Hoja "' + tab + '" no existe todavía' };
 
   const desde = ym + '-01', hasta = ym + '-31';
   const dr = await env.DB.prepare(`SELECT * FROM habit_days WHERE tenant_id = ? AND fecha BETWEEN ? AND ? ORDER BY fecha, id`).bind(T, desde, hasta).all();
@@ -584,7 +584,7 @@ async function scanMeal(env, base64Image, horaOpt) {
   if (!g.txt) return { ok: false, error: 'Respuesta vacía de Gemini' };
   const r = JSON.parse(g.txt.replace(/```json|```/g, '').trim());
   if (!String(r.nombre || '').trim()) return { ok: false, error: 'No se reconoció comida en la foto. Probá otra foto o escribilo a mano.' };
-  const hora = horaOpt || ahoraHM();
+  const hora = horaOpt || ahoraHM(env);
   return {
     ok: true,
     nombre: String(r.nombre).trim(),
@@ -614,8 +614,8 @@ export const HANDLERS = {
     const p = d || {};
     const comida = String(p.comida || p.item || '').trim();
     if (!comida) throw new Error('Falta el texto de la comida');
-    const fecha = fechaDe(p.date);
-    const hora = p.hora || ahoraHM();
+    const fecha = fechaDe(p.date, env);
+    const hora = p.hora || ahoraHM(env);
     // La foto (o una corrección manual) puede traer su propia clasificación: Gemini sólo si falta algo.
     const traeMacro = !vacio(p.macro), traeProc = !vacio(p.procesado);
     const cls = (traeMacro && traeProc) ? { macro: '', tipo: mealTypeByHour(hora), procesado: '', source: 'regex' } : await classifyMeal(env, comida, hora);
@@ -634,7 +634,7 @@ export const HANDLERS = {
   updateMealSafe: { escribe: true, run: async (env, T, [d]) => {
     const p = d || {};
     const id = filaId(p.row, 'Fila de comida inválida');
-    const fecha = p.date ? fechaDe(p.date) : null;
+    const fecha = p.date ? fechaDe(p.date, env) : null;
     const cur = await assertLogRow(env, T, id, fecha, 'comida');
     if (!String(cur.detalle || '').trim()) throw new Error('Esa fila no tiene una comida cargada');
     const comida = !vacio(p.comida) ? String(p.comida).trim() : String(cur.detalle);
@@ -655,7 +655,7 @@ export const HANDLERS = {
   deleteMealSafe: { escribe: true, run: async (env, T, [d]) => {
     const p = d || {};
     const id = filaId(p.row, 'Fila de comida inválida');
-    const fecha = p.date ? fechaDe(p.date) : null;
+    const fecha = p.date ? fechaDe(p.date, env) : null;
     const cur = await assertLogRow(env, T, id, fecha, 'comida');
     const comida = String(cur.detalle || '').trim();
     if (!comida) throw new Error('Esa fila ya está vacía');
@@ -665,7 +665,7 @@ export const HANDLERS = {
 
   // Borra los datos de UN día (campos + comidas, agua y ejercicio). La API de Apps Script ya pasaba confirm=SI.
   clearHabitDaySafe: { escribe: true, run: async (env, T, [dateStr]) => {
-    const fecha = fechaDe(dateStr);
+    const fecha = fechaDe(dateStr, env);
     const [, lr] = await env.DB.batch([
       env.DB.prepare(`DELETE FROM habit_days WHERE tenant_id = ? AND fecha = ?`).bind(T, fecha),
       env.DB.prepare(`DELETE FROM habit_log WHERE tenant_id = ? AND fecha = ?`).bind(T, fecha)
@@ -679,10 +679,10 @@ export const HANDLERS = {
     const p = d || {};
     const ml = toNum(String(p.ml != null ? p.ml : '').replace(',', '.'));
     if (ml == null || ml <= 0) throw new Error('Cantidad de agua inválida');
-    const fecha = fechaDe(p.date);
+    const fecha = fechaDe(p.date, env);
     const tab = tabDe(fecha);
     if (p.month && p.month !== tab) throw new Error('La fecha ' + fecha + ' no pertenece a "' + p.month + '"');
-    const hora = p.hora || ahoraHM();
+    const hora = p.hora || ahoraHM(env);
     const tipo = String(p.tipo || '').trim() || waterLabel(ml);
     const r = await env.DB.prepare(`INSERT INTO habit_log (tenant_id, fecha, hora, kind, detalle, tipo, ml) VALUES (?, ?, ?, 'agua', ?, ?, ?)`).bind(T, fecha, hora, tipo, tipo, ml).run();
     const total = await recalcAgua(env, T, fecha);
@@ -692,7 +692,7 @@ export const HANDLERS = {
   updateWaterSafe: { escribe: true, run: async (env, T, [d]) => {
     const p = d || {};
     const id = filaId(p.row, 'Fila inválida');
-    const cur = await assertLogRow(env, T, id, p.date ? fechaDe(p.date) : null, 'agua');
+    const cur = await assertLogRow(env, T, id, p.date ? fechaDe(p.date, env) : null, 'agua');
     const ml = !vacio(p.ml) ? toNum(String(p.ml).replace(',', '.')) : toNum(cur.ml);
     if (ml == null || ml <= 0) throw new Error('Cantidad inválida');
     const hora = !vacio(p.hora) ? String(p.hora).trim() : String(cur.hora || '').trim();
@@ -705,7 +705,7 @@ export const HANDLERS = {
   deleteWaterSafe: { escribe: true, run: async (env, T, [d]) => {
     const p = d || {};
     const id = filaId(p.row, 'Fila inválida');
-    const cur = await assertLogRow(env, T, id, p.date ? fechaDe(p.date) : null, 'agua');
+    const cur = await assertLogRow(env, T, id, p.date ? fechaDe(p.date, env) : null, 'agua');
     await env.DB.prepare(`DELETE FROM habit_log WHERE tenant_id = ? AND id = ?`).bind(T, id).run();
     const total = await recalcAgua(env, T, cur.fecha);
     return { ok: true, tab: tabDe(cur.fecha), deleted: String(cur.detalle || cur.tipo || '') + ' (' + (toNum(cur.ml) || 0) + ' ml)', total };

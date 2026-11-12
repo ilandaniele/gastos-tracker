@@ -7,10 +7,15 @@ import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 import { habitPending, tasksPending } from './pending.js';
 import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaLegal, paginaConfirmar, esHex64, CSP_LOGIN, googleConfigurado, googleInicio, googleCallback, cookieGstateBorrada } from './cuentas.js';
 import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesValido } from './informes.js';
+import { paginaOnboarding, CSP_ONBOARDING } from './onboarding.js';
+import { cargarCfg, cfgDeFila, validarCfg, guardarCfg, cfgPublica } from './tenantcfg.js';
+import { hoy } from './rpc/util.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
 const ILAN = 'ilan';
 // Los informes son HTML estático con estilos en línea: sin scripts, sin conexiones, sin embeber.
+// Tope del body de POST /api/config (wizard de onboarding, src/onboarding.js).
+const MAX_CONFIG_BYTES = 20 * 1024;
 const CSP_INFORME = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -94,10 +99,15 @@ async function autorizado(req, env) {
 // --- consultas --------------------------------------------------------------
 // Misma regla que la app: el gasto con tarjeta de crédito no suma (suma su pago)
 // y el ahorro/inversión queda fuera de los totales de gasto.
-const SUMA_UYU = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(uyu_raw, 0) WHEN moneda = 'UYU' THEN monto ELSE 0 END) ELSE 0 END)`;
-const SUMA_USD = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(usd_raw, 0) WHEN moneda = 'USD' THEN monto ELSE 0 END) ELSE 0 END)`;
+// SUMA_UYU = suma en la moneda LOCAL del tenant: lleva un parámetro (?) con el código de la moneda, que va
+// ANTES de los del WHERE en el bind (los placeholders de la lista del SELECT se numeran primero).
+const SUMA_UYU = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(uyu_raw, 0) WHEN moneda = ? THEN monto ELSE 0 END) ELSE 0 END)`;
+const SUMA_USD_APARTE = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 THEN (CASE WHEN es_fijo = 1 THEN COALESCE(usd_raw, 0) WHEN moneda = 'USD' THEN monto ELSE 0 END) ELSE 0 END)`;
+// Moneda local USD: no hay segunda moneda (los gastos en USD ya suman en SUMA_UYU).
+const SUMA_USD_SOLO_LOCAL = `SUM(CASE WHEN es_credito = 0 AND es_ahorro = 0 AND es_fijo = 1 THEN COALESCE(usd_raw, 0) ELSE 0 END)`;
+const sumaUsd = (L) => (L === 'USD' ? SUMA_USD_SOLO_LOCAL : SUMA_USD_APARTE);
 
-function filtros(url, T) {
+function filtros(url, T, L) {
   const w = ['tenant_id = ?'];
   const p = [T];
   const mes = url.searchParams.get('mes');
@@ -105,7 +115,7 @@ function filtros(url, T) {
   const cat = url.searchParams.get('cat');
   if (cat) { w.push('(cat1 = ? OR cat2 = ?)'); p.push(cat, cat); }
   const moneda = url.searchParams.get('moneda');
-  if (moneda === 'UYU' || moneda === 'USD') { w.push('moneda = ?'); p.push(moneda); }
+  if (moneda === L || moneda === 'USD') { w.push('moneda = ?'); p.push(moneda); }
   const medio = url.searchParams.get('medio');
   if (medio) { w.push('medio_pago = ?'); p.push(medio); }
   const desde = url.searchParams.get('desde'), hasta = url.searchParams.get('hasta');
@@ -130,15 +140,15 @@ const ORDEN = {
   monto: 'monto', concepto: 'concepto COLLATE NOCASE', categoria: 'categoria COLLATE NOCASE', mes: 'mes'
 };
 
-async function listarGastos(env, url, limit, T) {
-  const { where, params } = filtros(url, T);
+async function listarGastos(env, url, limit, T, L) {
+  const { where, params } = filtros(url, T, L);
   const col = ORDEN[url.searchParams.get('orden')] || ORDEN.fecha;
   const dir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
   const off = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
   const [rows, tot] = await env.DB.batch([
     env.DB.prepare(`SELECT id, mes, concepto, monto, moneda, uyu_raw, usd_raw, medio_pago, es_fijo, es_credito, es_ahorro, categoria, fecha, fecha_efectiva, fecha_origen, cotizacion, notas, grupo_nombre
                     FROM expenses WHERE ${where} ORDER BY ${col} ${dir}, id DESC LIMIT ? OFFSET ?`).bind(...params, limit, off),
-    env.DB.prepare(`SELECT COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${SUMA_USD} AS usd FROM expenses WHERE ${where}`).bind(...params)
+    env.DB.prepare(`SELECT COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${sumaUsd(L)} AS usd FROM expenses WHERE ${where}`).bind(L, ...params)
   ]);
   return { rows: rows.results, count: tot.results[0].n, uyu: tot.results[0].uyu || 0, usd: tot.results[0].usd || 0 };
 }
@@ -166,32 +176,35 @@ async function ajustes(env, T) {
   return s;
 }
 
-async function api(req, env, url, T) {
+// cfg = config del tenant (src/tenantcfg.js); L = su moneda local.
+async function api(req, env, url, T, cfg) {
   const path = url.pathname;
+  const L = cfg.moneda;
 
   if (path === '/api/months') {
     const r = await env.DB.prepare(
-      `SELECT e.mes AS mes, MAX(e.tab) AS tab, COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${SUMA_USD} AS usd
-       FROM expenses e WHERE e.tenant_id = ? GROUP BY e.mes ORDER BY e.mes DESC`).bind(T).all();
+      `SELECT e.mes AS mes, MAX(e.tab) AS tab, COUNT(*) AS n, ${SUMA_UYU} AS uyu, ${sumaUsd(L)} AS usd
+       FROM expenses e WHERE e.tenant_id = ? GROUP BY e.mes ORDER BY e.mes DESC`).bind(L, T).all();
     return json({ ok: true, months: r.results });
   }
 
   if (path === '/api/expenses') {
     const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
-    return json({ ok: true, ...(await listarGastos(env, url, limit, T)) });
+    return json({ ok: true, ...(await listarGastos(env, url, limit, T, L)) });
   }
 
   if (path === '/api/categories') {
     // Un gasto con 2 categorías suma su monto entero en cada una (igual que la app).
-    const { where, params } = filtros(url, T);
+    const { where, params } = filtros(url, T, L);
     const base = `FROM expenses WHERE ${where} AND es_credito = 0 AND es_ahorro = 0`;
-    const monto = (m) => `CASE WHEN es_fijo = 1 THEN COALESCE(${m === 'UYU' ? 'uyu_raw' : 'usd_raw'}, 0) WHEN moneda = '${m}' THEN monto ELSE 0 END`;
+    // Moneda local: un parámetro (?) con su código; USD: literal.
+    const monto = (local) => `CASE WHEN es_fijo = 1 THEN COALESCE(${local ? 'uyu_raw' : 'usd_raw'}, 0) WHEN moneda = ${local ? '?' : (L === 'USD' ? "NULL" : "'USD'")} THEN monto ELSE 0 END`;
     const r = await env.DB.prepare(
       `SELECT cat, SUM(uyu) AS uyu, SUM(usd) AS usd, COUNT(*) AS n FROM (
-         SELECT COALESCE(cat1, 'Otros') AS cat, ${monto('UYU')} AS uyu, ${monto('USD')} AS usd ${base}
+         SELECT COALESCE(cat1, 'Otros') AS cat, ${monto(true)} AS uyu, ${monto(false)} AS usd ${base}
          UNION ALL
-         SELECT cat2 AS cat, ${monto('UYU')} AS uyu, ${monto('USD')} AS usd ${base} AND cat2 IS NOT NULL
-       ) GROUP BY cat ORDER BY (SUM(uyu) + SUM(usd) * 40) DESC`).bind(...params, ...params).all();
+         SELECT cat2 AS cat, ${monto(true)} AS uyu, ${monto(false)} AS usd ${base} AND cat2 IS NOT NULL
+       ) GROUP BY cat ORDER BY (SUM(uyu) + SUM(usd) * ?) DESC`).bind(L, ...params, L, ...params, await factorUsd(env, L)).all();
     return json({ ok: true, categories: r.results });
   }
 
@@ -213,7 +226,11 @@ async function api(req, env, url, T) {
     return json({ ok: true, savings: r.results });
   }
 
-  if (path === '/api/config') {
+  // Config de la cuenta (paso 2): la parte pública de cfg.
+  if (path === '/api/config') return json({ ok: true, config: cfgPublica(cfg) });
+
+  // Propiedades importadas de Apps Script (tabla config). Antes era GET /api/config.
+  if (path === '/api/props') {
     const r = await env.DB.prepare(`SELECT clave, valor FROM config WHERE tenant_id = ? ORDER BY clave`).bind(T).all();
     return json({ ok: true, config: r.results });
   }
@@ -265,9 +282,9 @@ async function api(req, env, url, T) {
     const r = await env.DB.prepare(
       `SELECT t.mes, t.tab, t.uyu AS sheet_uyu, t.usd AS sheet_usd,
               (SELECT ${SUMA_UYU} FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS d1_uyu,
-              (SELECT ${SUMA_USD} FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS d1_usd,
+              (SELECT ${sumaUsd(L)} FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS d1_usd,
               (SELECT COUNT(*) FROM expenses e WHERE e.tenant_id = t.tenant_id AND e.mes = t.mes) AS filas
-       FROM month_totals t WHERE t.tenant_id = ? ORDER BY t.mes`).bind(T).all();
+       FROM month_totals t WHERE t.tenant_id = ? ORDER BY t.mes`).bind(L, T).all();
     const meses = r.results.map((m) => {
       const du = Math.round(((m.d1_uyu || 0) - (m.sheet_uyu || 0)) * 100) / 100;
       const dd = Math.round(((m.d1_usd || 0) - (m.sheet_usd || 0)) * 100) / 100;
@@ -279,7 +296,7 @@ async function api(req, env, url, T) {
   }
 
   if (path === '/api/export.csv') {
-    const { rows } = await listarGastos(env, url, 5000, T);
+    const { rows } = await listarGastos(env, url, 5000, T, L);
     const head = ['mes', 'fecha', 'fecha_origen', 'concepto', 'monto', 'moneda', 'medio_pago', 'categoria', 'fijo', 'credito', 'ahorro', 'notas'];
     const lines = [head.join(',')].concat(rows.map((r) =>
       [r.mes, r.fecha_efectiva, r.fecha_origen, r.concepto, r.monto, r.moneda, r.medio_pago, r.categoria, r.es_fijo, r.es_credito, r.es_ahorro, r.notas].map(csvCell).join(',')));
@@ -291,12 +308,23 @@ async function api(req, env, url, T) {
   return json({ ok: false, error: 'Ruta no encontrada' }, 404);
 }
 
+// Peso de 1 USD en moneda local para ORDENAR categorías (no es un importe que se muestre): UYU conserva el 40
+// de siempre, USD es 1, otra moneda usa la última cotización guardada en price_cache (o 1 si no hay).
+async function factorUsd(env, L) {
+  if (L === 'UYU') return 40;
+  if (L === 'USD') return 1;
+  const r = await env.DB.prepare(`SELECT precio FROM price_cache WHERE clave = ?`).bind('fx:USD' + L).first();
+  return r && r.precio > 0 ? r.precio : 1;
+}
+
 // Tenant de la request: Access (JWT válido) o clave del visor (cookie vk) = 'ilan'; si no, la sesión
 // de la cookie sid (una consulta con JOIN, y ninguna si no hay cookie). null = sin sesión.
+// Devuelve { id, fila } o null. `fila` = columnas del tenant que trae el JOIN de la sesión (arman la cfg sin
+// otra consulta); para 'ilan' por Access/vk es null y la cfg se lee aparte (una consulta, solo si la ruta la usa).
 async function resolverTenant(req, env) {
-  if (await autorizado(req, env)) return ILAN;
+  if (await autorizado(req, env)) return { id: ILAN, fila: null };
   const s = await tenantDeSesion(env, req);
-  return s ? s.id : null;
+  return s ? { id: s.id, fila: s } : null;
 }
 
 const redir = (to, status = 302, cookies = []) => {
@@ -500,11 +528,38 @@ export default {
     const porClave = (esPendiente || esInforme) && !!env.APP_KEY && eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY);
 
     // Las rutas por clave (cron de la PWA) son siempre del tenant original.
-    const T = porClave ? ILAN : await resolverTenant(req, env);
+    const quien = porClave ? { id: ILAN, fila: null } : await resolverTenant(req, env);
+    const T = quien ? quien.id : null;
     if (!T) {
+      // Guardar la config exige una cuenta: sin tenant no hay a quién guardársela.
+      if (url.pathname === '/api/config' && req.method === 'POST') return json({ ok: false, error: 'Sin cuenta: iniciá sesión' }, 403);
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
-      if (url.pathname === '/' || url.pathname === '/app') return redir('/login');
+      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding') return redir('/login');
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
+
+    // Config del tenant, perezosa y a lo sumo una vez por request: de la fila del JOIN de la sesión (sin consulta)
+    // o, para 'ilan' por Access/vk/X-Sync-Key, una consulta a tenants.
+    let cfgMemo = null;
+    const cfgDeReq = async () => cfgMemo || (cfgMemo = quien.fila ? cfgDeFila(T, quien.fila) : await cargarCfg(env, T));
+
+    // Guardar la config de la cuenta (wizard de onboarding / edición). Mismas defensas que /api/rpc.
+    if (url.pathname === '/api/config' && req.method === 'POST') {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
+      let body;
+      try {
+        const txt = await req.text();
+        if (new TextEncoder().encode(txt).length > MAX_CONFIG_BYTES) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+        body = JSON.parse(txt);
+      } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+      try {
+        const v = validarCfg(body, await cfgDeReq(), T);
+        if (!v.ok) return json({ ok: false, error: v.error }, 400);
+        await guardarCfg(env, T, v.cfg);
+        return json({ ok: true, config: cfgPublica(v.cfg) });
+      } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 400); }
     }
 
     // Escritura: solo POST JSON a /api/rpc/<función> (mismo contrato que google.script.run)
@@ -525,7 +580,7 @@ export default {
           return json({ ok: true, fuentes: await fuentes(env, T) });
         } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 400); }
       }
-      return json(await llamar(env, T, decodeURIComponent(url.pathname.slice(9)), body && body.args));
+      return json(await llamar(env, T, decodeURIComponent(url.pathname.slice(9)), body && body.args, await cfgDeReq()));
     }
 
     // Envío del informe por mail (solo si hay proveedor configurado, ver informes.js). Sin cuerpo:
@@ -550,7 +605,7 @@ export default {
         return json(await habitPending(env, T, Object.fromEntries(url.searchParams)));
       }
       if (url.pathname === '/api/tasks-pending') return json(await tasksPending(env, T));
-      if (url.pathname.startsWith('/api/')) return await api(req, env, url, T);
+      if (url.pathname.startsWith('/api/')) return await api(req, env, url, T, await cfgDeReq());
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);
     }
@@ -573,8 +628,21 @@ export default {
       }
     }
 
+    // Wizard de configuración: la primera vez (onboarding_listo = 0) y después para editar la config.
+    if (url.pathname === '/onboarding') {
+      const cfg = await cfgDeReq();
+      return new Response(paginaOnboarding(cfgPublica(cfg), { edicion: !!cfg.onboarding_listo }), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_ONBOARDING
+        }
+      });
+    }
+
     if (url.pathname === '/app') {
-      return new Response(renderForm(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Montevideo' }).format(new Date())), {
+      const cfg = await cfgDeReq();
+      if (!cfg.onboarding_listo) return redir('/onboarding');
+      return new Response(renderForm(hoy(cfg.tz), cfg), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP_FORM }
       });
     }

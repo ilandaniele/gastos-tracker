@@ -130,7 +130,7 @@ async function fuenteD1(env, T) {
 // copia que el sync pisa, así que el reinicio solo se calcula en memoria.
 async function leerFilas(env, T, cfg) {
   const r = await env.DB.prepare(`SELECT ${COLS} FROM tasks WHERE tenant_id = ? ORDER BY id`).bind(T).all();
-  const h = hoy();
+  const h = hoy(env);
   const out = [];
   const resets = [];
   for (const x of r.results) {
@@ -187,7 +187,7 @@ async function getTasksData(env, T) {
   const cfg = await leerConfig(env, T);
   const tareas = await leerFilas(env, T, cfg);
   return {
-    ok: true, tab: TAB, tareas, tipos: TIPOS, categorias: cfg.categorias, periodos: PERIODOS, hoy: hoy(),
+    ok: true, tab: TAB, tareas, tipos: TIPOS, categorias: cfg.categorias, periodos: PERIODOS, hoy: hoy(env),
     subcategorias: cfg.subcats, categoriaEmojis: cfg.emojis, categoriaCompletadas: cfg.completadas,
     categoriaSuspendidas: cfg.suspendidas, subcatSuspendidas: cfg.subSusp, importancias: IMPORTANCIAS, uiState: cfg.uiState
   };
@@ -266,7 +266,7 @@ const VALORES = (e, o) => [
   o.creada, e.tipo, e.categoria, e.subcategoria || null, e.texto, e.fecha || null, e.hora || null, e.notas || null,
   o.completada ? 1 : 0, o.fechaCompletada || null,
   e.recurrente ? 1 : 0, e.recurrente ? e.objetivo : null, e.recurrente ? (o.contador != null ? o.contador : 0) : null,
-  e.recurrente ? e.periodo : null, e.recurrente ? (o.ultimoReset || hoy()) : null,
+  e.recurrente ? e.periodo : null, e.recurrente ? (o.ultimoReset || o.hoy) : null,
   e.importancia || IMPORTANCIA_DEFAULT, o.archivada ? 1 : 0, o.orden != null ? o.orden : null, JSON.stringify(e.subtareas || [])
 ];
 
@@ -296,7 +296,7 @@ export const HANDLERS = {
   addTaskSafe: { escribe: true, run: async (env, T, [d]) => {
     const cfg = await leerConfig(env, T);
     const e = normTask(cfg, d || {});
-    const v = VALORES(e, { creada: hoy() });
+    const v = VALORES(e, { creada: hoy(env), hoy: hoy(env) });
     const r = await env.DB.prepare(`INSERT INTO tasks (tenant_id, creada, tipo, categoria, subcategoria, texto, fecha, hora, notas, completada, fecha_completada,
         recurrente, objetivo, contador, periodo, ultimo_reset, importancia, archivada, orden, subtareas)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(T, ...v).run();
@@ -312,7 +312,8 @@ export const HANDLERS = {
     const cur = await fila(env, T, id);
     const yaEra = !!cur.recurrente;
     const v = VALORES(e, {
-      creada: cur.creada || hoy(), completada: !!cur.completada, fechaCompletada: cur.fecha_completada,
+      hoy: hoy(env),
+      creada: cur.creada || hoy(env), completada: !!cur.completada, fechaCompletada: cur.fecha_completada,
       contador: e.contador != null ? e.contador : (yaEra ? (toNumber(cur.contador) || 0) : 0),
       ultimoReset: yaEra ? cur.ultimo_reset : '',
       archivada: !!cur.archivada,
@@ -332,7 +333,7 @@ export const HANDLERS = {
     const archivar = bool(d.archivar);
     await fila(env, T, id);
     await env.DB.prepare(`UPDATE tasks SET completada = ?, fecha_completada = ?, archivada = ? WHERE tenant_id = ? AND id = ?`)
-      .bind(completada ? 1 : 0, completada ? hoy() : null, completada && archivar ? 1 : 0, T, id).run();
+      .bind(completada ? 1 : 0, completada ? hoy(env) : null, completada && archivar ? 1 : 0, T, id).run();
     return { ok: true, tab: TAB, row: id, completada };
   } },
 

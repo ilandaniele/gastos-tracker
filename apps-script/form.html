@@ -55,6 +55,12 @@
       <span class="home-card-sub">Cuentas con mamá</span>
     </button>
   </div>
+  <!-- Cuenta (solo en el Worker: form-scripts.html la muestra si hay TENANT_CFG) -->
+  <nav class="home-cuenta" id="homeCuenta" aria-label="Cuenta" hidden>
+    <a href="/onboarding" id="ajustesLink">⚙️ Ajustes</a>
+    <button type="button" id="logoutBtn">Salir</button>
+  </nav>
+  <div id="homeCuentaSt" class="home-cuenta-st" role="status" aria-live="polite"></div>
 </div>
 
 <div id="addPanel" class="panel">
@@ -133,8 +139,12 @@
       <option>Efectivo UYU</option>
       <option>Efectivo USD</option>
     </select>
-    <label id="catLbl">Categorías (podés elegir varias)</label>
-    <div class="catchips" id="catBox" role="group" aria-labelledby="catLbl"></div>
+    <div class="paga-luego" id="fPagaLuegoBox">
+      <label class="paga-luego-op" for="fPagaLuego"><input type="checkbox" id="fPagaLuego" aria-describedby="fPagaLuegoAyuda"> Se paga el mes siguiente</label>
+      <p class="paga-luego-ayuda" id="fPagaLuegoAyuda" hidden>Las tarjetas de crédito ya se pagan luego</p>
+    </div>
+    <label id="catLbl" for="catBoxBtn">Categorías (podés elegir varias)</label>
+    <div class="catdd" id="catBox" data-label="catLbl"></div>
     <div class="row">
       <div><label for="fDate">Fecha</label><input id="fDate" name="date" type="date" value="<?= today ?>"></div>
       <div><label for="fCotiz">Cotización USD</label><input id="fCotiz" name="cotizacion" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="auto (BCU)" autocomplete="off"></div>
@@ -799,8 +809,8 @@
     <div class="hcard-title">💳 Disponible este mes <span id="ahoSaldoMes" class="hhint"></span></div>
     <div id="ahoSaldoUyu" class="ahobreak" hidden>
       <div><span>$ disponible</span><b id="ahoSaldoUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#667085"><span data-ccy>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
+      <div style="font-size:12px;color:#667085"><span data-ccy>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
     </div>
     <div id="ahoSaldoUsd" class="ahobreak" hidden>
       <div><span>US$ disponible</span><b id="ahoSaldoUsdVal">US$ 0</b></div>
@@ -1053,8 +1063,12 @@
         </select>
       </div>
     </div>
-    <label class="hlabel" id="grpLbl9">Categorías (podés elegir varias)</label>
-    <div class="catchips" id="expCats" role="group" aria-labelledby="grpLbl9"></div>
+    <div class="paga-luego">
+      <label class="paga-luego-op" for="expPagaLuego"><input type="checkbox" id="expPagaLuego" aria-describedby="expPagaLuegoAyuda"> Se paga el mes siguiente</label>
+      <p class="paga-luego-ayuda" id="expPagaLuegoAyuda" hidden>Las tarjetas de crédito ya se pagan luego</p>
+    </div>
+    <label class="hlabel" id="grpLbl9" for="expCatsBtn">Categorías (podés elegir varias)</label>
+    <div class="catdd" id="expCats" data-label="grpLbl9"></div>
     <div class="row">
       <div><label class="hlabel" for="expFecha">Fecha</label><input type="date" id="expFecha"></div>
       <div><label class="hlabel" for="expCotiz">Cotización USD</label><input type="text" id="expCotiz" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="opcional" autocomplete="off"></div>
@@ -1075,6 +1089,9 @@
 </div>
 
 <script>
+  // Config pública de la cuenta (moneda local, medios, módulos): la inyecta el Worker
+  // (src/form.js reemplaza el marcador). En Apps Script queda null = comportamiento de siempre.
+  var TENANT_CFG    = /*TENANT_CFG*/null;
   // Reglas y categorías inyectadas desde Code.gs: una sola fuente de verdad.
   var CAT_RULES_RAW = <?!= catRulesJson ?>;
   var CATEGORIAS    = <?!= categoriasJson ?>;
