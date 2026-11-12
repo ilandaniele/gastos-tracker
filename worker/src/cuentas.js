@@ -284,38 +284,50 @@ const LEGAL = {
   privacidad: { titulo: 'Política de privacidad · Gastos', cuerpo: (c) => `<h1>Política de privacidad</h1>
 <p class="sub">Última actualización: noviembre de 2026.</p>
 <h2>Qué es Gastos</h2>
-<p>Gastos es una app para registrar y ver tus gastos, ingresos, ahorros, compras y tareas personales.</p>
+<p>Gastos es una app para registrar y ver tus gastos, ingresos, ahorros, compras y tareas personales. El servicio lo presta su titular a título personal desde Uruguay.</p>
 <h2>Qué datos guardamos</h2>
 <ul>
 <li>Tu mail, para identificar tu cuenta y mandarte el link de acceso.</li>
-<li>Lo que cargás en la app: gastos, ingresos, ahorros, compras, tareas y hábitos.</li>
+<li>Lo que cargás en la app: gastos, ingresos, ahorros, compras, tareas y hábitos, y la configuración de tu cuenta (país, moneda, zona horaria, medios de pago y categorías).</li>
 <li>Si usás “Continuar con Google”, solo recibimos tu mail verificado. No accedemos a tus archivos, contactos ni a ningún otro dato de tu cuenta de Google.</li>
-<li>Una cookie de sesión, necesaria para mantenerte adentro. No usamos cookies de publicidad ni de seguimiento.</li>
+<li>Una cookie de sesión, necesaria para mantenerte adentro. No usamos cookies de publicidad ni de seguimiento, ni herramientas de analítica de terceros.</li>
+<li>Datos técnicos mínimos de funcionamiento (por ejemplo, un contador de escaneos diarios por cuenta para evitar abusos).</li>
 </ul>
 <h2>Para qué los usamos</h2>
-<p>Solo para que la app funcione: mostrarte tus datos, mandarte el link de acceso y, si lo activás, avisos y reportes por mail. No vendemos ni compartimos tus datos con terceros con fines comerciales.</p>
+<p>Solo para que la app funcione: mostrarte tus datos, mandarte el link de acceso y, si lo activás, avisos y reportes por mail. No vendemos tus datos, no los usamos para publicidad ni para entrenar modelos propios, y no los compartimos con terceros con fines comerciales.</p>
 <h2>Con quién se procesan</h2>
 <ul>
 <li>Cloudflare: aloja la app y la base de datos.</li>
 <li>Resend: envía los mails de acceso y los reportes.</li>
-<li>Google: si usás el escaneo de tickets, la foto se envía a Google para leerla; no se guarda la imagen en nuestra base.</li>
+<li>Google: si usás el escaneo de tickets o de comidas con IA, la foto se envía a Google (Gemini) para leerla. No guardamos la imagen en nuestra base; guardamos solo el resultado que confirmás.</li>
 </ul>
+<p>Estos proveedores pueden procesar datos fuera de tu país. Los usamos porque ofrecen medidas de seguridad adecuadas.</p>
+<h2>Cuánto tiempo los guardamos</h2>
+<p>Mientras tu cuenta esté activa. Si pedís el borrado, eliminamos tu cuenta y todo lo que cargaste; los respaldos técnicos se vacían en un plazo razonable.</p>
 <h2>Tus derechos</h2>
-<p>Podés pedir acceso, corrección o borrado de tus datos en cualquier momento (Ley 18.331 de Uruguay de protección de datos personales). ${c ? 'Escribinos a <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : 'Escribinos respondiendo desde el mail de tu cuenta.'}</p>
+<p>Podés pedir acceso, copia, corrección o borrado de tus datos en cualquier momento. Aplicamos la Ley 18.331 de Uruguay de protección de datos personales y, cuando corresponda según tu país, tus derechos equivalentes bajo la normativa local. ${c ? 'Escribinos a <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : 'Escribinos respondiendo desde el mail de tu cuenta.'}</p>
+<h2>Seguridad</h2>
+<p>El acceso es por link de un solo uso o Google, sin contraseñas que filtrar. Cada cuenta ve solo sus propios datos. Ningún sistema es infalible: si hubiera un incidente que te afecte, te avisaremos.</p>
+<h2>Menores</h2>
+<p>El servicio es para personas de 18 años o más.</p>
 <h2>Cambios</h2>
-<p>Si cambia algo importante, actualizamos esta página.</p>` },
+<p>Si cambia algo importante, actualizamos esta página y la fecha de arriba.</p>` },
   terminos: { titulo: 'Términos del servicio · Gastos', cuerpo: (c) => `<h1>Términos del servicio</h1>
 <p class="sub">Última actualización: noviembre de 2026.</p>
 <h2>El servicio</h2>
-<p>Gastos es una herramienta personal para llevar tus finanzas. Se ofrece tal cual está, sin garantía de disponibilidad continua. No es asesoramiento financiero.</p>
+<p>Gastos es una herramienta personal para llevar tus finanzas. Se ofrece tal cual está, sin garantía de disponibilidad continua ni de que los resultados (incluidos los del escaneo con IA o las conversiones de moneda) sean exactos: revisalos antes de confiar en ellos. No es asesoramiento financiero, contable ni impositivo.</p>
 <h2>Tu cuenta</h2>
-<p>Entrás con tu mail o con Google. Sos responsable de lo que pase con tu sesión y de la veracidad de lo que cargás.</p>
+<p>Entrás con tu mail o con Google. Sos responsable de lo que pase con tu sesión y de la veracidad de lo que cargás. Tenés que tener 18 años o más.</p>
 <h2>Uso aceptable</h2>
-<p>No uses el servicio para abusar de él, sobrecargarlo ni acceder a datos de otras personas.</p>
+<p>No uses el servicio para abusar de él, sobrecargarlo, automatizar accesos masivos ni acceder a datos de otras personas. El escaneo con IA tiene un límite diario por cuenta. Podemos suspender cuentas que incumplan estas reglas.</p>
 <h2>Tus datos</h2>
 <p>Los datos que cargás son tuyos. Podés pedir que los borremos. Ver la <a href="/privacidad">política de privacidad</a>.</p>
+<h2>Precio</h2>
+<p>Por ahora el servicio es gratuito. Si en el futuro hubiera planes pagos, lo avisaremos antes y no se te cobrará nada sin tu aceptación.</p>
+<h2>Responsabilidad</h2>
+<p>En la medida que la ley lo permita, no respondemos por pérdidas indirectas ni por decisiones que tomes en base a la información de la app. Te recomendamos llevar tus propios respaldos de lo importante.</p>
 <h2>Cambios y baja</h2>
-<p>Podemos modificar o discontinuar el servicio, avisando con anticipación razonable cuando sea posible. ${c ? 'Contacto: <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : ''}</p>` }
+<p>Podemos modificar o discontinuar el servicio, avisando con anticipación razonable cuando sea posible. Estos términos se rigen por las leyes de Uruguay, sin perjuicio de los derechos que te reconozca como consumidor la ley de tu país. ${c ? 'Contacto: <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : ''}</p>` }
 };
 
 // Devuelve la página legal ('privacidad' | 'terminos') o null.
