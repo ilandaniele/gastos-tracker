@@ -2,7 +2,7 @@
 //
 // Necesita un `wrangler dev --local` levantado contra una base local con las migraciones 0001-0007, con:
 //   --var VIEW_KEY:y --var APP_KEY:x --var ACCESS_AUD:x --var DEV_MOSTRAR_LINK:1
-//   --var FX_TEST_RATES:'{"ARS":1000,"MXN":18}'
+//   --var FX_TEST_RATES:'{"ARS":1000,"MXN":18}' --var GEMINI_API_KEY:mentira --var GEMINI_LIMITE_DIA:8
 // y la base sembrada con: settings de 'ilan' con todos los módulos en d1 (fuente_<modulo> = 'd1') y un gasto
 // 'SECRETO_DE_ILAN'. Uso: node test/paso2.test.mjs http://127.0.0.1:PUERTO
 import assert from 'node:assert/strict';
@@ -307,6 +307,14 @@ await t('aislamiento: A no puede editar un gasto de M por id', async () => {
 });
 await t('/api/props (antes GET /api/config) sigue dando la tabla config', async () => {
   const j = await getJ('/api/props', ILAN); assert.equal(j.ok, true); assert.ok(Array.isArray(j.config));
+});
+
+await t('Gemini: cuota diaria por cuenta (GEMINI_LIMITE_DIA:8 y GEMINI_API_KEY de mentira): 2 fotos pasan, la 3ª se corta', async () => {
+  const r1 = await rpc(A, 'scanTicket', 'AAAA'); const r2 = await rpc(A, 'scanTicket', 'AAAA'); const r3 = await rpc(A, 'scanTicket', 'AAAA');
+  assert.doesNotMatch(r1.error || '', /límite diario/); assert.doesNotMatch(r2.error || '', /límite diario/);
+  assert.equal(r3.ok, false); assert.match(r3.error, /límite diario/);
+  const rm = await rpc(A, 'scanMealSafe', 'AAAA', '12:00'); assert.match(rm.error, /límite diario/);
+  assert.doesNotMatch((await rpc(M, 'scanTicket', 'AAAA')).error || '', /límite diario/); // la cuota es por cuenta
 });
 
 console.log(out.join('\n'));

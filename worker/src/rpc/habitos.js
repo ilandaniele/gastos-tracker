@@ -8,7 +8,7 @@
 //   habit_log:  una fila por comida / agua / ejercicio (kind). `row` = id de la fila.
 // El Sheet guardaba una hoja por mes ("Hábitos Julio 2026"); acá el mes sale de la fecha ISO y el
 // nombre de la "hoja" (campo `tab` de las respuestas) se reconstruye con tabDe().
-import { hoy, ahoraHM } from './util.js';
+import { hoy, ahoraHM, usarGemini, PESO_GEMINI_FOTO } from './util.js';
 
 export const MODULO = 'habitos';
 
@@ -207,6 +207,8 @@ const filaId = (v, msg) => { const n = parseInt(v, 10); if (!Number.isFinite(n) 
 // ---- Clasificación de comidas (regex + Gemini de respaldo) ---------------------------------------
 
 async function geminiJson(env, body, ms) {
+  const cupo = await usarGemini(env, ms >= 20000 ? PESO_GEMINI_FOTO : 1); // fotos (30 s) pesan más que el texto (8 s)
+  if (!cupo.ok) return { http: 429, cupo: cupo.error };
   const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODELO}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
@@ -580,7 +582,7 @@ async function scanMeal(env, base64Image, horaOpt) {
     }
   };
   const g = await geminiJson(env, body, 30000);
-  if (g.http) return { ok: false, error: 'Gemini HTTP ' + g.http };
+  if (g.http) return { ok: false, error: g.cupo || 'Gemini HTTP ' + g.http };
   if (!g.txt) return { ok: false, error: 'Respuesta vacía de Gemini' };
   const r = JSON.parse(g.txt.replace(/```json|```/g, '').trim());
   if (!String(r.nombre || '').trim()) return { ok: false, error: 'No se reconoció comida en la foto. Probá otra foto o escribilo a mano.' };

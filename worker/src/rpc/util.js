@@ -25,3 +25,25 @@ export function fxOverride(env, moneda) {
     return Number.isFinite(v) && v > 0 ? v : null;
   } catch { return null; }
 }
+
+// Cuota diaria de Gemini por cuenta (control de costo y abuso). Una fila en settings ('gemini_uso' = 'YYYY-MM-DD:n',
+// día en la zona de la cuenta) con upsert atómico: una escritura por llamada. Las fotos pesan más que el texto.
+// Límite por día: GEMINI_LIMITE_DIA (var/secret) si existe; si no 600 para 'ilan' y 60 (≈15 fotos) para el resto.
+export const PESO_GEMINI_FOTO = 4;
+export async function usarGemini(env, peso) {
+  const tenant = env && env.tenant;
+  if (!tenant || !env.DB) return { ok: true }; // informes/pending (solo ilan) no pasan por acá
+  const envLim = parseInt(env.GEMINI_LIMITE_DIA, 10);
+  const limite = Number.isFinite(envLim) && envLim > 0 ? envLim : (tenant === 'ilan' ? 600 : 60);
+  const dia = hoy(env);
+  const fila = await env.DB.prepare(
+    `INSERT INTO settings (tenant_id, clave, valor) VALUES (?1, 'gemini_uso', ?2 || ':' || ?3)
+     ON CONFLICT (tenant_id, clave) DO UPDATE SET valor = CASE
+       WHEN substr(valor, 1, 10) = ?2 THEN ?2 || ':' || (CAST(substr(valor, 12) AS INTEGER) + ?3)
+       ELSE ?2 || ':' || ?3 END
+     RETURNING valor`
+  ).bind(tenant, dia, peso).first();
+  const usado = parseInt(String(fila && fila.valor || '').slice(11), 10) || 0;
+  if (usado > limite) return { ok: false, error: 'Llegaste al límite diario de escaneos con IA. Probá mañana o cargalo a mano.' };
+  return { ok: true };
+}

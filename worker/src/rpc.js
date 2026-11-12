@@ -58,7 +58,7 @@ export async function llamar(env, tenant, nombre, args, cfg) {
   const h = Object.prototype.hasOwnProperty.call(HANDLERS, nombre) ? HANDLERS[nombre] : null;
   if (!h) return falla('Función desconocida: ' + nombre);
   try {
-    env = { ...env, cfg: cfg || await cargarCfg(env, tenant) };
+    env = { ...env, tenant, cfg: cfg || await cargarCfg(env, tenant) };
     if (h.escribe) {
       const f = await fuentes(env, tenant);
       if (f[h.modulo] !== 'd1') return falla(`El módulo ${h.modulo} todavía lo maneja el Sheet: pasalo a D1 antes de escribir`);

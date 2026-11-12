@@ -13,7 +13,7 @@
 // Multi-tenant (paso 2): medios de pago, categorías, reglas, moneda local y zona horaria salen de env.cfg
 // (src/tenantcfg.js; lo inyecta llamar() en rpc.js). Sin env.cfg se usan los defaults de 'ilan' (= lo de antes).
 // Las columnas/campos "uyu" (uyu_raw, mixed_uyu, totals.uyu...) significan "moneda local" del tenant.
-import { hoy, idDe, fuenteDefecto, tzDe, monedaLocal, fxOverride } from './util.js';
+import { hoy, idDe, fuenteDefecto, tzDe, monedaLocal, fxOverride, usarGemini, PESO_GEMINI_FOTO } from './util.js';
 import { DEFAULTS_ILAN, ILAN } from '../tenantcfg.js';
 
 export const MODULO = 'gastos';
@@ -585,6 +585,8 @@ async function scanTicket(env, T, [base64Image]) {
   const key = env.GEMINI_API_KEY;
   if (!key) return { ok: false, error: 'Falta GEMINI_API_KEY' };
   if (!base64Image) return { ok: false, error: 'No se recibió imagen' };
+  const cupo = await usarGemini(env, PESO_GEMINI_FOTO);
+  if (!cupo.ok) return cupo;
   const prompt = promptTicket(cfgDe(env), monedaLocal(env));
   const body = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: String(base64Image) } }] }],
