@@ -10,6 +10,7 @@ import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesVal
 import { paginaOnboarding, CSP_ONBOARDING } from './onboarding.js';
 import { cargarCfg, cfgDeFila, validarCfg, guardarCfg, cfgPublica } from './tenantcfg.js';
 import { hoy } from './rpc/util.js';
+import { suscribir, desuscribir, avisoDe, tickPush, pushConfigurado, MANIFEST_APP, SERVICE_WORKER_APP, CSP_AVISOS, paginaAvisos, iconoBytes } from './push.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
 const ILAN = 'ilan';
@@ -349,6 +350,15 @@ async function rutaPublica(req, env, url) {
   const base = env.APP_URL || url.origin;
   const origenMalo = () => { const o = req.headers.get('Origin'); return !!o && o !== url.origin; };
 
+  // PWA de avisos (push.js): el navegador pide manifest, service worker e íconos sin sesión de por medio.
+  if (path === '/manifest.webmanifest' || path === '/sw.js' || path === '/icon-192.png' || path === '/icon-512.png') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return json({ ok: false, error: 'Método no permitido' }, 405);
+    const base = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'public, max-age=3600' };
+    if (path === '/manifest.webmanifest') return new Response(JSON.stringify(MANIFEST_APP), { headers: { ...base, 'Content-Type': 'application/manifest+json; charset=utf-8' } });
+    if (path === '/sw.js') return new Response(SERVICE_WORKER_APP, { headers: { ...base, 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } });
+    return new Response(iconoBytes(path), { headers: { ...base, 'Content-Type': 'image/png' } });
+  }
+
   if (path === '/privacidad' || path === '/terminos') {
     if (req.method !== 'GET' && req.method !== 'HEAD') return json({ ok: false, error: 'Método no permitido' }, 405);
     return new Response(paginaLegal(path.slice(1), env.CONTACT_EMAIL), {
@@ -517,6 +527,19 @@ export default {
       catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
+    // Tick del cron compartido (gastos-habitos, cada 15 min): avisos push de las cuentas con suscripciones (push.js).
+    if (url.pathname === '/api/push/tick') {
+      if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
+      if (!env.APP_KEY || !eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY)) return json({ ok: false, error: 'No autorizado' }, 401);
+      try {
+        // SOLO TESTS LOCALES (DEV_MOSTRAR_LINK): el cuerpo puede traer {"ahora": ISO} para simular la hora.
+        let ahora = new Date();
+        if (env.DEV_MOSTRAR_LINK) { try { const b = await req.json(); if (b && b.ahora) ahora = new Date(b.ahora); } catch {} }
+        return json(await tickPush(env, ahora));
+      }
+      catch (e) { console.error('tick push falló:', String(e && e.message || e)); return json({ ok: false, error: 'Falló el tick' }, 500); }
+    }
+
     // Avisos pendientes (los consulta el Worker de la PWA por service binding): además de la
     // sesión normal, entran con la clave compartida APP_KEY en X-Sync-Key. Solo GET y solo estas
     // dos rutas; cualquier otra cosa sigue exigiendo la sesión.
@@ -534,7 +557,7 @@ export default {
       // Guardar la config exige una cuenta: sin tenant no hay a quién guardársela.
       if (url.pathname === '/api/config' && req.method === 'POST') return json({ ok: false, error: 'Sin cuenta: iniciá sesión' }, 403);
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
-      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding') return redir('/login');
+      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding' || url.pathname === '/avisos') return redir('/login');
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
@@ -598,13 +621,35 @@ export default {
       } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
+    // Suscripciones push de la cuenta (service worker y página /avisos, mismo origen que la sesión).
+    if (req.method === 'POST' && (url.pathname === '/api/push/suscribir' || url.pathname === '/api/push/desuscribir' || url.pathname === '/api/push/aviso')) {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      try {
+        if (url.pathname === '/api/push/aviso') return json({ ok: true, ...((await avisoDe(env, T)) || {}) });
+        if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
+        const txt = await req.text();
+        if (txt.length > 4096) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+        let body;
+        try { body = JSON.parse(txt); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+        const ep = body && body.endpoint;
+        const r = url.pathname === '/api/push/suscribir' ? await suscribir(env, T, ep) : await desuscribir(env, T, ep);
+        const { status, ...cuerpo } = r;
+        return json(cuerpo, status || 200);
+      } catch (e) { console.error('push falló:', String(e && e.message || e)); return json({ ok: false, error: 'No se pudo guardar' }, 500); }
+    }
+
     if (req.method !== 'GET') return json({ ok: false, error: 'Solo lectura' }, 405);
 
     try {
       if (url.pathname === '/api/habit-pending') {
         return json(await habitPending(env, T, Object.fromEntries(url.searchParams)));
       }
-      if (url.pathname === '/api/tasks-pending') return json(await tasksPending(env, T));
+      if (url.pathname === '/api/tasks-pending') return json(await tasksPending({ ...env, cfg: await cfgDeReq() }, T));
+      if (url.pathname === '/api/push/vapid') {
+        if (!pushConfigurado(env)) return json({ ok: false, error: 'Avisos no disponibles' }, 404);
+        return json({ ok: true, key: env.VAPID_PUBLIC_KEY });
+      }
       if (url.pathname.startsWith('/api/')) return await api(req, env, url, T, await cfgDeReq());
     } catch (e) {
       return json({ ok: false, error: String(e && e.message || e) }, 500);
@@ -626,6 +671,15 @@ export default {
       } catch (e) {
         return new Response('Error: ' + String(e && e.message || e), { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
       }
+    }
+
+    if (url.pathname === '/avisos') {
+      return new Response(paginaAvisos({ esIlan: T === ILAN, configurado: pushConfigurado(env) }), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_AVISOS
+        }
+      });
     }
 
     // Wizard de configuración: la primera vez (onboarding_listo = 0) y después para editar la config.

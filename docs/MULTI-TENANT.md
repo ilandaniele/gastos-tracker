@@ -79,16 +79,19 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   responsabilidad, ley uruguaya sin perjuicio del consumidor local). No las revisó un abogado: antes de cobrar, que las vea uno.
 - **Plan pago de Workers/D1**: el plan gratis de D1 corta a las 100k filas escritas por día y 5M leídas; con clientes hay
   que pasar al plan Workers pago (lo contrata Ilan en el dashboard de Cloudflare).
-- **Push y avisos por tenant** (sin hacer): el cron de la PWA (`pwa/src/worker.js`) y el push solo atienden a `ilan`:
-  las suscripciones están en un KV sin dueño, se consulta `/api/habit-pending` y `/api/tasks-pending` con `X-Sync-Key`
-  (que entra como `ilan`), la hora es de Montevideo fija y el informe mensual sale solo para él. Diseño propuesto:
-  1. Mover las suscripciones a D1 (`push_subs`: tenant_id, endpoint, json) y servir manifest + service worker desde
-     `gastos-app` (mismo origen que la cookie de sesión), así `/api/subscribe` sabe de qué cuenta es.
-  2. El cron llama a `gastos-app` (`POST /api/cron/tick`); ahí se recorren solo las cuentas con suscripciones, se mira la
-     hora local con `cfg.tz` y se manda el push con VAPID (copiar `pwa/src/push.js`).
-  3. Para cuentas nuevas solo tareas y reporte mensual (hábitos es del módulo personal).
-  4. Costo en D1: una lectura por cuenta con suscripción cada 15 min; para no gastar, filtrar por hora local antes de leer.
-  Conviene hacerlo recién con clientes reales y con el dominio (el reporte mensual sale por mail).
+- **Push y avisos por cuenta** (hecho, falta activar una clave): `src/push.js` + `src/pushsend.js`, migración 0008 (`push_subs`).
+  La PWA de las cuentas nuevas es el propio `/app` (mismo origen que la cookie): `/manifest.webmanifest`, `/sw.js`, íconos y
+  la página `/avisos` (link "🔔 Avisos" en el home). El push va SIN payload; el service worker pide el texto a
+  `POST /api/push/aviso` con la sesión. El cron compartido de `gastos-habitos` llama cada 15 min a `POST /api/push/tick`
+  (X-Sync-Key); ahí se mira la hora LOCAL de cada cuenta (`tenants.tz`): 07 h tareas y citas de hoy (solo si hay algo) y el
+  día 1 a las 09 h el aviso del reporte mensual, una vez por dispositivo y día (`push_subs.ultimo`). Máximo 5 dispositivos por
+  cuenta; un dispositivo avisa a la última cuenta que lo activó; el endpoint solo se acepta si es https de FCM, Mozilla, Apple
+  o Windows (anti SSRF). `ilan` sigue con su KV y su Worker de la PWA. Sin `VAPID_PRIVATE_JWK` el tick no hace nada ni gasta D1.
+  **Para activarlo**: `npx wrangler secret put VAPID_PRIVATE_JWK` en `worker/` con el contenido de la clave privada JWK (la
+  pública ya está en `wrangler.toml`, `VAPID_PUBLIC_KEY`; la privada que corresponde se generó con `crypto.subtle.generateKey`
+  ECDSA P-256 y la guarda quien la generó: si se pierde, se genera un par nuevo y se cambian las dos).
+  Límites: iOS solo avisa a la app agregada a inicio; el reporte mensual por mail sigue siendo de `ilan` (falta dominio).
+  Tests: `test/push.test.mjs` (16, contra `wrangler dev`) y `test/vapid.test.mjs` (firma ES256).
 - **Prefetch de links**: resuelto. `GET /auth/<token>` no consume el token; el canje es un `POST` desde el botón.
 - **Referrer-Policy**: las páginas y respuestas de login y `/auth/*` salen con `Referrer-Policy: same-origin`. Con `no-referrer`
   Chrome manda `Origin: null` en el POST same-origin de un `<form>` y el chequeo de Origin (que rechaza `null` y orígenes

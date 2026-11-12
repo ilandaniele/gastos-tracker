@@ -155,7 +155,7 @@ export async function habitPending(env, T, opts) {
 
 // Citas de hoy (con hora, ordenadas), tareas con vencimiento hoy y lo vencido sin completar.
 export async function digestHoy(env, T) {
-  const hoyIso = hoy();
+  const hoyIso = hoy(env); // env.cfg.tz si viene (cuentas nuevas); sin cfg, Montevideo
   const filas = (await leerTareas(env, T)).filter((f) => !f.completada);
   const citasHoy = filas.filter((f) => f.tipo === 'Cita' && f.fecha === hoyIso)
     .sort((a, b) => (a.hora || '99:99').localeCompare(b.hora || '99:99'));

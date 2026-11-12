@@ -276,6 +276,7 @@ export default {
     // push salen solo en los horarios de siempre (minuto 0 de 02, 03, 04, 05 y 12 UTC) y
     // el de tareas (minuto 0 de 10 UTC = 07:00 en Montevideo).
     ctx.waitUntil(sincronizarD1(env));
+    ctx.waitUntil(tickPushCuentas(env));
     const t = new Date(event && event.scheduledTime ? event.scheduledTime : Date.now());
     const horaUTC = t.getUTCHours();
     if (!(t.getUTCMinutes() === 0 && [2, 3, 4, 5, 10, 12].indexOf(horaUTC) >= 0)) return;
@@ -337,6 +338,24 @@ async function sincronizarD1(env) {
     r = { ok: false, error: String(e && e.message || e) };
   }
   try { await env.SUBS.put('log:sync', JSON.stringify({ cuando: new Date().toISOString(), r })); } catch (e) {}
+  return r;
+}
+
+// Avisos push de las cuentas nuevas (multi-tenant): gastos-app mira la hora local de cada cuenta con suscripciones
+// (tabla push_subs) y manda lo que corresponda. Las suscripciones de 'ilan' siguen siendo las del KV de este Worker.
+async function tickPushCuentas(env) {
+  let r;
+  try {
+    if (!env.GASTOS_APP || !env.APP_KEY) r = { ok: false, error: 'Falta binding GASTOS_APP o APP_KEY' };
+    else {
+      const res = await env.GASTOS_APP.fetch('https://gastos-app/api/push/tick', { method: 'POST', headers: { 'X-Sync-Key': env.APP_KEY } });
+      r = { ok: res.status === 200, status: res.status, body: (await res.text()).slice(0, 300) };
+    }
+  } catch (e) {
+    r = { ok: false, error: String(e && e.message || e) };
+  }
+  // Solo se guarda en KV si pasó algo (no ensucia el KV con un "nada" cada 15 minutos).
+  try { if (r.ok && /"enviados":[1-9]|"errores":[1-9]/.test(r.body || '')) await env.SUBS.put('log:tick', JSON.stringify({ cuando: new Date().toISOString(), r })); } catch (e) {}
   return r;
 }
 

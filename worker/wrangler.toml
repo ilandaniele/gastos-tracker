@@ -31,3 +31,6 @@ ACCESS_TEAM = "ilandaniele.cloudflareaccess.com"
 ACCESS_AUD = "34c57ce6eb89f6f441c7d8063f7ce54a40fb5fabc8afbca591cebbcc61b873da"
 ACCESS_EMAILS = "ilan.daniele@gmail.com"
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrddtbEm8zJLIviB1oULPWcP2GH9VRUZA/exec"
+
+# Clave pública VAPID de los avisos push por cuenta (la privada es el secreto VAPID_PRIVATE_JWK).
+VAPID_PUBLIC_KEY = "BGfZIBVN63wNcHooJpxr4EBWc-D6GTB_QUcqL7YQxpOw7iu5aGHL6V4xljGfqwxzK9S5BNuSQesa7YYYhKXKBis"
