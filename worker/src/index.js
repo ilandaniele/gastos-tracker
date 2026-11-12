@@ -10,6 +10,8 @@ import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesVal
 import { paginaOnboarding, CSP_ONBOARDING } from './onboarding.js';
 import { cargarCfg, cfgDeFila, validarCfg, guardarCfg, cfgPublica } from './tenantcfg.js';
 import { hoy } from './rpc/util.js';
+import { ofertas, ofertaDe, preciosDe, proveedorActivo, activarPlan, paginaPlan, CSP_PLAN, PERIODOS, PROVEEDORES } from './planes.js';
+import { crearCheckout, leerWebhook } from './pagos.js';
 import { suscribir, desuscribir, avisoDe, tickPush, pushConfigurado, MANIFEST_APP, SERVICE_WORKER_APP, CSP_AVISOS, paginaAvisos, iconoBytes } from './push.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
@@ -540,6 +542,41 @@ export default {
       catch (e) { console.error('tick push falló:', String(e && e.message || e)); return json({ ok: false, error: 'Falló el tick' }, 500); }
     }
 
+    // Webhooks de los proveedores de pago (pagos.js). Sin sesión: se autentican con la firma HMAC del proveedor,
+    // que se verifica ANTES de tocar D1. Sin el secreto del proveedor configurado la ruta no existe.
+    if (url.pathname.startsWith('/api/pagos/webhook/')) {
+      const prov = url.pathname.slice('/api/pagos/webhook/'.length);
+      if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
+      if ((prov !== 'stripe' && prov !== 'mercadopago') || !proveedorActivo(env, prov)) return json({ ok: false, error: 'No encontrado' }, 404);
+      const texto = await req.text();
+      if (texto.length > 65536) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+      const w = await leerWebhook(env, prov, req, texto, url);
+      if (!w.ok) return json({ ok: false, error: w.error }, w.status || 400);
+      if (w.evento.ignorar) return json({ ok: true, ignorado: true });
+      try {
+        const r = await activarPlan(env, w.evento.tenant, w.evento.periodo, w.evento);
+        // Cuenta inexistente: se responde 200 para que el proveedor no reintente para siempre (queda en el log).
+        if (!r.ok) console.error('pago sin cuenta:', w.evento.idExterno, r.error);
+        return json({ ok: true, aplicado: !!r.aplicado });
+      } catch (e) { console.error('activar plan falló:', String(e && e.message || e)); return json({ ok: false, error: 'No se pudo guardar' }, 500); } // el proveedor reintenta
+    }
+
+    // Activación manual (transferencia bancaria u otro cobro fuera de línea): la hace el dueño con X-Sync-Key.
+    // Cuerpo: {"email": "...", "periodo": "mes"|"anio", "ref": "<comprobante, único>"}. La ref hace idempotente el pedido.
+    if (url.pathname === '/api/plan/activar') {
+      if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
+      if (!env.APP_KEY || !eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY)) return json({ ok: false, error: 'No autorizado' }, 401);
+      let b = null;
+      try { b = await req.json(); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+      const email = String(b && b.email || '').trim().toLowerCase();
+      const ref = String(b && b.ref || '').trim();
+      if (!email || !PERIODOS[b && b.periodo] || !ref || ref.length > 80) return json({ ok: false, error: 'Faltan email, periodo o ref' }, 400);
+      const fila = await env.DB.prepare('SELECT id FROM tenants WHERE email = ?').bind(email).first();
+      if (!fila) return json({ ok: false, error: 'No hay cuenta con ese mail' }, 404);
+      const r = await activarPlan(env, fila.id, b.periodo, { proveedor: 'manual', idExterno: 'manual:' + ref, monto: b.monto, moneda: b.moneda });
+      return json(r, r.ok ? 200 : 400);
+    }
+
     // Avisos pendientes (los consulta el Worker de la PWA por service binding): además de la
     // sesión normal, entran con la clave compartida APP_KEY en X-Sync-Key. Solo GET y solo estas
     // dos rutas; cualquier otra cosa sigue exigiendo la sesión.
@@ -557,7 +594,7 @@ export default {
       // Guardar la config exige una cuenta: sin tenant no hay a quién guardársela.
       if (url.pathname === '/api/config' && req.method === 'POST') return json({ ok: false, error: 'Sin cuenta: iniciá sesión' }, 403);
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
-      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding' || url.pathname === '/avisos') return redir('/login');
+      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding' || url.pathname === '/avisos' || url.pathname === '/plan') return redir('/login');
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
@@ -621,6 +658,26 @@ export default {
       } catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
+    // Iniciar un pago: crea la sesión de cobro en el proveedor y devuelve su URL. El monto sale de PLAN_PRECIOS en
+    // el servidor, nunca del cliente. El plan lo activa el webhook, no esta ruta.
+    if (req.method === 'POST' && url.pathname === '/api/pagos/checkout') {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      if (T === ILAN) return json({ ok: false, error: 'La cuenta del dueño no paga' }, 400);
+      if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
+      const txt = await req.text();
+      if (txt.length > 1024) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+      let b = null;
+      try { b = JSON.parse(txt); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+      const prov = b && b.proveedor, periodo = b && b.periodo;
+      if (!PROVEEDORES.includes(prov) || prov === 'manual' || !PERIODOS[periodo] || !proveedorActivo(env, prov)) return json({ ok: false, error: 'Medio de pago no disponible' }, 400);
+      const cfg = await cfgDeReq();
+      const oferta = ofertaDe(preciosDe(env), periodo, prov, cfg.moneda);
+      if (!oferta) return json({ ok: false, error: 'No hay precio para ese período' }, 400);
+      const r = await crearCheckout(env, prov, { tenant: T, email: quien.fila && quien.fila.email || '', periodo, oferta, base: env.APP_URL || url.origin });
+      return json(r, r.ok ? 200 : 502);
+    }
+
     // Suscripciones push de la cuenta (service worker y página /avisos, mismo origen que la sesión).
     if (req.method === 'POST' && (url.pathname === '/api/push/suscribir' || url.pathname === '/api/push/desuscribir' || url.pathname === '/api/push/aviso')) {
       const origin = req.headers.get('Origin');
@@ -671,6 +728,21 @@ export default {
       } catch (e) {
         return new Response('Error: ' + String(e && e.message || e), { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
       }
+    }
+
+    // Plan de la cuenta y cómo pagarlo. Sin PLAN_PRECIOS o sin proveedores configurados: "Próximamente".
+    if (url.pathname === '/plan') {
+      const cfg = await cfgDeReq();
+      const pago = url.searchParams.get('pago');
+      return new Response(paginaPlan({
+        propia: T === ILAN, plan: cfg.plan, hasta: cfg.planHasta, ofertas: ofertas(env, cfg.moneda),
+        contacto: env.CONTACT_EMAIL || '', manualInfo: env.PLAN_MANUAL_INFO || '', aviso: pago === 'ok' || pago === 'cancelado' ? pago : ''
+      }), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_PLAN
+        }
+      });
     }
 
     if (url.pathname === '/avisos') {

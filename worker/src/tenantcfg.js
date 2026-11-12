@@ -13,6 +13,7 @@
 // cargarCfg = una consulta a tenants. Si ya se tiene la fila (resolverTenant la trae en el JOIN de la sesión),
 // cfgDeFila la arma sin consultar nada.
 import FORM_CFG from './form-config.json';
+import { planEfectivo } from './planes.js';
 
 export const ILAN = 'ilan';
 const TZ_ILAN = 'America/Montevideo';
@@ -110,7 +111,8 @@ export function cfgDeFila(T, fila) {
     tz: fila && tzValida(fila.tz) ? fila.tz : base.tz,
     medios: base.medios, categorias: base.categorias, catRules: base.catRules, catsSociales: base.catsSociales,
     modulos: base.modulos,
-    onboarding_listo: esIlan && !fila ? true : !!(fila && fila.onboarding_listo)
+    onboarding_listo: esIlan && !fila ? true : !!(fila && fila.onboarding_listo),
+    plan: planEfectivo(fila), planHasta: fila && fila.plan_hasta || null // no sale en cfgPublica
   };
   if (guardada && typeof guardada === 'object') {
     if (listaDeStrings(guardada.medios)) cfg.medios = guardada.medios;
@@ -125,7 +127,7 @@ export function cfgDeFila(T, fila) {
   return cfg;
 }
 
-export const SELECT_CFG = 'pais, moneda, tz, config, onboarding_listo';
+export const SELECT_CFG = 'pais, moneda, tz, config, onboarding_listo, plan, plan_hasta';
 
 export async function cargarCfg(env, T) {
   const fila = await env.DB.prepare(`SELECT ${SELECT_CFG} FROM tenants WHERE id = ?`).bind(T).first();

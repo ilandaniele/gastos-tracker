@@ -58,6 +58,8 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   los valores por defecto son los de Google. Nunca en `wrangler.toml` ni en producción.
 - `RESEND_API_KEY`, `MAIL_FROM` (secretos/vars): sin `RESEND_API_KEY` no sale ningún mail de login.
 - `APP_URL` (opcional): base de los links del mail; si falta se usa el origen del request.
+- Planes y pagos: `PLAN_PRECIOS`, `PLAN_MANUAL_INFO`, `CONTACT_EMAIL`, `GEMINI_LIMITE_DIA_PRO` (variables) y los secretos
+  `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`. Detalle en "Planes y pagos" más abajo.
 - `DEV_MOSTRAR_LINK=1`: **solo para desarrollo local** (`wrangler dev --var DEV_MOSTRAR_LINK:1`); devuelve el link en la
   respuesta. Nunca ponerla en `wrangler.toml` ni como secreto en producción.
 
@@ -74,7 +76,7 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
 - **Límites y abuso**: alta abierta a cualquier mail; sin cuota de filas ni de requests por tenant; sin renovación
   deslizante de sesión; sin borrado de cuenta/exportación (se pide por mail, ver /privacidad); las IP se guardan ~2 h.
   Hecho: cuota diaria de Gemini por cuenta (`usarGemini` en `rpc/util.js`, fila `gemini_uso` en `settings`; 60 por día,
-  600 para `ilan`, se cambia con la variable `GEMINI_LIMITE_DIA`; una foto pesa 4 y un texto 1).
+  600 para `ilan`, 300 para cuentas con plan pro, se cambia con `GEMINI_LIMITE_DIA` y `GEMINI_LIMITE_DIA_PRO`; una foto pesa 4 y un texto 1).
 - **Legal**: `/privacidad` y `/terminos` reescritas para clientes de cualquier país (retención, transferencias, menores,
   responsabilidad, ley uruguaya sin perjuicio del consumidor local). No las revisó un abogado: antes de cobrar, que las vea uno.
 - **Plan pago de Workers/D1**: el plan gratis de D1 corta a las 100k filas escritas por día y 5M leídas; con clientes hay
@@ -92,6 +94,32 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   ECDSA P-256 y la guarda quien la generó: si se pierde, se genera un par nuevo y se cambian las dos).
   Límites: iOS solo avisa a la app agregada a inicio; el reporte mensual por mail sigue siendo de `ilan` (falta dominio).
   Tests: `test/push.test.mjs` (16, contra `wrangler dev`) y `test/vapid.test.mjs` (firma ES256).
+- **Planes y pagos** (armado, apagado por defecto): `src/planes.js`, `src/pagos.js`, migración 0009 (`tenants.plan`,
+  `tenants.plan_hasta`, tabla `pagos`). Modelo: períodos prepagos de 1 mes o 12 meses que se suman a `plan_hasta`; no hay
+  cobro recurrente ni cancelación. Vencido `plan_hasta`, la cuenta vuelve sola a `gratis` (`planEfectivo`). El plan pro sube
+  el límite de Gemini de 60 a 300. `ilan` no paga. Medios: Stripe (tarjeta, Checkout), Mercado Pago (solo ARS, BRL, CLP, COP,
+  MXN, PEN, UYU) y manual (transferencia, la activa el dueño). PayPal no está hecho.
+  Rutas: `GET /plan` (sesión; link "💳 Plan" en el home), `POST /api/pagos/checkout` (sesión; el precio sale del servidor),
+  `POST /api/pagos/webhook/stripe` y `/mercadopago` (públicas, firma HMAC verificada antes de tocar D1; 404 si el proveedor
+  no está configurado) y `POST /api/plan/activar` (X-Sync-Key). El plan lo activa SOLO el webhook o `/api/plan/activar`, nunca
+  el redirect de vuelta. Idempotencia: `pagos.id_externo` es UNIQUE y el registro del pago y la extensión del plan van en un
+  mismo batch de D1; un reintento del proveedor no suma otro período.
+  Sin `PLAN_PRECIOS` ni proveedores, `/plan` muestra "Próximamente" y no cobra nada.
+  **Para activarlo** (lo hace Ilan, con cuentas propias en cada proveedor):
+  - `PLAN_PRECIOS` (variable, JSON): `{"mes":{"USD":3,"UYU":120},"anio":{"USD":30,"UYU":1200}}`. Se usa la moneda de la cuenta
+    si tiene precio, si no USD.
+  - Stripe: secretos `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET`. En el dashboard de Stripe crear un webhook a
+    `https://gastos-app.ilandaniele.workers.dev/api/pagos/webhook/stripe` con los eventos `checkout.session.completed` y
+    `checkout.session.async_payment_succeeded`; el "signing secret" es `STRIPE_WEBHOOK_SECRET`.
+  - Mercado Pago: secretos `MP_ACCESS_TOKEN` y `MP_WEBHOOK_SECRET` (la clave secreta de Webhooks en "Tus integraciones").
+    Configurar la notificación a `.../api/pagos/webhook/mercadopago` para el evento "Pagos".
+  - Manual: variable `PLAN_MANUAL_INFO` (datos de la cuenta bancaria que se muestran en `/plan`) y `CONTACT_EMAIL`. Al recibir
+    la transferencia: `curl -X POST https://gastos-app.ilandaniele.workers.dev/api/plan/activar -H "X-Sync-Key: <APP_KEY>"
+    -H "Content-Type: application/json" -d '{"email":"cliente@mail.com","periodo":"mes","ref":"<comprobante único>"}'`.
+  - Solo local: `STRIPE_API_BASE` y `MP_API_BASE` (apuntan a un mock; las respeta únicamente con `DEV_MOSTRAR_LINK`).
+  Tests: `test/planes.test.mjs` (18, contra `wrangler dev` con las variables de su encabezado y un mock de Stripe y Mercado Pago).
+  **Antes de cobrar**: que un abogado revise `/terminos` y `/privacidad`, agregar el párrafo de precio y sacar "Por ahora el
+  servicio es gratuito"; la deuda de impuestos y facturación del cobro es de Ilan.
 - **Prefetch de links**: resuelto. `GET /auth/<token>` no consume el token; el canje es un `POST` desde el botón.
 - **Referrer-Policy**: las páginas y respuestas de login y `/auth/*` salen con `Referrer-Policy: same-origin`. Con `no-referrer`
   Chrome manda `Origin: null` en el POST same-origin de un `<form>` y el chequeo de Origin (que rechaza `null` y orígenes

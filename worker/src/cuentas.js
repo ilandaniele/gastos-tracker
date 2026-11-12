@@ -224,12 +224,13 @@ export const cookieSesion = (sid) => `sid=${sid}; Path=/; Max-Age=${SESION_SEG};
 export const cookieSesionBorrada = 'sid=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax';
 
 // Una consulta (sesión + tenant con JOIN). Sin cookie sid no toca D1.
-// -> { id, email, onboarding_listo, pais, moneda, tz, config } | null (las últimas 4 arman la cfg: src/tenantcfg.js)
+// -> { id, email, onboarding_listo, pais, moneda, tz, config, plan, plan_hasta } | null (arman la cfg: src/tenantcfg.js)
 export async function tenantDeSesion(env, req) {
   const sid = leerCookie(req, 'sid');
   if (!esHex64(sid)) return null;
   const r = await env.DB.prepare(
-    `SELECT t.id AS id, t.email AS email, t.onboarding_listo AS onboarding_listo, t.pais AS pais, t.moneda AS moneda, t.tz AS tz, t.config AS config
+    `SELECT t.id AS id, t.email AS email, t.onboarding_listo AS onboarding_listo, t.pais AS pais, t.moneda AS moneda, t.tz AS tz, t.config AS config,
+            t.plan AS plan, t.plan_hasta AS plan_hasta
      FROM sesiones s JOIN tenants t ON t.id = s.tenant_id
      WHERE s.sid_hash = ? AND s.expira > ?`).bind(await sha256(sid), ahoraSeg()).first();
   return r || null;

@@ -3,6 +3,8 @@
 // Config por tenant: llamar() (src/rpc.js) le pasa a cada handler un `env` con `env.cfg` (ver src/tenantcfg.js).
 // Los helpers de fecha aceptan ese env (o directamente una zona IANA); sin cfg (informes.js, pending.js, que
 // siguen siendo solo de 'ilan') usan America/Montevideo, igual que antes.
+import { LIMITE_GEMINI } from '../planes.js';
+
 export const TZ_DEFECTO = 'America/Montevideo';
 export const tzDe = (x) => (typeof x === 'string' && x ? x : (x && x.cfg && x.cfg.tz) || TZ_DEFECTO);
 // Moneda LOCAL del tenant (la otra siempre es USD). Sin cfg: 'UYU' (comportamiento original).
@@ -28,13 +30,19 @@ export function fxOverride(env, moneda) {
 
 // Cuota diaria de Gemini por cuenta (control de costo y abuso). Una fila en settings ('gemini_uso' = 'YYYY-MM-DD:n',
 // día en la zona de la cuenta) con upsert atómico: una escritura por llamada. Las fotos pesan más que el texto.
-// Límite por día: GEMINI_LIMITE_DIA (var/secret) si existe; si no 600 para 'ilan' y 60 (≈15 fotos) para el resto.
+// Límite por día: GEMINI_LIMITE_DIA (var/secret) si existe; si no 600 para 'ilan', y para el resto el del plan
+// (planes.js: gratis 60 ≈ 15 fotos, pro 300; GEMINI_LIMITE_DIA_PRO lo cambia).
 export const PESO_GEMINI_FOTO = 4;
 export async function usarGemini(env, peso) {
   const tenant = env && env.tenant;
   if (!tenant || !env.DB) return { ok: true }; // informes/pending (solo ilan) no pasan por acá
   const envLim = parseInt(env.GEMINI_LIMITE_DIA, 10);
-  const limite = Number.isFinite(envLim) && envLim > 0 ? envLim : (tenant === 'ilan' ? 600 : 60);
+  const pro = env.cfg && env.cfg.plan === 'pro';
+  const envPro = parseInt(env.GEMINI_LIMITE_DIA_PRO, 10);
+  const limite = Number.isFinite(envLim) && envLim > 0 ? envLim
+    : tenant === 'ilan' ? 600
+    : pro ? (Number.isFinite(envPro) && envPro > 0 ? envPro : LIMITE_GEMINI.pro)
+    : LIMITE_GEMINI.gratis;
   const dia = hoy(env);
   const fila = await env.DB.prepare(
     `INSERT INTO settings (tenant_id, clave, valor) VALUES (?1, 'gemini_uso', ?2 || ':' || ?3)
