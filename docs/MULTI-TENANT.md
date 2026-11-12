@@ -71,9 +71,24 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   accesos rápidos de ejemplo (son de Ilan) y sin los módulos Argentina y hábitos íntimos.
 - **Personal de Ilan que sigue en el código**: presets de Accesos rápidos (comercios y montos de Uruguay), meta de agua,
   cotización de respaldo de 40 y textos del módulo Argentina. La cotización de monedas distintas de UYU/USD es null si no hay caché.
-- **Límites y abuso**: alta abierta a cualquier mail; sin cuotas por tenant (filas, requests); sin renovación
-  deslizante de sesión; sin borrado de cuenta/exportación; las IP se guardan ~2 h (limpieza oportunista).
-- **Push y avisos por tenant**: el cron de la PWA y el push diario solo atienden a `ilan`; informes por mail también.
+- **Límites y abuso**: alta abierta a cualquier mail; sin cuota de filas ni de requests por tenant; sin renovación
+  deslizante de sesión; sin borrado de cuenta/exportación (se pide por mail, ver /privacidad); las IP se guardan ~2 h.
+  Hecho: cuota diaria de Gemini por cuenta (`usarGemini` en `rpc/util.js`, fila `gemini_uso` en `settings`; 60 por día,
+  600 para `ilan`, se cambia con la variable `GEMINI_LIMITE_DIA`; una foto pesa 4 y un texto 1).
+- **Legal**: `/privacidad` y `/terminos` reescritas para clientes de cualquier país (retención, transferencias, menores,
+  responsabilidad, ley uruguaya sin perjuicio del consumidor local). No las revisó un abogado: antes de cobrar, que las vea uno.
+- **Plan pago de Workers/D1**: el plan gratis de D1 corta a las 100k filas escritas por día y 5M leídas; con clientes hay
+  que pasar al plan Workers pago (lo contrata Ilan en el dashboard de Cloudflare).
+- **Push y avisos por tenant** (sin hacer): el cron de la PWA (`pwa/src/worker.js`) y el push solo atienden a `ilan`:
+  las suscripciones están en un KV sin dueño, se consulta `/api/habit-pending` y `/api/tasks-pending` con `X-Sync-Key`
+  (que entra como `ilan`), la hora es de Montevideo fija y el informe mensual sale solo para él. Diseño propuesto:
+  1. Mover las suscripciones a D1 (`push_subs`: tenant_id, endpoint, json) y servir manifest + service worker desde
+     `gastos-app` (mismo origen que la cookie de sesión), así `/api/subscribe` sabe de qué cuenta es.
+  2. El cron llama a `gastos-app` (`POST /api/cron/tick`); ahí se recorren solo las cuentas con suscripciones, se mira la
+     hora local con `cfg.tz` y se manda el push con VAPID (copiar `pwa/src/push.js`).
+  3. Para cuentas nuevas solo tareas y reporte mensual (hábitos es del módulo personal).
+  4. Costo en D1: una lectura por cuenta con suscripción cada 15 min; para no gastar, filtrar por hora local antes de leer.
+  Conviene hacerlo recién con clientes reales y con el dominio (el reporte mensual sale por mail).
 - **Prefetch de links**: resuelto. `GET /auth/<token>` no consume el token; el canje es un `POST` desde el botón.
 - **Referrer-Policy**: las páginas y respuestas de login y `/auth/*` salen con `Referrer-Policy: same-origin`. Con `no-referrer`
   Chrome manda `Origin: null` en el POST same-origin de un `<form>` y el chequeo de Origin (que rechaza `null` y orígenes
