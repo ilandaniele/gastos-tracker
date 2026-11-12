@@ -1128,6 +1128,58 @@
 <div id="addPanel" class="panel">
 <h1>Agregar Gasto</h1>
 
+<details class="hcard" id="quickDetails" open>
+  <summary id="quickSummary" class="hcard-title" style="margin-bottom:0"><span>⚡ Accesos rápidos</span></summary>
+  <div style="padding-top:12px">
+  <div class="quick-section">
+    <div class="quick-scroll" id="quickVar" role="group" aria-label="Gastos variables">
+      <button type="button" data-key="bus52">🚌52</button>
+      <button type="button" data-key="cafe">☕</button>
+      <button type="button" data-key="frog">🍺Frog</button>
+      <button type="button" data-key="disco">🛒Disco</button>
+      <button type="button" data-key="devoto">🛒Devoto</button>
+      <button type="button" data-key="tata">🛒Tata</button>
+      <button type="button" data-key="claude">🤖Claude</button>
+      <button type="button" data-key="uber">🚕Uber</button>
+      <button type="button" data-key="cabify">🚕Cabify</button>
+      <button type="button" data-key="taxi">🚖Taxi</button>
+      <button type="button" data-key="agua140">💧140</button>
+      <button type="button" data-key="futbol350">⚽350</button>
+      <button type="button" data-key="farma">💊Farma</button>
+      <button type="button" data-key="medic">💉Medic</button>
+      <button type="button" data-key="cine">🎬Cine</button>
+      <button type="button" data-key="regalo">🎁Regalo</button>
+      <button type="button" data-key="ropa">👕Ropa</button>
+      <button type="button" data-key="pelu">💇Pelu</button>
+      <button type="button" data-key="powerade">🥤Pwr</button>
+      <button type="button" data-key="empanadas">🥟Empa</button>
+      <button type="button" data-key="pizza">🍕Pizza</button>
+      <button type="button" data-key="fernet">🍸Fernet</button>
+      <button type="button" data-key="nafta">⛽Nafta</button>
+      <button type="button" data-key="otros">📦Otros</button>
+    </div>
+  </div>
+  <div class="quick-section" style="margin-bottom:0">
+    <div class="quick-scroll fijos" id="quickFijo" role="group" aria-label="Gastos fijos">
+      <button type="button" data-key="fijo_alquiler">🏠Alq</button>
+      <button type="button" data-key="fijo_gc">🏢GC</button>
+      <button type="button" data-key="fijo_trib">🧾Trib</button>
+      <button type="button" data-key="fijo_antel_int">📶Net</button>
+      <button type="button" data-key="fijo_antel_mov">📱Móvil</button>
+      <button type="button" data-key="fijo_luz">💡Luz</button>
+      <button type="button" data-key="fijo_itau">🏦Itau pq</button>
+      <button type="button" data-key="fijo_sandra">🧠Sandra</button>
+      <button type="button" data-key="fijo_viandas">🍱Vianda</button>
+      <button type="button" data-key="fijo_ble">📞Ble</button>
+      <button type="button" data-key="fijo_bluecross">⚕️Blue</button>
+      <button type="button" data-key="fijo_gimnasio">🏋️Gym</button>
+      <button type="button" data-key="fijo_itau_cred">💳Itaú cr</button>
+      <button type="button" data-key="fijo_oca">💳Oca</button>
+    </div>
+  </div>
+  </div>
+</details>
+
 <div class="hcard">
   <div class="hcard-title">➕ Agregar gasto</div>
   <form id="f">
@@ -1181,58 +1233,6 @@
     </div>
   </div>
 </div>
-
-<details class="hcard" id="quickDetails" open>
-  <summary id="quickSummary" class="hcard-title" style="margin-bottom:0"><span>⚡ Accesos rápidos</span></summary>
-  <div style="padding-top:12px">
-  <div class="quick-section">
-    <div class="quick-scroll" id="quickVar" role="group" aria-label="Gastos variables">
-      <button type="button" data-key="bus52">🚌52</button>
-      <button type="button" data-key="cafe">☕</button>
-      <button type="button" data-key="frog">🍺Frog</button>
-      <button type="button" data-key="disco">🛒Disco</button>
-      <button type="button" data-key="devoto">🛒Devoto</button>
-      <button type="button" data-key="tata">🛒Tata</button>
-      <button type="button" data-key="claude">🤖Claude</button>
-      <button type="button" data-key="uber">🚕Uber</button>
-      <button type="button" data-key="cabify">🚕Cabify</button>
-      <button type="button" data-key="taxi">🚖Taxi</button>
-      <button type="button" data-key="agua140">💧140</button>
-      <button type="button" data-key="futbol350">⚽350</button>
-      <button type="button" data-key="farma">💊Farma</button>
-      <button type="button" data-key="medic">💉Medic</button>
-      <button type="button" data-key="cine">🎬Cine</button>
-      <button type="button" data-key="regalo">🎁Regalo</button>
-      <button type="button" data-key="ropa">👕Ropa</button>
-      <button type="button" data-key="pelu">💇Pelu</button>
-      <button type="button" data-key="powerade">🥤Pwr</button>
-      <button type="button" data-key="empanadas">🥟Empa</button>
-      <button type="button" data-key="pizza">🍕Pizza</button>
-      <button type="button" data-key="fernet">🍸Fernet</button>
-      <button type="button" data-key="nafta">⛽Nafta</button>
-      <button type="button" data-key="otros">📦Otros</button>
-    </div>
-  </div>
-  <div class="quick-section" style="margin-bottom:0">
-    <div class="quick-scroll fijos" id="quickFijo" role="group" aria-label="Gastos fijos">
-      <button type="button" data-key="fijo_alquiler">🏠Alq</button>
-      <button type="button" data-key="fijo_gc">🏢GC</button>
-      <button type="button" data-key="fijo_trib">🧾Trib</button>
-      <button type="button" data-key="fijo_antel_int">📶Net</button>
-      <button type="button" data-key="fijo_antel_mov">📱Móvil</button>
-      <button type="button" data-key="fijo_luz">💡Luz</button>
-      <button type="button" data-key="fijo_itau">🏦Itau pq</button>
-      <button type="button" data-key="fijo_sandra">🧠Sandra</button>
-      <button type="button" data-key="fijo_viandas">🍱Vianda</button>
-      <button type="button" data-key="fijo_ble">📞Ble</button>
-      <button type="button" data-key="fijo_bluecross">⚕️Blue</button>
-      <button type="button" data-key="fijo_gimnasio">🏋️Gym</button>
-      <button type="button" data-key="fijo_itau_cred">💳Itaú cr</button>
-      <button type="button" data-key="fijo_oca">💳Oca</button>
-    </div>
-  </div>
-  </div>
-</details>
 
 <div class="hcard">
   <details id="ingresoSection">
