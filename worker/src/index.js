@@ -5,7 +5,7 @@ import { buildDelta } from './sync.js';
 import { renderForm, CSP_FORM } from './form.js';
 import { llamar, fuentes, setFuente, MODULOS, RPC_NOMBRES } from './rpc.js';
 import { habitPending, tasksPending } from './pending.js';
-import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaConfirmar, esHex64, CSP_LOGIN, googleConfigurado, googleInicio, googleCallback, cookieGstateBorrada } from './cuentas.js';
+import { pedirLink, canjearLink, tenantDeSesion, cerrarSesion, cookieSesion, cookieSesionBorrada, paginaLogin, paginaLegal, paginaConfirmar, esHex64, CSP_LOGIN, googleConfigurado, googleInicio, googleCallback, cookieGstateBorrada } from './cuentas.js';
 import { reporteMensualHtml, tareasHoyHtml, enviarInforme, mesPorDefecto, mesValido } from './informes.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
@@ -320,6 +320,16 @@ async function rutaPublica(req, env, url) {
   const login = (aviso, mail, status) => htmlLogin(aviso, mail, status, G);
   const base = env.APP_URL || url.origin;
   const origenMalo = () => { const o = req.headers.get('Origin'); return !!o && o !== url.origin; };
+
+  if (path === '/privacidad' || path === '/terminos') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return json({ ok: false, error: 'Método no permitido' }, 405);
+    return new Response(paginaLegal(path.slice(1), env.CONTACT_EMAIL), {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_LOGIN
+      }
+    });
+  }
 
   if (path === '/login') {
     if (req.method === 'GET' || req.method === 'HEAD') {

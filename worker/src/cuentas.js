@@ -278,12 +278,57 @@ ${google ? BOTON_GOOGLE : ''}<form method="post" action="/login">
 <p class="pie">Si es tu primera vez, te creamos la cuenta al entrar.</p>`);
 }
 
-function paginaBase(titulo, cuerpo) {
+// --- páginas legales (públicas, indexables: Google las revisa para la pantalla de consentimiento) ---
+const LEGAL = {
+  privacidad: { titulo: 'Política de privacidad · Gastos', cuerpo: (c) => `<h1>Política de privacidad</h1>
+<p class="sub">Última actualización: noviembre de 2026.</p>
+<h2>Qué es Gastos</h2>
+<p>Gastos es una app para registrar y ver tus gastos, ingresos, ahorros, compras y tareas personales.</p>
+<h2>Qué datos guardamos</h2>
+<ul>
+<li>Tu mail, para identificar tu cuenta y mandarte el link de acceso.</li>
+<li>Lo que cargás en la app: gastos, ingresos, ahorros, compras, tareas y hábitos.</li>
+<li>Si usás “Continuar con Google”, solo recibimos tu mail verificado. No accedemos a tus archivos, contactos ni a ningún otro dato de tu cuenta de Google.</li>
+<li>Una cookie de sesión, necesaria para mantenerte adentro. No usamos cookies de publicidad ni de seguimiento.</li>
+</ul>
+<h2>Para qué los usamos</h2>
+<p>Solo para que la app funcione: mostrarte tus datos, mandarte el link de acceso y, si lo activás, avisos y reportes por mail. No vendemos ni compartimos tus datos con terceros con fines comerciales.</p>
+<h2>Con quién se procesan</h2>
+<ul>
+<li>Cloudflare: aloja la app y la base de datos.</li>
+<li>Resend: envía los mails de acceso y los reportes.</li>
+<li>Google: si usás el escaneo de tickets, la foto se envía a Google para leerla; no se guarda la imagen en nuestra base.</li>
+</ul>
+<h2>Tus derechos</h2>
+<p>Podés pedir acceso, corrección o borrado de tus datos en cualquier momento (Ley 18.331 de Uruguay de protección de datos personales). ${c ? 'Escribinos a <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : 'Escribinos respondiendo desde el mail de tu cuenta.'}</p>
+<h2>Cambios</h2>
+<p>Si cambia algo importante, actualizamos esta página.</p>` },
+  terminos: { titulo: 'Términos del servicio · Gastos', cuerpo: (c) => `<h1>Términos del servicio</h1>
+<p class="sub">Última actualización: noviembre de 2026.</p>
+<h2>El servicio</h2>
+<p>Gastos es una herramienta personal para llevar tus finanzas. Se ofrece tal cual está, sin garantía de disponibilidad continua. No es asesoramiento financiero.</p>
+<h2>Tu cuenta</h2>
+<p>Entrás con tu mail o con Google. Sos responsable de lo que pase con tu sesión y de la veracidad de lo que cargás.</p>
+<h2>Uso aceptable</h2>
+<p>No uses el servicio para abusar de él, sobrecargarlo ni acceder a datos de otras personas.</p>
+<h2>Tus datos</h2>
+<p>Los datos que cargás son tuyos. Podés pedir que los borremos. Ver la <a href="/privacidad">política de privacidad</a>.</p>
+<h2>Cambios y baja</h2>
+<p>Podemos modificar o discontinuar el servicio, avisando con anticipación razonable cuando sea posible. ${c ? 'Contacto: <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : ''}</p>` }
+};
+
+// Devuelve la página legal ('privacidad' | 'terminos') o null.
+export function paginaLegal(clave, contacto) {
+  const p = Object.prototype.hasOwnProperty.call(LEGAL, clave) ? LEGAL[clave] : null;
+  return p ? paginaBase(p.titulo, p.cuerpo(contacto), true) : null;
+}
+
+function paginaBase(titulo, cuerpo, indexable) {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="robots" content="noindex">
+${indexable ? '' : '<meta name="robots" content="noindex">'}
 <title>${titulo}</title>
 <style>
 :root{--bg:#f4f4f2;--card:#fff;--ink:#1c1c1a;--mut:#6b6b66;--line:#d9d9d3;--acc:#1f6f54;--acc-ink:#fff;--okbg:#e4f3ec;--errbg:#fbe9e7;--errink:#a3281b;--gbg:#fff}
@@ -308,6 +353,12 @@ a.g:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 p.o{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--mut);font-size:13px}
 p.o:before,p.o:after{content:"";flex:1;height:1px;background:var(--line)}
 .pie{margin:18px 0 0;font-size:13px;color:var(--mut)}
+h2{font-size:17px;margin:22px 0 6px}
+main p,main li{font-size:15px}
+main ul{padding-left:20px;margin:6px 0}
+main a:not(.g){color:var(--acc)}
+body:has(h2){align-items:flex-start}
+body:has(h2) main{max-width:640px}
 </style></head>
 <body><main>
 ${cuerpo}
