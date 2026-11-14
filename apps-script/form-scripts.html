@@ -122,9 +122,15 @@
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
+  // El campo es #fDate. Si la persona eligió a mano otra fecha, no se le pisa al cambiar de panel o volver a la pestaña.
+  var _fechaTocada = false;
+  (function () {
+    var f = document.getElementById('fDate');
+    if (f) f.addEventListener('change', function () { _fechaTocada = f.value !== _todayStr(); });
+  })();
   function refreshDateToToday() {
-    var f = document.getElementById('date');
-    if (f) f.value = _todayStr();
+    var f = document.getElementById('fDate');
+    if (f && !_fechaTocada) f.value = _todayStr();
   }
   // Init: corregir el valor server-rendered con el "hoy" del cliente
   refreshDateToToday();

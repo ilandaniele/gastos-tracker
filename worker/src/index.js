@@ -216,7 +216,7 @@ async function api(req, env, url, T, cfg) {
       env.DB.prepare(`SELECT cat FROM (SELECT cat1 AS cat FROM expenses WHERE tenant_id = ? UNION SELECT cat2 FROM expenses WHERE tenant_id = ?) WHERE cat IS NOT NULL ORDER BY cat`).bind(T, T),
       env.DB.prepare(`SELECT DISTINCT medio_pago AS m FROM expenses WHERE tenant_id = ? AND medio_pago <> '' ORDER BY m`).bind(T)
     ]);
-    return json({ ok: true, categories: cats.results.map((x) => x.cat), medios: medios.results.map((x) => x.m) });
+    return json({ ok: true, categories: cats.results.map((x) => x.cat), medios: medios.results.map((x) => x.m), monedas: L === 'USD' ? ['USD'] : [L, 'USD'] });
   }
 
   if (path === '/api/incomes') {

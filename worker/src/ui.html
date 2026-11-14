@@ -57,7 +57,7 @@ tr:last-child td{border-bottom:0}
 'use strict';
 var $ = function (s, r) { return (r || document).querySelector(s); };
 var state = { vista: 'gastos', mes: '', cat: '', q: '', moneda: '', tipo: '', medio: '', orden: 'fecha', dir: 'desc', offset: 0, limit: 100, desde: '', hasta: '' };
-var facets = { categories: [], medios: [] }, months = [], ajustes = { pais_codigo: 'AR', pais_nombre: 'Argentina', pais_moneda: 'ARS', pais_bandera: '🇦🇷' };
+var facets = { categories: [], medios: [], monedas: [] }, months = [], ajustes = { pais_codigo: 'AR', pais_nombre: 'Argentina', pais_moneda: 'ARS', pais_bandera: '🇦🇷' };
 
 function el(tag, attrs, kids) {
   var e = document.createElement(tag);
@@ -115,7 +115,7 @@ function vistaGastos() {
     selectFiltro('mes', months.map(function (m) { return { v: m.mes, t: mesNombre(m.mes) }; }), 'Todos los meses'),
     selectFiltro('cat', facets.categories, 'Todas las categorías'),
     selectFiltro('tipo', [{ v: 'fijo', t: 'Fijos' }, { v: 'variable', t: 'Variables' }, { v: 'credito', t: 'Con tarjeta de crédito' }, { v: 'ahorro', t: 'Ahorro/inversión' }], 'Todos los tipos'),
-    selectFiltro('moneda', ['UYU', 'USD'], 'Todas las monedas'),
+    selectFiltro('moneda', facets.monedas || ['USD'], 'Todas las monedas'),
     selectFiltro('medio', facets.medios, 'Todo medio de pago'),
     el('input', { type: 'date', title: 'Desde', value: state.desde, onchange: function () { state.desde = this.value; state.offset = 0; cargarGastos(); } }),
     el('input', { type: 'date', title: 'Hasta', value: state.hasta, onchange: function () { state.hasta = this.value; state.offset = 0; cargarGastos(); } }),
