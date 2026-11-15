@@ -14,3 +14,6 @@ secrets.json
 
 # clasp local config — scriptId apunta al script personal
 apps-script/.clasp.json
+
+# Caché de wrangler (trae el mail y el id de la cuenta de Cloudflare)
+.wrangler/
