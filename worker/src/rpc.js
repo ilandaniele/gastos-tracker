@@ -52,6 +52,21 @@ for (const m of MODULES) {
 
 export const RPC_NOMBRES = Object.keys(HANDLERS);
 
+// Tope de gastos por cuenta (no aplica a 'ilan'): protege la cuota de D1 de una cuenta que cargue sin parar. Contar filas
+// cuesta una lectura por fila, así que solo se cuenta en 1 de cada 20 altas: el tope es blando (puede pasarse por unas
+// decenas de filas) y el costo medio por alta queda en filas/20. Se cambia con la variable GASTOS_MAX_CUENTA.
+export const GASTOS_MAX_CUENTA = 50000;
+const MUESTREO_TOPE = 20;
+async function topeDeGastos(env, tenant, nombre, h) {
+  if (tenant === 'ilan' || h.modulo !== 'gastos' || !/^add/.test(nombre)) return null;
+  const max = parseInt(env.GASTOS_MAX_CUENTA, 10) || GASTOS_MAX_CUENTA;
+  const muestreo = env.GASTOS_TOPE_SIEMPRE === '1' ? 1 : MUESTREO_TOPE; // el 1 es solo para los tests
+  if (muestreo > 1 && Math.floor(Math.random() * muestreo) !== 0) return null;
+  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM expenses WHERE tenant_id = ?').bind(tenant).first();
+  if (r && r.n >= max) return falla(`La cuenta llegó al máximo de ${max} gastos. Borrá gastos viejos o escribinos para ampliar el límite.`);
+  return null;
+}
+
 // cfg = config del tenant (src/tenantcfg.js). index.js la pasa ya cargada (sale de la misma fila que resolvió
 // el tenant); si no viene se lee acá, una vez por llamada. Los handlers la reciben como env.cfg.
 export async function llamar(env, tenant, nombre, args, cfg) {
@@ -62,6 +77,8 @@ export async function llamar(env, tenant, nombre, args, cfg) {
     if (h.escribe) {
       const f = await fuentes(env, tenant);
       if (f[h.modulo] !== 'd1') return falla(`El módulo ${h.modulo} todavía lo maneja el Sheet: pasalo a D1 antes de escribir`);
+      const tope = await topeDeGastos(env, tenant, nombre, h);
+      if (tope) return tope;
     }
     return await h.run(env, tenant, Array.isArray(args) ? args : []);
   } catch (e) {

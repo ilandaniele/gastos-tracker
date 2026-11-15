@@ -1118,6 +1118,326 @@
     #loadingOverlay .spinner, .tar-loading .tar-spin { animation-duration: 0.9s !important; }
     .hmodal-box { transform: none; }
   }
+
+  /* ===== Modo oscuro (generado por worker/scripts/dark-css.mjs; no editar a mano) ===== */
+  :root { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+body { background: #1e1e1e; color: #e0e0e0; }
+label { color: #ababab; }
+input, select { border: 1px solid #3b3b3b; background: rgb(26,26,26); }
+.quick-label { color: #959cab; }
+.quick-scroll::-webkit-scrollbar-thumb { background: #383838; }
+.quick-scroll button { background: #232323; color: #e0e0e0; border: none; }
+.quick-scroll button:active { background: #313131; }
+.catchips button { border: 1px solid #414141; background: #1a1a1a; color: #e0e0e0; }
+.catchips button.on { background: #e6e6e6; color: #111111; border-color: #999999; }
+.catdd .catdd-btn { background: #1a1a1a; color: #e0e0e0; border: 1px solid #3b3b3b; }
+.catdd .catdd-btn:active { background: #232323; }
+.catdd .catdd-btn.vacio .catdd-txt { color: #959cab; }
+.catdd-panel { border: 1px solid #0f766e; border-top: 0; background: #1a1a1a; }
+.catdd .catdd-op { color: #e0e0e0; }
+.catdd .catdd-op:active { background: #1e2228; }
+.catdd .catdd-op:has(input:checked) { background: #132f29; }
+.catdd-aviso { color: #e27c74; }
+.paga-luego .paga-luego-op { color: #e0e0e0; }
+.paga-luego .paga-luego-op:has(input:disabled) { color: #aab3c1; }
+.paga-luego-ayuda { color: #aab3c1; }
+.quick-scroll.fijos button { background: #4e4318; color: #eaaf8a; }
+.quick-scroll.fijos button:active { background: #796825; }
+[data-st].ok { background: #133324; border: 1px solid #10b981; color: #96e6b4; }
+[data-st].draft { background: #352e10; border: 1px solid #a08631; color: #eaaf8a; }
+[data-st].err { background: #2f1111; border: 1px solid #dc2626; color: #de7171; }
+[data-st].loading { background: #0f2432; border: 1px solid #0ea5e9; color: #86c8ec; }
+#loadingOverlay { background: rgba(26,26,26,0.92); }
+#loadingOverlay .spinner { border: 6px solid #3b3b3b; border-top-color: #0f766e; }
+#loadingOverlay .spinner-text { color: #9debe5; }
+.tabs-wrap { background: #1e1e1e; }
+.back-btn { background: #232323; color: #9debe5; border: none; }
+.back-btn:active { background: #313131; }
+.tabs { border-bottom: 1px solid #3b3b3b; }
+.tab { border: none; background: transparent; color: #ababab; border-bottom: 2px solid transparent; }
+.tab.active { color: #9debe5; border-bottom-color: #0f766e; }
+.tabs-fade { background: linear-gradient(to right, rgba(30,30,30,0), #1e1e1e 60%); color: #9debe5; }
+.dash-loader { color: #ababab; }
+.dash-section h2 { color: #ababab; }
+.dash-kpi { background: rgb(26,26,26); border: 1px solid #3b3b3b; }
+.dash-kpi.big { background: #133324; border-color: #2c6b4e; }
+.dash-kpi-label { color: #ababab; }
+.dash-kpi.big .dash-kpi-val { color: #9debe5; }
+.dash-kpi-sub { color: #959cab; }
+.dash-list { background: rgb(26,26,26); border: 1px solid #3b3b3b; }
+.dash-list-row { border-bottom: 1px solid #333333; }
+.dash-list-row .name { color: #e0e0e0; }
+.dash-list-row .val { color: #9debe5; }
+.dash-list-row .sub { color: #959cab; }
+.scan-group label { color: #ababab; }
+.dash-list-row.grupo:active { background: #171e25; }
+.dash-list-row.grupo .chev { color: #959cab; }
+.grupo-items { background: #1e1e1e; border-bottom: 1px solid #333333; }
+.dash-list-row.editable:active { background: #171e25; }
+.dash-bar { background: #272727; }
+.dash-chart-val { color: #ababab; }
+.dash-chart-bar { background: #466f6b; }
+.dash-chart-lbl { color: #ababab; }
+.dash-refresh { background: #232323; color: #e0e0e0; }
+.dash-refresh:active { background: #313131; }
+.scan-btn.cancel { background: #232323; color: #e0e0e0; }
+#scanPreview { background: rgb(26,26,26); border: 1px solid #3b3b3b; }
+#scanPreview h3 { color: #ababab; }
+.scan-row .del-btn { background: #4c1717; color: #e08686; border: none; }
+.scan-total { border-top: 1px solid #333333; }
+.scan-total .v { color: #9debe5; }
+.hdate { color: #959cab; }
+.hcard { background: rgb(26,26,26); border: 1px solid #3b3b3b; }
+.hcard-title { color: #ababab; }
+.hmini { background: #232323; color: #e0e0e0; }
+.hbig { background: #132f29; color: #9debe5; border: 1px solid #2c6b4e; }
+.hbig:active { background: #1b4a40; }
+.hsleep { color: #9debe5; }
+.quick-scroll.meals button { background: #133324; color: #acf2de; }
+.quick-scroll.meals button:active { background: #1b4630; }
+.hmeal-row { border-bottom: 1px solid #333333; }
+.hmeal-row .mt { color: #959cab; }
+.hmeal-row .mm { color: #9debe5; background: #132f29; }
+.hlabel { color: #ababab; }
+.hcounter button { background: #232323; color: #e0e0e0; }
+.hcounter button:active { background: #313131; }
+.hcounter-val span { color: #9debe5; }
+.hcounter-val small { color: #959cab; }
+.hkpi { background: #1e1e1e; border: 1px solid #353535; }
+.hkpi-l { color: #ababab; }
+.hkpi-v { color: #9debe5; }
+.hcorr { background: #373312; border: 1px solid #7e6d27; color: #e9c2a0; }
+#ejerTipo { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%231e40af' stroke-width='2'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E"); background-color: #0f1e33; color: #7890dd; }
+.hwater i { background: #2b2d32; }
+.htime-lbl { color: #e0e0e0; }
+.hnow { background: #132f29; color: #9debe5; border: 1px solid #2c6b4e; }
+.hnow:active { background: #1b4a40; }
+.quick-scroll.agua button { background: #0f2432; color: #86c8ec; }
+.quick-scroll.agua button:active { background: #132c3c; }
+.hdatebar button { background: #232323; color: #e0e0e0; }
+.hdatebar button:active { background: #313131; }
+.hdatetoday { background: #132f29 !important; color: #9debe5 !important; border: 1px solid #2c6b4e; }
+.hdirty { background: #352e10; border: 1px solid #a08631; color: #eaaf8a; }
+.hwork-field input { color: #9debe5; }
+.hwork-field span { color: #919cac; }
+.hfield-hint { color: #959cab; }
+.hrating button { background: #1b232a; color: #919cac; border: 1px solid #2e3742; }
+.hrating button.activo { background: #133324; color: #9debe5; border-color: #34d399; }
+.hrating-clear { background: transparent; color: #959cab; }
+.hrating-clear:active { background: #1b232a; color: #919cac; }
+.hhint { color: #959cab; }
+.dash-moneda button { border: 1px solid #41454a; background: #1a1a1a; color: #b7b7b7; }
+.hnum-row input { color: #9debe5; }
+.hnumbtn { background: #232323; color: #e0e0e0; }
+.hnumbtn:active { background: #313131; }
+.hunit { color: #959cab; }
+.hdanger { background: #2f1111 !important; color: #de7171 !important; border: 1px solid #5b1c1c !important; }
+.hdanger:active { background: #3b1313 !important; }
+.hsecondary { background: #232323 !important; color: #e0e0e0 !important; }
+#mealModal, #waterModal, #ejerModal, #ahoModal, #argModal, #tarModal, #tarAddModal, #subcatModal, #catModal, #expModal, #colMenuModal { background: rgba(230,230,230,0.45); }
+.hmodal-box { background: rgb(26,26,26); }
+.hmodal-x { background: #232323; color: #ababab; }
+.hmodal-x:active { background: #313131; }
+.tar-add-trigger { background: #132f29; color: #9debe5; border: 2px dashed #3c9587; }
+.tar-add-trigger:active { background: #1b4a40; border-color: #2dd4bf; }
+.hmeal-row:active { background: #1e1e1e; }
+#aguaList .hmeal-row .mm { background: #0f2432; color: #86c8ec; }
+#aguaList .hmeal-row.pending { background: #352e10; }
+#aguaList .hmeal-row.pending .mm { background: #4e4318; color: #eaaf8a; }
+#ejerList .hmeal-row .mm { background: #0f1e33; color: #7890dd; }
+#ejerList .hmeal-row.pending { background: #352e10; }
+#ejerList .hmeal-row.pending .mm { background: #4e4318; color: #eaaf8a; }
+.ahorow .gan.sube { color: #9eefd8; }
+.ahorow .gan.baja { color: #de7171; }
+.ahorow .gan.nada { color: #999ea7; }
+#ahoSaldoCard .ahobreak span { color: #999ea7; }
+.ahotipo { background: #232323; color: #e0e0e0; }
+.ahorow { border-bottom: 1px solid #333333; }
+.aholg { background: #1e1e1e; border: 1px solid #333333; }
+.aholg.badge { color: #9eefd8; background: #133324; border-color: #21553a; }
+.ahonom span { color: #959cab; }
+.ahoval span { color: #959cab; }
+#mealScanBox { background: #171e25; border: 1px solid #3b4550; }
+.hscan-head { color: #919cac; }
+.hscan-conf.alta { background: #173e24; color: #96e6b4; }
+.hscan-conf.media { background: #4e4318; color: #eaaf8a; }
+.hscan-conf.baja { background: #3b1313; color: #de7171; }
+.hmeal-row .mk { color: #959cab; }
+.hdaystatus.con { background: #133324; color: #96e6b4; border: 1px solid #2c6b4e; }
+.hdaystatus.sin { background: #171e25; color: #959cab; border: 1px solid #2e3742; }
+.hsub { color: #959cab; }
+.argsaldo { background: #0f2432; border-color: #204c64; }
+.argrow { color: #a8b2c1; }
+.argrow b { color: #d1d9eb; }
+.argrow.deuda b { color: #de7171; }
+.argrow.queda b { color: #9debe5; }
+.argsep { border: none; border-top: 1px solid #204c64; }
+.argtipos button { background: #1b232a; color: #919cac; }
+.argcalc { color: #86c8ec; }
+.argmov { border-bottom: 1px solid #333333; }
+.argmov .at.carga { background: #173e24; color: #96e6b4; }
+.argmov .at.gasto { background: #4e4318; color: #eaaf8a; }
+.argmov .at.pago { background: #121c3d; color: #8580d1; }
+.argmov .at.transferencia { background: #164449; color: #8bd6eb; }
+.argmov .aq { color: #959cab; }
+.arghint { color: #919cac; background: #171e25; border-left: 3px solid #3b4550; }
+.task-row { border-bottom: 1px solid #333333; }
+.task-check { border: 2px solid #3b4550; background: rgb(26,26,26); color: white; }
+.task-badge.cita { background: #0f1733; color: #f2f2ee; }
+.task-badge.vencida { background: #2f1111; color: #de7171; }
+.task-badge.hoy { background: #132f29; color: #9debe5; }
+.task-badge.notas { background: #232323; color: #ababab; }
+.task-badge.cat { background: #1b232a; color: #a8b2c1; }
+.task-badge.subcat { background: #191236; color: #9c73db; }
+.task-badge.imp-alta { background: #2f1111; color: #de7171; }
+.task-badge.imp-baja { background: #132f1c; color: #96e6b4; }
+.task-empty { color: #878787; }
+.task-filter-hoy { background: #1b232a; color: #919cac; }
+.task-filter-hoy:active { background: #313131; }
+.task-col { background: #171e25; border: 1px solid #35383d; border-top: 4px solid #5c6573; }
+.task-col-head { color: #b6c0cf; }
+.task-col-head .n { background: #252c35; color: #a8b2c1; }
+.task-col-drag-grip { color: #959cab; }
+.task-col.completada .task-col-title { color: #959cab; }
+.task-col-resume { color: #e9a877; background: #4e4318; border: none; }
+.task-col-resume:active { background: #796825; }
+.task-col-menu-btn { background: #1b232a; color: #919cac; }
+.task-col-menu-btn:active { background: #252c35; }
+.task-card { background: rgb(26,26,26); border: 1px solid #35383d; border-left: 5px solid #5c6573; }
+.task-card.done .task-text { color: #a8b2c1; }
+.task-subgroup-head { color: #8b5bd5; }
+.task-subgroup-head .n { background: #191236; color: #f2f2ee; }
+.task-subgroup-del { background: #2f1111; color: #de7171; }
+.task-subgroup-del:active { background: #3b1313; }
+.task-subgroup-susp { background: #2f1111; color: #de7171; }
+.task-subgroup-susp:active { background: #3b1313; }
+.task-col-add { background: #1b4a40; color: #9debe5; }
+.task-col-add:active { background: #296e61; }
+.task-subgroup-add { background: #1b4a40; color: #9debe5; }
+.task-subgroup-add:active { background: #296e61; }
+.tar-loading { color: #9debe5; }
+.tar-loading .tar-spin { border: 4px solid #3b3b3b; border-top-color: #0f766e; }
+.tar-loading.err { color: #de7171; }
+.task-subgroup.sin .task-subgroup-head { color: #959cab; }
+.task-subgroup.sin .task-subgroup-head .n { background: #1b232a; color: #959cab; }
+.hsubcat-gear { background: #1b232a; color: #a8b2c1; }
+.hsubcat-gear:active { background: #252c35; }
+.hsubcat-item { background: #171e25; border: 1px solid #35383d; }
+.hsubcat-item .hsub-rn { color: #9debe5; }
+.hsubcat-item .hsub-del { color: #de7171; }
+.hsubcat-item .hsub-mv { color: #919cac; }
+.hsubcat-item .hsub-done { color: #9debe5; }
+.hsubcat-item .hsub-susp { background: #2f1111; color: #de7171; }
+.hsubcat-item .hsub-susp:active { background: #3b1313; }
+.hsubcat-item.susp span { color: #e9a877; }
+.hsubcat-empty { color: #959cab; }
+.task-subtasks { border-top: 1px dashed #35383d; }
+.task-subtasks-head { color: #eaaf8a; }
+.task-subtasks-head .n { background: #4e4318; color: #eaaf8a; }
+.task-badge.subtasks { background: #4e4318; color: #eaaf8a; }
+.hsubtask-check { border: 2px solid #a08631; background: rgb(26,26,26); color: white; }
+.hsubtask-rm { background: #2f1111; color: #de7171; }
+.hsubtask-rm:active { background: #3b1313; }
+.htoggle { background: #1b232a; color: #919cac; border: 1px solid #2e3742; }
+.htoggle.activo { background: #132f29; color: #9debe5; border-color: #0f766e; }
+.task-counter-txt { color: #a8b2c1; background: #1b232a; }
+.task-counter.cumplido .task-counter-txt { background: #173e24; color: #96e6b4; }
+.comp-row { border-bottom: 1px solid #333333; }
+.comp-check { border: 2px solid #3b4550; background: rgb(26,26,26); color: white; }
+.comp-del { background: #2f1111; color: #de7171; }
+.comp-del:active { background: #3b1313; }
+.home-sub { color: #959cab; }
+.home-tareas { background: linear-gradient(135deg, #4338ca, #2b337f); }
+.home-habit { background: linear-gradient(135deg, #7c3aed, #2a1d5b); }
+.home-arg { background: linear-gradient(135deg, #1d4ed8, #305e97); }
+.home-tareas:active { background: linear-gradient(135deg, #3730a3, #373995); }
+.home-habit:active { background: linear-gradient(135deg, #6d28d9, #3c2878); }
+.home-cuenta a, .home-cuenta button { border: 1px solid #3b3b3b; background: #1a1a1a; color: #aab3c1; }
+.home-cuenta a:active, .home-cuenta button:active { background: #1e2228; }
+.home-cuenta-st { color: #e27c74; }
+.home-sub, .quick-label, .dash-kpi-sub, .dash-list-row .sub, .task-empty { color: #959cab; }
+.hhint { color: #959cab; }
+.hcard { border-color: #35383c; }
+.hcard-title { color: #959cab; }
+.home-habit { background: linear-gradient(135deg, #6d28d9, #53349a); }
+.home-tareas { background: linear-gradient(135deg, #4338ca, #373995); }
+.mes-nav { background: #1e1e1e; }
+.mes-navbtn, .mes-title { background: #1a1a1a; color: #9debe5; border: 1px solid #393e42; }
+.mes-navbtn:active, .mes-title:active { background: #21332f; }
+.mes-navbtn:disabled:active { background: #1a1a1a; }
+.mes-refresh { color: #aab3c1; }
+.mes-title { color: #e0e0e0; }
+.mes-caret { color: #9debe5; }
+.mes-sheet-box { background: #1a1a1a; }
+.mes-sheet-x { background: #212428; color: #aab3c1; }
+.mes-sheet-x:active { background: #2c2f33; }
+.mes-sheet-year { color: #959cab; }
+.mes-opt { background: transparent; color: #e0e0e0; }
+.mes-opt:active { background: #212826; }
+.mes-opt.sel, .mes-opt.sel:active { background: #21332f; color: #9debe5; }
+.mes-opt-name small { color: #959cab; }
+.mes-opt-tot { color: #959cab; }
+.mes-days i.hoy { background: #1a1a1a; }
+.seg { background: #272c2e; }
+.seg button { background: transparent; color: #aab3c1; }
+.seg button:active { background: rgba(26,26,26,0.6); }
+.seg button.on, .seg button.on:active { background: #1a1a1a; color: #9debe5; }
+.seg small { color: #959cab; }
+.mes-search input { border-color: #393e42; }
+.mes-search-ico { color: #959cab; }
+.mes-clear { background: transparent; color: #959cab; }
+.mes-clear:active { background: #23272a; }
+.mes-pill { border: 1px solid #3f4447; background-color: #1a1a1a; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23475467' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); color: #b7c0cf; }
+.mes-pill.on { background-color: #21332f; border-color: #0f766e; color: #9debe5; }
+.mes-count { color: #aab3c1; }
+.mes-count b { color: #e0e0e0; }
+.mes-link { background: transparent; color: #9debe5; }
+.mes-link:active { background: #21332f; }
+.mes-btn.ghost { background: #1a1a1a; color: #9debe5; border: 1px solid #445f5b; }
+.mes-btn.ghost:active { background: #21332f; }
+.mes-sec-head h2 { color: #e0e0e0; }
+.mes-grp-name small { color: #959cab; }
+.mes-grp-tot { color: #aab3c1; }
+.mes-rel { background: #21332f; color: #9debe5; }
+.mes-card { background: #1a1a1a; border: 1px solid #35383c; }
+.mes-none { color: #959cab; }
+.gx { border-bottom: 1px solid #2e3236; }
+button.gx { background: transparent; color: #e0e0e0; }
+button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
+@media (hover: hover) {
+.gx.editable:hover, .gx.grupo:hover, button.gx:hover { background: #1b2522; }
+}
+.gx-ico { background: hsl(var(--h, 170) 36% 17%); }
+.gx-name { color: #e0e0e0; }
+.gx-sub { color: #959cab; }
+.gx-sub .sep { background: #4c5258; }
+.gx-tag.fijo { background: #4e4318; color: #eaaf8a; }
+.gx-tag.cred { background: #12233d; color: #7890dd; }
+.gx-tag.aho { background: #173e24; color: #a9e6c0; }
+.gx-amt { color: #e0e0e0; }
+.gx-amt.muted { color: #959cab; }
+.gx-amt small { color: #959cab; }
+.gx-amt .chev { color: #959cab; }
+.cat-row .dash-bar { background: #24282b; }
+.grupo-items { background: #1b2321; border-left: 3px solid #4d7671; }
+.dash-chart-col { background: transparent; color: #959cab; }
+.dash-chart-col:active { background: #1f2b2a; }
+.dash-chart-val, .dash-chart-lbl { color: #959cab; }
+.dash-chart-col.sel .dash-chart-lbl, .dash-chart-col.sel .dash-chart-val { color: #9debe5; }
+.mes-empty-t { color: #e0e0e0; }
+.mes-empty-s { color: #959cab; }
+.sk { background: linear-gradient(90deg, #262b2e 25%, #1f2325 50%, #262b2e 75%); }
+.mes-hero.sk-hero { background: #273331; }
+.sk-hero .sk { background: rgba(26,26,26,0.65); }
+@media (hover: hover) {
+.mes-opt:hover:not(.sel), .mes-navbtn:hover:not(:disabled), .mes-title:hover { background: #212826; }
+.catchips button:not(.on):hover { background: #202424; }
+.seg button:not(.on):hover { background: rgba(26,26,26,0.6); }
+.hmeal-row:hover { background: #1e1e1e; }
+}
+.mes-sec.sin .mes-dia-n { color: #aab3c1; }
+  }
 </style>
 </head><body>
 <div class="tabs-wrap" id="tabsWrap" hidden>
@@ -2221,6 +2541,29 @@
 // Adaptador: mismo contrato que google.script.run de Apps Script, contra el Worker.
 // Cada eslabón de la cadena devuelve un runner nuevo (como en Apps Script).
 (function () {
+  // Pedidos en vuelo. El corte por tiempo NO depende solo de setTimeout: en el celular, con la pestaña en segundo plano o
+  // al volver de otra app, los timers se pausan y un fetch puede quedar colgado sin resolverse ni fallar nunca, y el
+  // formulario se queda bloqueado en "Guardando...". Por eso un vigía compara la hora real (Date.now) al volver a la
+  // pestaña, al recuperar la red y cada 2 s.
+  var enVuelo = [];
+  function vencer(p) {
+    if (p.listo) return;
+    p.listo = true;
+    var i = enVuelo.indexOf(p); if (i >= 0) enVuelo.splice(i, 1);
+    clearTimeout(p.reloj);
+    try { if (p.ctl) p.ctl.abort(); } catch (_) {}
+    var err = new Error('Tardó demasiado. Revisá tu conexión y mirá si el movimiento quedó guardado antes de repetirlo.');
+    if (p.fail) p.fail(err, p.user); else console.error('rpc ' + p.nombre, err);
+  }
+  function vigilar() {
+    var ahora = Date.now();
+    enVuelo.slice().forEach(function (p) { if (ahora - p.t0 >= p.limite) vencer(p); });
+  }
+  setInterval(vigilar, 2000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) vigilar(); });
+  window.addEventListener('pageshow', vigilar);
+  window.addEventListener('online', vigilar);
+
   function runner(ok, fail, user) {
     return new Proxy({}, {
       get: function (_, nombre) {
@@ -2230,23 +2573,30 @@
         if (typeof nombre !== 'string' || nombre === 'then') return undefined;
         return function () {
           var args = Array.prototype.slice.call(arguments);
-          // Sin tope de tiempo, una red colgada deja el formulario en "Guardando..." para siempre. Escanear un ticket con
-          // Gemini es lo más lento: tiene más margen.
-          var limite = nombre === 'scanTicket' ? 90000 : 40000;
+          // Escanear un ticket con Gemini es lo más lento: tiene más margen. window.__rpcLimiteMs solo lo usan las pruebas.
+          var limite = typeof window.__rpcLimiteMs === 'number' ? window.__rpcLimiteMs : (nombre === 'scanTicket' ? 90000 : 25000);
           var ctl = typeof AbortController === 'function' ? new AbortController() : null;
-          var reloj = ctl ? setTimeout(function () { ctl.abort(); }, limite) : null;
+          var p = { nombre: nombre, ok: ok, fail: fail, user: user, ctl: ctl, t0: Date.now(), limite: limite, listo: false, reloj: null };
+          p.reloj = setTimeout(function () { vencer(p); }, limite);
+          enVuelo.push(p);
+          function terminar() {
+            var i = enVuelo.indexOf(p); if (i >= 0) enVuelo.splice(i, 1);
+            clearTimeout(p.reloj);
+          }
           fetch('/api/rpc/' + encodeURIComponent(nombre), {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ args: args }),
             signal: ctl ? ctl.signal : undefined
           }).then(function (r) { return r.json(); }).then(function (r) {
-            clearTimeout(reloj);
+            if (p.listo) return; // ya se dio por vencido: el formulario se desbloqueó con un aviso, no se pisa
+            p.listo = true; terminar();
             // Si el handler de éxito tira, NO se llama al de error: el pedido salió bien y avisar de un fallo invita a repetirlo.
             try { if (ok) ok(r, user); } catch (e) { console.error('rpc ' + nombre + ' (handler)', e); }
           }, function (e) {
-            clearTimeout(reloj);
-            var err = e && e.name === 'AbortError' ? new Error('Tardó demasiado. Revisá tu conexión y mirá si el movimiento quedó guardado antes de repetirlo.') : (e && e.message ? e : new Error(String(e)));
+            if (p.listo) return;
+            p.listo = true; terminar();
+            var err = e && e.message ? e : new Error(String(e));
             if (fail) fail(err, user);
             else console.error('rpc ' + nombre, e);
           });
