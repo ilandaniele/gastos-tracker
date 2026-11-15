@@ -88,6 +88,15 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   `node scripts/build-form.mjs`. Para verlo en un navegador sin tema oscuro, `DARK_FORCE=1 node scripts/build-form.mjs`
   (solo pruebas: no desplegar ese build). Quedan algunos colores en línea (`style="color:..."`, JS que pone `style.color`)
   que el generador no ve.
+- **Ícono y categoría de cada gasto**: migración 0010 agrega `expenses.icono` (NULL = automático). El ícono automático sale de
+  `itemIco`/`ITEM_ICO` (lista ordenada de palabras con `\b`, en `form-scripts.html`) y si no, del ícono de la categoría
+  (`CAT_ICO`; una categoría propia sin ícono cae a 🧾). Se puede elegir a mano al agregar y al editar (`iconoPicker`: grilla de
+  emojis, "Otro emoji" y "Automático"). `limpiarIcono` en `rpc/gastos.js` valida en el servidor: solo emoji de hasta 16 caracteres,
+  sin `<>&"'\` ni texto ASCII, porque el valor vuelve a pintarse dentro de HTML; en el update, `undefined` no toca el ícono y `''`
+  vuelve al automático. El formulario aprende de las correcciones (clave `gastos-tracker.aprende.v1` en `localStorage`:
+  `{ico:{item:emoji}, cats:{item:[cats]}}`, tope 300 por mapa; no toca D1). Reglas de categoría: las palabras sueltas de las
+  reglas de Ilan y de `REGLAS_GENERICAS` ahora van con `\b` (antes "cena" matcheaba "escena", "bus" "business", "día" "media"),
+  y Regalos pasó a ir justo después de Amigos para que "regalo cumple" sea Regalos y no Entretenimiento. Tests: `test/icono.test.mjs` (6).
 - **Formulario "trabado"**: `setLocked(true)` bloquea todo el formulario hasta que vuelve la respuesta del servidor. El shim de
   `google.script.run` (`build-form.mjs`) ahora tiene un vigilante basado en reloj real (25 s; 90 s para `scanTicket`; se
   revisa cada 2 s y al volver a la pestaña, `pageshow` y `online`) que corta la llamada, desbloquea y muestra "Tardó demasiado".

@@ -1118,4 +1118,17 @@
     .mut-sm { font-size: 12px; color: #667085; }
     .vacio-txt { color: #667085; font-size: 13px; padding: 6px 2px; }
     .argrow.deuda b.deuda-ok { color: #15803d; }
+
+    /* Selector de ícono del gasto (alta y edición): reutiliza el desplegable de categorías. */
+    .icopick .icp-cur { flex: 0 0 auto; font-size: 22px; line-height: 1; }
+    .icp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 2px; }
+    .catdd .icp-op { width: auto; min-height: 44px; margin: 0; padding: 0; font-size: 22px; line-height: 1; background: #fff; color: #1a1a1a;
+      border: 1px solid transparent; border-radius: 8px; }
+    .catdd .icp-op:active { background: #f2f4f7; }
+    .catdd .icp-op[aria-pressed="true"] { background: #f0fdfa; border-color: #0f766e; }
+    .icp-otro { padding: 8px 2px 0; }
+    .icp-otro input { min-height: 44px; font-size: 18px; }
+    .catdd .icp-auto { width: auto; min-height: 44px; margin: 0; padding: 0 16px; font-size: 15px; background: #fff; color: #0f766e; border: 1px solid #0f766e; }
+    .catdd .icp-auto:active { background: #f0fdfa; }
+    .catdd .icp-op:focus-visible, .catdd .icp-auto:focus-visible, .icp-otro input:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
 </style>

@@ -284,9 +284,143 @@
     };
   }
   var catTocadaAMano = false;
-  var catsAdd = catChips(document.getElementById('catBox'), function() { catTocadaAMano = true; });
+  var catsAdd = catChips(document.getElementById('catBox'), function() { catTocadaAMano = true; if (icoAdd) icoAdd.refrescar(); });
   catsAdd.set(['Otros']);
-  var catsEdit = catChips(document.getElementById('expCats'));
+  var catsEdit = catChips(document.getElementById('expCats'), function() { if (icoEdit) icoEdit.refrescar(); });
+
+  // === Lo que la persona corrige, se recuerda en este aparato ===
+  // Si cambia la categoría o el ícono de un gasto, la próxima vez que escriba el mismo nombre se propone lo
+  // que ella eligió (sin tocar el servidor: no gasta lecturas ni escrituras de la base).
+  var APR_KEY = 'gastos-tracker.aprende.v1', APR_MAX = 300;
+  var APR = { ico: {}, cats: {} };
+  try {
+    var aprGuardada = JSON.parse(localStorage.getItem(APR_KEY) || '{}');
+    if (aprGuardada && typeof aprGuardada === 'object') {
+      if (aprGuardada.ico && typeof aprGuardada.ico === 'object') APR.ico = aprGuardada.ico;
+      if (aprGuardada.cats && typeof aprGuardada.cats === 'object') APR.cats = aprGuardada.cats;
+    }
+  } catch (e) {}
+  function aprClave(item) { return mesNorm(item).replace(/\s+/g, ' ').trim().slice(0, 60); }
+  function aprGuardar() {
+    try {
+      ['ico', 'cats'].forEach(function(k) {
+        var claves = Object.keys(APR[k]);
+        for (var i = 0; i < claves.length - APR_MAX; i++) delete APR[k][claves[i]];
+      });
+      localStorage.setItem(APR_KEY, JSON.stringify(APR));
+    } catch (e) {}
+  }
+  function aprCatsDe(item) {
+    var c = APR.cats[aprClave(item)];
+    if (!Array.isArray(c)) return [];
+    var validas = (typeof CATEGORIAS !== 'undefined' && CATEGORIAS.length) ? CATEGORIAS : null;
+    return c.filter(function(x) { return typeof x === 'string' && (!validas || validas.indexOf(x) >= 0); });
+  }
+  function aprender(item, cats, icono, tocoCats, tocoIcono) {
+    var k = aprClave(item);
+    if (!k) return;
+    if (tocoCats && cats && cats.length) { delete APR.cats[k]; APR.cats[k] = cats.slice(0, 2); }
+    if (tocoIcono) { delete APR.ico[k]; if (icono) APR.ico[k] = icono; }
+    if (tocoCats || tocoIcono) aprGuardar();
+  }
+  // Ícono "automático" que se vería sin elegir nada: lo aprendido, el del producto o el de la categoría.
+  function icoAuto(item, cats) {
+    return APR.ico[aprClave(item)] || itemIco(item) || catIco((cats && cats[0]) || 'Otros');
+  }
+
+  // === Selector de ícono: cuadrícula de emojis, uno propio (teclado del celular) y "Automático" ===
+  var ICONOS_ELEGIR = ['🍽️','🍔','🍕','🍣','🥩','🥖','🍫','☕','🍺','🍷','🥤','🛒','📦','🧾','💳','🏠','💡','📶','📱','💻',
+    '🎧','🎮','🎬','🎵','📚','🎟️','🎉','🎂','🎁','💐','👕','👟','💈','💊','🩺','🦷','🧪','🏋️','⚽','🚌','🚕','⛽','🅿️','✈️',
+    '🏨','🧳','🐾','🎓','✏️','🧽','🧺','🔧','🛡️','💞','🍻','🏦','📈','🔁','🧠','🙏','💰','🚨'];
+  // Un emoji propio: solo se acepta texto corto con algo que no sea ASCII (el servidor lo vuelve a revisar).
+  function icoValido(t) {
+    t = String(t == null ? '' : t).trim();
+    return t && t.length <= 16 && !/^[\x20-\x7e]+$/.test(t) && !/[<>&"'`\\]/.test(t) ? t : '';
+  }
+  function iconoPicker(box, auto) {
+    var pre = box.id;
+    var lblId = box.getAttribute('data-label') || '';
+    var sel = '', tocado = false;
+    box.className = 'catdd icopick';
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.id = pre + 'Btn'; btn.className = 'catdd-btn';
+    btn.setAttribute('aria-haspopup', 'true'); btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-controls', pre + 'Panel');
+    var cur = document.createElement('span'); cur.className = 'icp-cur'; cur.setAttribute('aria-hidden', 'true');
+    var txt = document.createElement('span'); txt.id = pre + 'Txt'; txt.className = 'catdd-txt';
+    var flecha = document.createElement('span'); flecha.className = 'catdd-flecha'; flecha.setAttribute('aria-hidden', 'true');
+    btn.appendChild(cur); btn.appendChild(txt); btn.appendChild(flecha);
+    if (lblId) btn.setAttribute('aria-labelledby', lblId + ' ' + txt.id);
+    var panel = document.createElement('div');
+    panel.id = pre + 'Panel'; panel.className = 'catdd-panel'; panel.setAttribute('role', 'group'); panel.setAttribute('aria-label', 'Elegir ícono'); panel.hidden = true;
+    var grilla = document.createElement('div'); grilla.className = 'icp-grid';
+    var ops = {};
+    ICONOS_ELEGIR.forEach(function(ic) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'icp-op'; b.textContent = ic; b.setAttribute('aria-label', 'Ícono ' + ic); b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function() { elegir(ic); cerrar(true); });
+      ops[ic] = b; grilla.appendChild(b);
+    });
+    panel.appendChild(grilla);
+    var otro = document.createElement('div'); otro.className = 'icp-otro';
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.id = pre + 'Otro'; inp.maxLength = 16; inp.autocomplete = 'off'; inp.placeholder = 'Otro emoji: tocá acá y elegilo del teclado';
+    inp.setAttribute('aria-label', 'Otro emoji');
+    function desdeInput() { var v = icoValido(inp.value); if (v) { elegir(v); inp.value = ''; cerrar(true); } }
+    inp.addEventListener('change', desdeInput);
+    inp.addEventListener('keydown', function(ev) { if (ev.key === 'Enter') { ev.preventDefault(); desdeInput(); } });
+    otro.appendChild(inp); panel.appendChild(otro);
+    var pie = document.createElement('div'); pie.className = 'catdd-pie';
+    var aviso = document.createElement('span'); aviso.className = 'catdd-aviso'; pie.appendChild(aviso);
+    var autoBtn = document.createElement('button'); autoBtn.type = 'button'; autoBtn.className = 'icp-auto'; autoBtn.textContent = 'Automático';
+    autoBtn.addEventListener('click', function() { elegir(''); cerrar(true); });
+    var listo = document.createElement('button'); listo.type = 'button'; listo.className = 'catdd-listo'; listo.textContent = 'Listo';
+    listo.addEventListener('click', function() { cerrar(true); });
+    pie.appendChild(autoBtn); pie.appendChild(listo); panel.appendChild(pie);
+    box.appendChild(btn); box.appendChild(panel);
+
+    function pintar() {
+      var a = auto();
+      cur.textContent = sel || a;
+      txt.textContent = sel ? 'Elegido por vos' : 'Automático';
+      btn.classList.toggle('vacio', !sel);
+      Object.keys(ops).forEach(function(ic) { ops[ic].setAttribute('aria-pressed', ic === sel ? 'true' : 'false'); });
+    }
+    function elegir(v) { sel = v; tocado = true; pintar(); }
+    function abierto() { return !panel.hidden; }
+    function abrir() { pintar(); panel.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
+    function cerrar(devolverFoco) {
+      if (!abierto()) return;
+      panel.hidden = true; btn.setAttribute('aria-expanded', 'false');
+      if (devolverFoco) btn.focus();
+    }
+    btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    box.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape' && abierto()) { ev.preventDefault(); ev.stopPropagation(); cerrar(true); }
+    });
+    document.addEventListener('pointerdown', function(ev) { if (abierto() && !box.contains(ev.target)) cerrar(false); });
+    box.addEventListener('focusout', function(ev) { if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false); });
+    // Las tablas de íconos (CAT_ICO, ITEM_ICO) se arman más abajo en este mismo script: se pinta al terminar de cargar.
+    setTimeout(pintar, 0);
+    return {
+      get: function() { return sel; },
+      tocado: function() { return tocado; },
+      set: function(v) { sel = icoValido(v); tocado = false; pintar(); },
+      refrescar: pintar,
+      cerrar: function() { cerrar(false); }
+    };
+  }
+  var icoAdd = iconoPicker(document.getElementById('icoAdd'), function() {
+    var f = getField('item');
+    return icoAuto(f ? f.value : '', catsAdd.get());
+  });
+  var icoEdit = iconoPicker(document.getElementById('icoEdit'), function() {
+    var f = document.getElementById('expItem');
+    return icoAuto(f ? f.value : '', catsEdit.get());
+  });
+  (function() {
+    var f = document.getElementById('expItem');
+    if (f) f.addEventListener('input', function() { icoEdit.refrescar(); });
+  })();
 
   // "Se paga el mes siguiente": el gasto no suma al total del mes (como las tarjetas de crédito).
   // Con un medio de crédito queda tildado y deshabilitado; al pasar a otro medio se destilda.
@@ -447,9 +581,11 @@
     if (!itemField) return;
     var v = itemField.value.trim();
     if (!v) return;
-    var cs = clasificarItems(v);
+    var cs = aprCatsDe(v);
+    if (!cs.length) cs = clasificarItems(v);
     if (!cs.length) return;
     catsAdd.set(cs);
+    icoAdd.refrescar();
   }
 
   var AUTO_CARD_RULES = [
@@ -473,6 +609,7 @@
       if (quickFijo) { quickFijo = false; mostrarPagaAdd(); }
       autoCorrectCard();
       autoClasificar();
+      icoAdd.refrescar();
     });
   })();
 
@@ -492,6 +629,7 @@
       catTocadaAMano = false;
       catsAdd.cerrar();
       catsAdd.set(['Otros']);
+      icoAdd.cerrar(); icoAdd.set('');
       quickFijo = false; mostrarPagaAdd();
       pagaAdd.set(false);
       // Local date, not UTC (avoids next-day glitch in evening)
@@ -553,6 +691,10 @@
     var cats = catsAdd.get();
     if (cats.length) { data.category = cats[0]; data.categories = cats.join(' + '); }
     if (!quickFijo) data.pagaDespues = pagaAdd.get();
+    var icoElegido = icoAdd.get();
+    aprender(data.item, cats, icoElegido, catTocadaAMano, icoAdd.tocado());
+    if (!icoElegido && !icoAdd.tocado() && APR.ico[aprClave(data.item)]) icoElegido = APR.ico[aprClave(data.item)];
+    if (icoElegido) data.icono = icoElegido;
     setLocked(true);
     setStatus('Guardando...', 'loading');
     google.script.run
@@ -3494,7 +3636,7 @@
     'Acciones/Bonos/Ahorros': '🏦', 'Amigos': '🍻', 'Bebida/Bar': '🍺', 'Cita': '💞', 'Comida': '🍽️',
     'Entretenimiento': '🎮', 'Gimnasio': '🏋️', 'Hogar': '🏠', 'Limpieza': '🧽', 'Regalos': '🎁',
     'Ropa': '👕', 'Salud': '💊', 'Servicios': '💡', 'Suscripciones': '🔁', 'Transporte': '🚌',
-    'Viajes': '✈️', 'Otros': '🧾'
+    'Viajes': '✈️', 'Mascotas': '🐾', 'Educación': '🎓', 'Otros': '🧾'
   };
   function mesNorm(s) {
     var t = String(s == null ? '' : s).toLowerCase();
@@ -3505,50 +3647,88 @@
     var out = String(c || '').split('+').map(function(x) { return x.trim(); }).filter(Boolean);
     return out.length ? out : ['Otros'];
   }
-  function catIco(name) { return CAT_ICO[name] || '🧾'; }
+  // Ícono de una categoría: el de la tabla; si es una categoría propia, se prueba como nombre de producto
+  // ("Mascotas" -> 🐾); si nada, el genérico.
+  function catIco(name) { return CAT_ICO[name] || itemIco(name) || '🧾'; }
   function catHue(name) {
     var h = 0, s = String(name || '');
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
     return h;
   }
-  function catTile(name, big, item) {
-    return '<span class="gx-ico' + (big ? ' big' : '') + '" style="--h:' + catHue(name) + '" aria-hidden="true">' + (itemIco(item) || catIco(name)) + '</span>';
+  // Orden de prioridad del ícono: el que eligió la persona > el del producto > el de la categoría.
+  function catTile(name, big, item, icono) {
+    return '<span class="gx-ico' + (big ? ' big' : '') + '" style="--h:' + catHue(name) + '" aria-hidden="true">' + esc(icono || itemIco(item) || catIco(name)) + '</span>';
   }
   // Ícono por producto (el nombre del gasto manda; si no se reconoce, se usa el de la categoría).
   // Se prueba en orden sobre el nombre en minúsculas y sin tildes; el primero que coincide gana.
+  // Solo palabras enteras (\b): una sigla corta suelta como "net" o "max" acertaba con lo que no era.
   var ITEM_ICO = [
+    [/\b(mercado ?libre|meli|amazon|aliexpress|shein|temu)\b/, '📦'],
     [/\b(antel )?(movil|celular|cel|plan de datos)\b/, '📱'],
-    [/\b(antel )?(internet|wifi|fibra|net)\b/, '📶'],
+    [/\b(antel )?(internet|wifi|fibra)\b/, '📶'],
     [/\b(luz|ute|electricidad)\b/, '💡'],
     [/\b(ose|agua potable)\b/, '🚰'],
     [/\b(alquiler|renta)\b/, '🏠'],
-    [/\b(gastos comunes|gc|expensas)\b/, '🏢'],
-    [/\b(tributos?|contribucion|impuestos?|patente)\b/, '🧾'],
+    [/\b(gastos comunes|expensas)\b/, '🏢'],
+    [/\b(tributos?|contribucion|impuestos?|patente|dgi|bps)\b/, '🧾'],
     [/\b(itau )?(paquete|banco)\b/, '🏦'],
     [/\b(oca|credito|tarjeta)\b/, '💳'],
-    [/\b(sandra|psicolog\w*|terapia|coaching)\b/, '🧠'],
+    [/\b(psicolog\w*|terapia|coaching)\b/, '🧠'],
     [/\bviandas?\b/, '🍱'],
     [/\bble\b/, '📞'],
+    [/\b(dentista|odontolog\w*|ortodoncia)\b/, '🦷'],
+    [/\b(analisis|laboratorio)\b/, '🧪'],
     [/\b(blue ?cross|mutualista|emergencia|seguro medico)\b/, '⚕️'],
-    [/\b(gimnasio|gym)\b/, '🏋️'],
-    [/\b(futbol|padel|tenis)\b/, '⚽'],
-    [/\b(bus|omnibus|colectivo|boleto)\b/, '🚌'],
-    [/\b(uber|cabify|taxi|didi)\b/, '🚕'],
-    [/\b(nafta|combustible|gasoil|estacionamiento)\b/, '⛽'],
-    [/\b(cafe|cafeteria)\b/, '☕'],
-    [/\b(frog|fernet|cerveza|birra|bar|trago|vino)\b/, '🍺'],
-    [/\b(disco|devoto|tata|super\w*|mercado|feria)\b/, '🛒'],
-    [/\b(claude|chatgpt|gpt|openai|anthropic|copilot|github)\b/, '🤖'],
-    [/\b(netflix|cine|disney|hbo|max)\b/, '🎬'],
-    [/\b(spotify|musica|youtube)\b/, '🎵'],
+    [/\b(medic[oa]|doctora?|consulta|hospital|clinica)\b/, '🩺'],
     [/\b(farma\w*|medicament\w*|remedio|pastillas?)\b/, '💊'],
-    [/\b(regalo|regalos)\b/, '🎁'],
-    [/\b(ropa|zapatillas|remera|campera)\b/, '👕'],
-    [/\b(pelu\w*|barberia|corte)\b/, '💈'],
-    [/\b(pizza|pizzas)\b/, '🍕'],
+    [/\b(gimnasio|gym|crossfit|pilates|yoga|escalada)\b/, '🏋️'],
+    [/\b(futbol|padel|tenis|basquet|natacion)\b/, '⚽'],
+    [/\b(veterinari\w*|mascotas?|perros?|gatos?|balanceado)\b/, '🐾'],
+    [/\b(vuelos?|pasajes?|aeropuerto|aerolinea|equipaje|valija)\b/, '✈️'],
+    [/\b(hotel|hostel|airbnb|booking|hospedaje)\b/, '🏨'],
+    [/\b(buquebus|colonia express|ferry)\b/, '⛴️'],
+    [/\bpeajes?\b/, '🛣️'],
+    [/\b(bus|buses|omnibus|colectivo|boleto|sube|combi)\b/, '🚌'],
+    [/\b(uber|cabify|taxi|didi)\b/, '🚕'],
+    [/\bestacionamiento\b/, '🅿️'],
+    [/\b(nafta|combustible|gasoil|ancap|shell|axion)\b/, '⛽'],
+    [/\b(lavadero|lavanderia|tintoreria)\b/, '🧺'],
+    [/\b(cafe|cafeteria|starbucks)\b/, '☕'],
+    [/\b(vinos?)\b/, '🍷'],
+    [/\b(frog|fernet|cerveza|birra|bar|trago|whisky|campari|sidra)\b/, '🍺'],
+    [/\b(pizzas?|pizzeria)\b/, '🍕'],
+    [/\b(hamburguesas?|burger|mac|mcdonalds?)\b/, '🍔'],
+    [/\b(sushi|poke)\b/, '🍣'],
     [/\b(empanadas?)\b/, '🥟'],
-    [/\b(agua|powerade|gatorade|jugo|refresco|coca)\b/, '🥤'],
-    [/\b(helado|postre)\b/, '🍦']
+    [/\b(asado|parrilla|milanesas?|carne|carniceria|pollo|rotiseria)\b/, '🥩'],
+    [/\b(panaderia|pan|medialunas?|croissant|chipa)\b/, '🥖'],
+    [/\b(helados?|postre|torta)\b/, '🍦'],
+    [/\b(chocolates?|alfajor\w*|galletas?|kiosco|golosinas?|dulces?)\b/, '🍫'],
+    [/\b(verduler\w*|fruter\w*|verduras?|frutas?)\b/, '🥬'],
+    [/\b(sandwich|tostado|chivito)\b/, '🥪'],
+    [/\b(disco(?! duro)|devoto|tata|super\w*|mercado|feria|almacen)\b/, '🛒'],
+    [/\b(claude|chatgpt|gpt|openai|anthropic|copilot|github)\b/, '🤖'],
+    [/\b(netflix|cine|disney|hbo|prime video)\b/, '🎬'],
+    [/\b(spotify|musica|youtube)\b/, '🎵'],
+    [/\b(steam|playstation|ps5|xbox|nintendo|juegos?|videojuegos?)\b/, '🎮'],
+    [/\b(libros?|libreria|papeleria)\b/, '📚'],
+    [/\b(cursos?|udemy|coursera|platzi|colegio|escuela|universidad|facultad|clases?)\b/, '🎓'],
+    [/\b(regalos?)\b/, '🎁'],
+    [/\b(cumple\w*)\b/, '🎂'],
+    [/\b(fiesta|boliche)\b/, '🎉'],
+    [/\b(concierto|recital|entradas?|teatro|stand up)\b/, '🎟️'],
+    [/\b(flores|ramo|florer\w*)\b/, '💐'],
+    [/\b(ropa|zapatillas|zapatos|remera|campera|jeans?|pantalon|buzo)\b/, '👕'],
+    [/\b(pelu\w*|barberia|corte de pelo)\b/, '💈'],
+    [/\b(compu\w*|notebook|laptop|mouse|teclado|monitor)\b/, '💻'],
+    [/\b(auriculares?|cargador|parlantes?)\b/, '🎧'],
+    [/\b(limpieza|detergente|lavandina|jabon|esponja|escoba)\b/, '🧽'],
+    [/\b(ferreteria|herramientas?|llave|plomero|electricista|sanitaria)\b/, '🔧'],
+    [/\b(seguro|poliza)\b/, '🛡️'],
+    [/\bmulta\b/, '🚨'],
+    [/\bagua\b/, '💧'],
+    [/\b(powerade|gatorade|jugo|refresco|coca|aquarius)\b/, '🥤'],
+    [/\b(ahorros?|inversion|acciones|etf|broker|bonos)\b/, '📈']
   ];
   function itemIco(item) {
     var t = mesNorm(item);
@@ -4230,7 +4410,7 @@
     if (e.credito) tags += '<span class="gx-tag cred">💳 se paga luego</span>';
     else if (e.ahorro) tags += '<span class="gx-tag aho">🏦 ahorro, no suma</span>';
     var muted = (e.credito || e.ahorro) ? ' muted' : '';
-    return '<div class="' + cls + '"' + attr + '>' + catTile(cats[0], false, e.item) +
+    return '<div class="' + cls + '"' + attr + '>' + catTile(cats[0], false, e.item, e.icono) +
       '<div class="gx-main"><div class="gx-name">' + esc(e.item) + '</div>' + ((sub.length || tags) ? '<div class="gx-sub">' + sub.join('<i class="sep"></i>') + (tags ? (sub.length ? ' ' : '') + tags : '') + '</div>' : '') + '</div>' +
       '<div class="gx-amt' + muted + '">' + fmt(e.amount, e.currency) + '</div></div>';
   }
@@ -4465,6 +4645,7 @@
     // La celda puede traer varias categorías ("Cita + Comida"): un chip prendido por cada una.
     catsEdit.cerrar();
     catsEdit.set(String(e.category || '').split('+').map(function(c) { return c.trim(); }).filter(Boolean));
+    icoEdit.cerrar(); icoEdit.set(e.icono || '');
     if (hEl('expFecha'))  hEl('expFecha').value  = e.fecha || '';
     if (hEl('expCotiz'))  hEl('expCotiz').value  = e.cotizacion != null ? e.cotizacion : '';
     if (hEl('expNotas'))  hEl('expNotas').value  = e.notas || '';
@@ -4491,6 +4672,9 @@
     // formulario de Agregar (ver fillQuick/normDec).
     var amount = parseFloat(normDec(hEl('expAmount') && hEl('expAmount').value)) || 0;
     if (!amount) { setStatus('¿Cuánto fue?', 'err'); return; }
+    var catsNuevas = catsEdit.get();
+    var catsCambiaron = catsNuevas.join(' + ') !== catList(e.category).join(' + ') && catsNuevas.length > 0;
+    aprender(item, catsNuevas, icoEdit.get(), catsCambiaron, icoEdit.tocado());
     setStatus('Guardando...', 'loading');
     google.script.run
       .withSuccessHandler(function(r) {
@@ -4509,6 +4693,7 @@
         amount: amount,
         card: (hEl('expCard') && hEl('expCard').value) || '',
         category: catsEdit.get().join(' + '),
+        icono: icoEdit.get(),
         date: (hEl('expFecha') && hEl('expFecha').value) || '',
         cotizacion: normDec(hEl('expCotiz') && hEl('expCotiz').value),
         notes: (hEl('expNotas') && hEl('expNotas').value.trim()) || '',

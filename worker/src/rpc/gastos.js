@@ -91,6 +91,16 @@ function normFecha(date, env) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tzDe(env) }).format(d);
 }
 
+// Ícono elegido a mano (emoji). undefined = no vino; '' = volver al automático; si no, un emoji corto.
+// Nunca texto con marcas ni comillas: se vuelve a mostrar dentro de HTML.
+function limpiarIcono(v) {
+  if (v === undefined) return undefined;
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return null;
+  if (t.length > 16 || /[<>&"'`\\\u0000-\u001f]/.test(t) || /^[\x20-\x7e]+$/.test(t)) throw new Error('Ícono inválido: tiene que ser un emoji');
+  return t;
+}
+
 // ---- Categorías (clasificador de Code.gs con las reglas de form-config.json) ------------------
 function splitCategorias(str) {
   const out = [];
@@ -237,6 +247,7 @@ function aGasto(r, L) {
     row: r.id, item: r.concepto, amount: r.monto, currency: r.moneda, card: r.medio_pago || '', credito: !!r.es_credito, ahorro: !!r.es_ahorro,
     category: r.categoria || '', fecha: fechaIso(r.fecha), cotizacion: r.cotizacion == null ? null : r.cotizacion, notas: r.notas || ''
   };
+  if (r.icono) g.icono = r.icono;
   if (r.grupo) { g.grupo = r.grupo; g.grupoNombre = r.grupo_nombre || ''; }
   return g;
 }
@@ -378,7 +389,7 @@ async function tarjetaCanonica(env, T, ctx, mes, card) {
 }
 
 const COLS_ALTA = ['tenant_id', 'mes', 'tab', 'src_row', 'concepto', 'monto', 'moneda', 'uyu_raw', 'usd_raw', 'medio_pago', 'es_fijo', 'es_credito', 'es_ahorro',
-  'categoria', 'cat1', 'cat2', 'fecha', 'cotizacion', 'notas', 'grupo', 'grupo_nombre', 'fecha_efectiva', 'fecha_origen'];
+  'categoria', 'cat1', 'cat2', 'fecha', 'cotizacion', 'notas', 'grupo', 'grupo_nombre', 'fecha_efectiva', 'fecha_origen', 'icono'];
 
 // Valida y prepara un alta. Devuelve {mes, fijo, stmt?, resultado} sin escribir las filas variables
 // (así el lote las manda juntas); los fijos hacen su upsert en el momento (leen el estado del mes).
@@ -415,7 +426,7 @@ async function planAlta(env, T, ctx, data, grupo) {
       id = ex.id;
     } else {
       const r = await env.DB.prepare(`INSERT INTO expenses (${COLS_ALTA.join(', ')}) VALUES (${COLS_ALTA.map(() => '?').join(', ')})`)
-        .bind(T, mes, tab, null, label, monto, moneda, uyu, usd, null, 1, 0, esAhorro(cat) ? 1 : 0, cat, cats[0] || null, cats[1] || null, fecha, cotizFila == null ? null : cotizFila, null, null, null, fecha, 'manual').run();
+        .bind(T, mes, tab, null, label, monto, moneda, uyu, usd, null, 1, 0, esAhorro(cat) ? 1 : 0, cat, cats[0] || null, cats[1] || null, fecha, cotizFila == null ? null : cotizFila, null, null, null, fecha, 'manual', null).run();
       id = r.meta.last_row_id;
     }
     return {
@@ -429,9 +440,10 @@ async function planAlta(env, T, ctx, data, grupo) {
   const categoria = resolverCategorias(item, d.category, d.category2, d.categories, cfg);
   const cats = splitCategorias(categoria);
   const notes = d.notes ? String(d.notes).trim() : '';
+  const icono = limpiarIcono(d.icono) || null;
   const stmt = env.DB.prepare(`INSERT INTO expenses (${COLS_ALTA.join(', ')}) VALUES (${COLS_ALTA.map(() => '?').join(', ')})`)
     .bind(T, mes, tab, null, item, amt, monedaDeTarjeta(card, L), null, null, card, 0, esCreditoDe(card, d.pagaDespues), esAhorro(categoria) ? 1 : 0,
-      categoria, cats[0] || null, cats[1] || null, fecha, cotizacion, notes || null, grupo ? grupo.id : null, grupo ? grupo.nombre : null, fecha, 'manual');
+      categoria, cats[0] || null, cats[1] || null, fecha, cotizacion, notes || null, grupo ? grupo.id : null, grupo ? grupo.nombre : null, fecha, 'manual', icono);
   return {
     mes, fijo: false, hecho: false, stmt,
     resultado: { tab, cotizSource, written: { item, amount: amt, currency, card, category: categoria, cotizacion: cotizacion || null, notes: notes || null, ...(d.pagaDespues === true ? { pagaDespues: true } : {}) } }
@@ -516,6 +528,7 @@ async function updateExpense(env, T, [data]) {
   const categoria = joinCategorias(splitCategorias(p.category));
   const cats = splitCategorias(categoria);
   const notes = String(p.notes || '').trim();
+  const icono = limpiarIcono(p.icono); // undefined = no tocar
   // Fecha nueva: si cambia de mes el gasto se mueve a ese mes (las fechas son reales).
   let fecha = r.fecha, fechaEf = r.fecha_efectiva, origen = r.fecha_origen, mes = r.mes;
   if (p.date) {
@@ -524,10 +537,10 @@ async function updateExpense(env, T, [data]) {
     mes = fecha.slice(0, 7);
   }
   await env.DB.prepare(`UPDATE expenses SET mes = ?, tab = ?, concepto = ?, monto = ?, moneda = ?, medio_pago = ?, es_credito = ?, es_ahorro = ?,
-                          categoria = ?, cat1 = ?, cat2 = ?, fecha = ?, fecha_efectiva = ?, fecha_origen = ?, cotizacion = ?, notas = ?
+                          categoria = ?, cat1 = ?, cat2 = ?, fecha = ?, fecha_efectiva = ?, fecha_origen = ?, cotizacion = ?, notas = ?, icono = ?
                         WHERE tenant_id = ? AND id = ?`)
     .bind(mes, tabDeMes(mes), item, amt, monedaDeTarjeta(card, monedaLocal(env)), card, esCreditoDe(card, p.pagaDespues), esAhorro(categoria) ? 1 : 0,
-      categoria, cats[0] || null, cats[1] || null, fecha, fechaEf, origen, cotiz, notes || null, T, id).run();
+      categoria, cats[0] || null, cats[1] || null, fecha, fechaEf, origen, cotiz, notes || null, icono === undefined ? (r.icono || null) : icono, T, id).run();
   await recalcularMes(env, T, mes);
   if (mes !== r.mes) await recalcularMes(env, T, r.mes);
   return { ok: true, tab: tabDeMes(mes), row: id, written: { item, amount: amt, card, category: categoria, cotizacion: cotiz, notes: p.notes || '', date: p.date || '' } };
