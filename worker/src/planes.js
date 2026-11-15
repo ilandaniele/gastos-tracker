@@ -106,7 +106,7 @@ export async function activarPlan(env, tenant, periodo, pago) {
 // --- página /plan --------------------------------------------------------------------------------------------------
 export const CSP_PLAN = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-const jsonEnScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c')
+export const jsonEnScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c')
   .replace(new RegExp(String.fromCharCode(0x2028), 'g'), '\\u2028')
   .replace(new RegExp(String.fromCharCode(0x2029), 'g'), '\\u2029');
 

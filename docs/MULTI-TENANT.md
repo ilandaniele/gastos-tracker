@@ -74,7 +74,7 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
 - **Personal de Ilan que sigue en el código**: presets de Accesos rápidos (comercios y montos de Uruguay), meta de agua,
   cotización de respaldo de 40 y textos del módulo Argentina. La cotización de monedas distintas de UYU/USD es null si no hay caché.
 - **Límites y abuso**: alta abierta a cualquier mail; sin cuota de filas ni de requests por tenant; sin renovación
-  deslizante de sesión; sin borrado de cuenta/exportación (se pide por mail, ver /privacidad); las IP se guardan ~2 h.
+  deslizante de sesión; las IP se guardan ~2 h. Hecho: `/cuenta` (`src/datos.js`) deja descargar todos los datos en JSON (`GET /api/cuenta/exportar`) y borrar la cuenta (`POST /api/cuenta/borrar`, hay que escribir el mail; en un batch de D1 borra todas las tablas con `tenant_id`, los avisos, las sesiones y los links de login). Se conserva la tabla `pagos` sin mail ni nombre (impuestos y contracargos; su `id_externo` UNIQUE evita que un webhook tardío sume otro período). La cuenta del dueño no se puede borrar por esa vía. Tests: `test/cuenta.test.mjs` (8).
   Hecho: cuota diaria de Gemini por cuenta (`usarGemini` en `rpc/util.js`, fila `gemini_uso` en `settings`; 60 por día,
   600 para `ilan`, 300 para cuentas con plan pro, se cambia con `GEMINI_LIMITE_DIA` y `GEMINI_LIMITE_DIA_PRO`; una foto pesa 4 y un texto 1).
 - **Legal**: `/privacidad` y `/terminos` reescritas para clientes de cualquier país (retención, transferencias, menores,

@@ -12,6 +12,7 @@ import { cargarCfg, cfgDeFila, validarCfg, guardarCfg, cfgPublica } from './tena
 import { hoy } from './rpc/util.js';
 import { ofertas, ofertaDe, preciosDe, proveedorActivo, activarPlan, paginaPlan, CSP_PLAN, PERIODOS, PROVEEDORES } from './planes.js';
 import { crearCheckout, leerWebhook } from './pagos.js';
+import { exportarCuenta, borrarCuenta, paginaCuenta, CSP_CUENTA } from './datos.js';
 import { suscribir, desuscribir, avisoDe, tickPush, pushConfigurado, MANIFEST_APP, SERVICE_WORKER_APP, CSP_AVISOS, paginaAvisos, iconoBytes } from './push.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
@@ -594,7 +595,7 @@ export default {
       // Guardar la config exige una cuenta: sin tenant no hay a quién guardársela.
       if (url.pathname === '/api/config' && req.method === 'POST') return json({ ok: false, error: 'Sin cuenta: iniciá sesión' }, 403);
       if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'No autorizado' }, 401);
-      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding' || url.pathname === '/avisos' || url.pathname === '/plan') return redir('/login');
+      if (url.pathname === '/' || url.pathname === '/app' || url.pathname === '/onboarding' || url.pathname === '/avisos' || url.pathname === '/plan' || url.pathname === '/cuenta') return redir('/login');
       return new Response('No autorizado', { status: 401, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
@@ -694,6 +695,39 @@ export default {
         const { status, ...cuerpo } = r;
         return json(cuerpo, status || 200);
       } catch (e) { console.error('push falló:', String(e && e.message || e)); return json({ ok: false, error: 'No se pudo guardar' }, 500); }
+    }
+
+    // Datos de la cuenta: descargar todo (GET) y borrarla (POST, pide escribir el mail). La cuenta del dueño no se borra.
+    if (url.pathname === '/api/cuenta/exportar' && req.method === 'GET') {
+      const datos = await exportarCuenta(env, T);
+      return new Response(JSON.stringify(datos, null, 2), {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': 'attachment; filename="mis-datos-gastos.json"'
+        }
+      });
+    }
+    if (url.pathname === '/api/cuenta/borrar' && req.method === 'POST') {
+      const origin = req.headers.get('Origin');
+      if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+      if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
+      const txt = await req.text();
+      if (txt.length > 1024) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
+      let b = null;
+      try { b = JSON.parse(txt); } catch { return json({ ok: false, error: 'JSON inválido' }, 400); }
+      try {
+        const r = await borrarCuenta(env, T, b && b.confirmar);
+        if (!r.ok) return json(r, 400);
+      } catch (e) { console.error('borrar cuenta falló:', String(e && e.message || e)); return json({ ok: false, error: 'No se pudo borrar. Probá de nuevo.' }, 500); }
+      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': cookieSesionBorrada } });
+    }
+    if (url.pathname === '/cuenta') {
+      return new Response(paginaCuenta({ email: quien.fila && quien.fila.email || '', dueno: T === ILAN }), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'same-origin', 'Content-Security-Policy': CSP_CUENTA
+        }
+      });
     }
 
     if (req.method !== 'GET') return json({ ok: false, error: 'Solo lectura' }, 405);

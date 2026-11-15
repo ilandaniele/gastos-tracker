@@ -304,9 +304,9 @@ const LEGAL = {
 </ul>
 <p>Estos proveedores pueden procesar datos fuera de tu país. Los usamos porque ofrecen medidas de seguridad adecuadas.</p>
 <h2>Cuánto tiempo los guardamos</h2>
-<p>Mientras tu cuenta esté activa. Si pedís el borrado, eliminamos tu cuenta y todo lo que cargaste; los respaldos técnicos se vacían en un plazo razonable.</p>
+<p>Mientras tu cuenta esté activa. Podés borrarla vos mismo desde <a href="/cuenta">Mi cuenta</a>: se elimina la cuenta y todo lo que cargaste. Los respaldos técnicos se vacían en un plazo razonable. Si hiciste pagos, se conserva el registro del cobro (monto, fecha e identificador del proveedor) sin tu mail ni tu nombre, porque hay que poder rastrearlo por impuestos y reclamos.</p>
 <h2>Tus derechos</h2>
-<p>Podés pedir acceso, copia, corrección o borrado de tus datos en cualquier momento. Aplicamos la Ley 18.331 de Uruguay de protección de datos personales y, cuando corresponda según tu país, tus derechos equivalentes bajo la normativa local. ${c ? 'Escribinos a <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : 'Escribinos respondiendo desde el mail de tu cuenta.'}</p>
+<p>Podés descargar una copia de tus datos y borrar tu cuenta cuando quieras desde <a href="/cuenta">Mi cuenta</a>. Para acceso, corrección u otro pedido, escribinos en cualquier momento. Aplicamos la Ley 18.331 de Uruguay de protección de datos personales y, cuando corresponda según tu país, tus derechos equivalentes bajo la normativa local. ${c ? 'Escribinos a <a href="mailto:' + esc(c) + '">' + esc(c) + '</a>.' : 'Escribinos respondiendo desde el mail de tu cuenta.'}</p>
 <h2>Seguridad</h2>
 <p>El acceso es por link de un solo uso o Google, sin contraseñas que filtrar. Cada cuenta ve solo sus propios datos. Ningún sistema es infalible: si hubiera un incidente que te afecte, te avisaremos.</p>
 <h2>Menores</h2>
