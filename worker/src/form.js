@@ -28,6 +28,7 @@ export function renderForm(hoy, cfg) {
       moneda: cfg.moneda || 'UYU',
       medios: arr(cfg.medios, null),
       modulos: cfg.modulos || {},
+      dueno: !!cfg.dueno,
     };
     // Función como reemplazo: así un "$&" o "$1" dentro de la config no se interpreta.
     html = html.replace('/*TENANT_CFG*/null', () => jsonEnScript(publico));

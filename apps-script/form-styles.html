@@ -31,7 +31,8 @@
   .catdd-panel { border: 1px solid #0f766e; border-top: 0; border-radius: 0 0 8px 8px; background: #fff; padding: 6px; }
   .catdd-panel[hidden] { display: none; }
   .catdd-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 2px 4px; }
-  .catdd .catdd-op { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 0; padding: 0 8px; border-radius: 6px;
+  .catdd .catdd-op { display: flex; align-items: center; gap: 10px; min-height: 44px; min-width: 0; margin: 0; padding: 2px 8px; border-radius: 6px;
+    line-height: 1.25; overflow-wrap: anywhere; /* "Acciones/Bonos/Ahorros" no tiene espacios y se cortaba */
     font-size: 15px; font-weight: 500; color: #1a1a1a; text-transform: none; letter-spacing: 0; cursor: pointer; }
   .catdd .catdd-op:active { background: #f2f4f7; }
   .catdd .catdd-op input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: #0f766e;

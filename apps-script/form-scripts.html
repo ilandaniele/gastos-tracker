@@ -62,6 +62,10 @@
     var barra = document.getElementById('homeCuenta');
     if (barra && TENANT) {
       barra.hidden = false;
+      // La cuenta del dueño no paga y recibe los avisos por su PWA de siempre: sin esos dos links.
+      if (TENANT.dueno) {
+        ['avisosLink', 'planLink'].forEach(function(id) { quitar(document.getElementById(id)); });
+      }
       var salir = document.getElementById('logoutBtn');
       if (salir) salir.addEventListener('click', function() {
         var st = document.getElementById('homeCuentaSt');

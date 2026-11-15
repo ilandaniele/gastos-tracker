@@ -112,7 +112,8 @@ export function cfgDeFila(T, fila) {
     medios: base.medios, categorias: base.categorias, catRules: base.catRules, catsSociales: base.catsSociales,
     modulos: base.modulos,
     onboarding_listo: esIlan && !fila ? true : !!(fila && fila.onboarding_listo),
-    plan: planEfectivo(fila), planHasta: fila && fila.plan_hasta || null // no sale en cfgPublica
+    plan: planEfectivo(fila), planHasta: fila && fila.plan_hasta || null, // no sale en cfgPublica
+    dueno: esIlan // la cuenta del dueño: no paga y sus avisos van por la PWA propia
   };
   if (guardada && typeof guardada === 'object') {
     if (listaDeStrings(guardada.medios)) cfg.medios = guardada.medios;

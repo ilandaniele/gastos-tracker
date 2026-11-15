@@ -24,14 +24,24 @@ const shim = `<script>
         if (typeof nombre !== 'string' || nombre === 'then') return undefined;
         return function () {
           var args = Array.prototype.slice.call(arguments);
+          // Sin tope de tiempo, una red colgada deja el formulario en "Guardando..." para siempre. Escanear un ticket con
+          // Gemini es lo más lento: tiene más margen.
+          var limite = nombre === 'scanTicket' ? 90000 : 40000;
+          var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+          var reloj = ctl ? setTimeout(function () { ctl.abort(); }, limite) : null;
           fetch('/api/rpc/' + encodeURIComponent(nombre), {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ args: args })
+            body: JSON.stringify({ args: args }),
+            signal: ctl ? ctl.signal : undefined
           }).then(function (r) { return r.json(); }).then(function (r) {
-            if (ok) ok(r, user);
-          }).catch(function (e) {
-            if (fail) fail(e && e.message ? e : new Error(String(e)), user);
+            clearTimeout(reloj);
+            // Si el handler de éxito tira, NO se llama al de error: el pedido salió bien y avisar de un fallo invita a repetirlo.
+            try { if (ok) ok(r, user); } catch (e) { console.error('rpc ' + nombre + ' (handler)', e); }
+          }, function (e) {
+            clearTimeout(reloj);
+            var err = e && e.name === 'AbortError' ? new Error('Tardó demasiado. Revisá tu conexión y mirá si el movimiento quedó guardado antes de repetirlo.') : (e && e.message ? e : new Error(String(e)));
+            if (fail) fail(err, user);
             else console.error('rpc ' + nombre, e);
           });
         };
