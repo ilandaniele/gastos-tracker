@@ -3010,7 +3010,7 @@
     var box = ahoEl('ahoList');
     if (!box) return;
     if (!AHO.posiciones.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Todavía no cargaste ningún ahorro</div>';
+      box.innerHTML = '<div class="vacio-txt">Todavía no cargaste ningún ahorro</div>';
       return;
     }
     var html = '';
@@ -3040,7 +3040,7 @@
     var box = ahoEl('ahoMovs');
     if (!box) return;
     if (!AHO.movimientos.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin movimientos</div>';
       return;
     }
     var html = '';
@@ -5133,7 +5133,7 @@
     renderAgua();
     if (!box) return;
     if (!H.waters.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin tomas registradas este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin tomas registradas este día</div>';
       return;
     }
     var html = '';
@@ -5243,7 +5243,7 @@
     var box = hEl('ejerList');
     if (!box) return;
     if (!n) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin ejercicio registrado este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin ejercicio registrado este día</div>';
       return;
     }
     var html = '';
@@ -5390,7 +5390,7 @@
     var box = hEl('mealList');
     if (!box) return;
     if (!H.meals.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin comidas registradas este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin comidas registradas este día</div>';
       return;
     }
     var html = '';
@@ -5960,17 +5960,17 @@
     if ((t.deudaUsd || 0) < 0) {
       set('argDeuda', fmtUsd(Math.abs(t.deudaUsd)));
       if (lblD) lblD.textContent = 'Le di de más';
-      if (dd) dd.style.color = '#15803d';
+      if (dd) dd.classList.add('deuda-ok');
     } else {
       set('argDeuda', fmtUsd(t.deudaUsd));
       if (lblD) lblD.textContent = 'Le debo a mamá';
-      if (dd) dd.style.color = '';
+      if (dd) dd.classList.remove('deuda-ok');
     }
 
     var box = hEl('argList');
     if (!box) return;
     if (!ARG.entradas.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos en este mes</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin movimientos en este mes</div>';
       return;
     }
     var html = '';

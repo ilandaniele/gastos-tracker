@@ -1119,6 +1119,11 @@
     .hmodal-box { transform: none; }
   }
 
+    /* Textos que antes llevaban el color escrito en línea: como clases, el modo oscuro los convierte solo. */
+    .mut-sm { font-size: 12px; color: #667085; }
+    .vacio-txt { color: #667085; font-size: 13px; padding: 6px 2px; }
+    .argrow.deuda b.deuda-ok { color: #15803d; }
+
   /* ===== Modo oscuro (generado por worker/scripts/dark-css.mjs; no editar a mano) ===== */
   :root { color-scheme: light dark; }
   @media (prefers-color-scheme: dark) {
@@ -1437,6 +1442,9 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
 .hmeal-row:hover { background: #1e1e1e; }
 }
 .mes-sec.sin .mes-dia-n { color: #aab3c1; }
+.mut-sm { color: #959cab; }
+.vacio-txt { color: #959cab; }
+.argrow.deuda b.deuda-ok { color: #96e6b4; }
   }
 </style>
 </head><body>
@@ -2248,13 +2256,13 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     <div class="hcard-title">💳 Disponible este mes <span id="ahoSaldoMes" class="hhint"></span></div>
     <div id="ahoSaldoUyu" class="ahobreak" hidden>
       <div><span>$ disponible</span><b id="ahoSaldoUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span data-ccy>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span data-ccy>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
+      <div class="mut-sm"><span data-ccy>Gastos UYU</span><b id="ahoGastosUyuVal">$ 0</b></div>
+      <div class="mut-sm"><span data-ccy>Ingresos UYU</span><b id="ahoIngresosUyuVal">$ 0</b></div>
     </div>
     <div id="ahoSaldoUsd" class="ahobreak" hidden>
       <div><span>US$ disponible</span><b id="ahoSaldoUsdVal">US$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Gastos USD</span><b id="ahoGastosUsdVal">US$ 0</b></div>
-      <div style="font-size:12px;color:#667085"><span>Ingresos USD</span><b id="ahoIngresosUsdVal">US$ 0</b></div>
+      <div class="mut-sm"><span>Gastos USD</span><b id="ahoGastosUsdVal">US$ 0</b></div>
+      <div class="mut-sm"><span>Ingresos USD</span><b id="ahoIngresosUsdVal">US$ 0</b></div>
     </div>
   </div>
 
@@ -5619,7 +5627,7 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     var box = ahoEl('ahoList');
     if (!box) return;
     if (!AHO.posiciones.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Todavía no cargaste ningún ahorro</div>';
+      box.innerHTML = '<div class="vacio-txt">Todavía no cargaste ningún ahorro</div>';
       return;
     }
     var html = '';
@@ -5649,7 +5657,7 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     var box = ahoEl('ahoMovs');
     if (!box) return;
     if (!AHO.movimientos.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin movimientos</div>';
       return;
     }
     var html = '';
@@ -7742,7 +7750,7 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     renderAgua();
     if (!box) return;
     if (!H.waters.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin tomas registradas este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin tomas registradas este día</div>';
       return;
     }
     var html = '';
@@ -7852,7 +7860,7 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     var box = hEl('ejerList');
     if (!box) return;
     if (!n) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin ejercicio registrado este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin ejercicio registrado este día</div>';
       return;
     }
     var html = '';
@@ -7999,7 +8007,7 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     var box = hEl('mealList');
     if (!box) return;
     if (!H.meals.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin comidas registradas este día</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin comidas registradas este día</div>';
       return;
     }
     var html = '';
@@ -8569,17 +8577,17 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     if ((t.deudaUsd || 0) < 0) {
       set('argDeuda', fmtUsd(Math.abs(t.deudaUsd)));
       if (lblD) lblD.textContent = 'Le di de más';
-      if (dd) dd.style.color = '#15803d';
+      if (dd) dd.classList.add('deuda-ok');
     } else {
       set('argDeuda', fmtUsd(t.deudaUsd));
       if (lblD) lblD.textContent = 'Le debo a mamá';
-      if (dd) dd.style.color = '';
+      if (dd) dd.classList.remove('deuda-ok');
     }
 
     var box = hEl('argList');
     if (!box) return;
     if (!ARG.entradas.length) {
-      box.innerHTML = '<div style="color:#667085;font-size:13px;padding:6px 2px">Sin movimientos en este mes</div>';
+      box.innerHTML = '<div class="vacio-txt">Sin movimientos en este mes</div>';
       return;
     }
     var html = '';
