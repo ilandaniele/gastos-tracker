@@ -51,13 +51,14 @@ export function proveedorActivo(env, prov) {
   return false;
 }
 
-// Moneda y monto a cobrar: la de la cuenta si hay precio en esa moneda, si no USD. Mercado Pago exige moneda propia.
-export function ofertaDe(precios, periodo, prov, monedaCuenta) {
+// Moneda y monto a cobrar: la de la cuenta si hay precio en esa moneda, si no USD. Mercado Pago exige moneda propia, y con
+// la API de Orders cobra siempre en la moneda de SU cuenta (variable MP_MONEDA, ej. UYU): si está, solo se ofrece en esa.
+export function ofertaDe(precios, periodo, prov, monedaCuenta, monedaMp) {
   const t = precios[periodo];
   if (!t) return null;
   const mon = t[monedaCuenta] ? monedaCuenta : (t.USD ? 'USD' : null);
   if (!mon) return null;
-  if (prov === 'mercadopago' && !MONEDAS_MP.includes(mon)) return null;
+  if (prov === 'mercadopago' && (!MONEDAS_MP.includes(mon) || (monedaMp && mon !== monedaMp))) return null;
   return { moneda: mon, monto: t[mon] };
 }
 
@@ -68,7 +69,7 @@ export function ofertas(env, monedaCuenta) {
   for (const p of Object.keys(PERIODOS)) {
     for (const prov of PROVEEDORES) {
       if (!proveedorActivo(env, prov)) continue;
-      const o = ofertaDe(precios, p, prov, monedaCuenta);
+      const o = ofertaDe(precios, p, prov, monedaCuenta, String(env.MP_MONEDA || '').toUpperCase());
       if (o) (out[p] = out[p] || {})[prov] = o;
     }
   }

@@ -673,7 +673,7 @@ export default {
       const prov = b && b.proveedor, periodo = b && b.periodo;
       if (!PROVEEDORES.includes(prov) || prov === 'manual' || !PERIODOS[periodo] || !proveedorActivo(env, prov)) return json({ ok: false, error: 'Medio de pago no disponible' }, 400);
       const cfg = await cfgDeReq();
-      const oferta = ofertaDe(preciosDe(env), periodo, prov, cfg.moneda);
+      const oferta = ofertaDe(preciosDe(env), periodo, prov, cfg.moneda, String(env.MP_MONEDA || '').toUpperCase());
       if (!oferta) return json({ ok: false, error: 'No hay precio para ese período' }, 400);
       const r = await crearCheckout(env, prov, { tenant: T, email: quien.fila && quien.fila.email || '', periodo, oferta, base: env.APP_URL || url.origin });
       return json(r, r.ok ? 200 : 502);

@@ -135,8 +135,15 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
   - Stripe: secretos `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET`. En el dashboard de Stripe crear un webhook a
     `https://gastos-app.ilandaniele.workers.dev/api/pagos/webhook/stripe` con los eventos `checkout.session.completed` y
     `checkout.session.async_payment_succeeded`; el "signing secret" es `STRIPE_WEBHOOK_SECRET`.
-  - Mercado Pago: secretos `MP_ACCESS_TOKEN` y `MP_WEBHOOK_SECRET` (la clave secreta de Webhooks en "Tus integraciones").
-    Configurar la notificación a `.../api/pagos/webhook/mercadopago` para el evento "Pagos".
+  - Mercado Pago (API de Orders, Checkout Pro): en developers → Integraciones, crear la aplicación con solución "Checkout Pro" y
+    tipo de API "API de Orders". Secretos `MP_ACCESS_TOKEN` (credenciales de producción) y `MP_WEBHOOK_SECRET` (clave secreta de
+    Webhooks). Webhook a `.../api/pagos/webhook/mercadopago` con el evento "Order" (Orders no lleva `notification_url` en el
+    pedido: la URL sale de esa configuración). Variable `MP_MONEDA` (ej. `UYU`): Orders no tiene campo de moneda y cobra en la de
+    la cuenta de Mercado Pago, así que Mercado Pago solo se ofrece cuando el precio de la cuenta está en esa moneda; además el
+    checkout aborta si la orden vuelve con otra moneda. El Worker crea `POST /v1/orders` (type online, processing_mode manual,
+    `X-Idempotency-Key`, `payer.email` obligatorio), redirige a `checkout_url` y al aviso (`type=order`) consulta
+    `GET /v1/orders/{id}`: `status = processed` es pago aprobado. `external_reference` es `<cuenta>_<periodo>` (Orders no admite `|`);
+    se siguen leyendo las referencias viejas con `|` y los avisos `type=payment` de la API de preferencias.
   - Manual: variable `PLAN_MANUAL_INFO` (datos de la cuenta bancaria que se muestran en `/plan`) y `CONTACT_EMAIL`. Al recibir
     la transferencia: `curl -X POST https://gastos-app.ilandaniele.workers.dev/api/plan/activar -H "X-Sync-Key: <APP_KEY>"
     -H "Content-Type: application/json" -d '{"email":"cliente@mail.com","periodo":"mes","ref":"<comprobante único>"}'`.

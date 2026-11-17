@@ -31,11 +31,13 @@ const apiBase = (env, nombre, real) => (env.DEV_MOSTRAR_LINK && env[nombre]) || 
 // Monedas sin centavos en Stripe (el monto va sin multiplicar por 100).
 const SIN_DECIMALES = ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'];
 
-const REF_SEP = '|';
+// Mercado Pago (Orders) solo admite letras, números, "-" y "_" en external_reference (máx 64). Las preferencias viejas
+// usaban "|": se siguen leyendo para no perder un pago que estaba en vuelo.
+const REF_SEP = '_';
 const armarRef = (tenant, periodo) => tenant + REF_SEP + periodo;
 function leerRef(ref) {
   const s = String(ref || '');
-  const i = s.lastIndexOf(REF_SEP);
+  const i = Math.max(s.lastIndexOf(REF_SEP), s.lastIndexOf('|'));
   if (i < 1) return null;
   const periodo = s.slice(i + 1);
   return PERIODOS[periodo] ? { tenant: s.slice(0, i), periodo } : null;
@@ -106,29 +108,41 @@ async function stripeWebhook(env, req, texto) {
 
 // --- Mercado Pago ------------------------------------------------------------------------------------------------
 async function mpCheckout(env, { tenant, email, periodo, oferta, base }) {
+  // Orders exige payer.email y no tiene campo de moneda: cobra en la de la cuenta de Mercado Pago.
+  if (!email) return { ok: false, error: 'No se pudo iniciar el pago con Mercado Pago' };
+  const monto = oferta.monto.toFixed(2);
   const body = {
-    items: [{ title: 'Gastos Pro · ' + ETIQUETA_PERIODO[periodo], quantity: 1, unit_price: oferta.monto, currency_id: oferta.moneda }],
+    type: 'online',
+    processing_mode: 'manual',
+    capture_mode: 'automatic_async',
+    total_amount: monto,
     external_reference: armarRef(tenant, periodo),
-    back_urls: { success: base + '/plan?pago=ok', failure: base + '/plan?pago=cancelado', pending: base + '/plan?pago=ok' },
-    auto_return: 'approved',
-    notification_url: base + '/api/pagos/webhook/mercadopago'
+    payer: { email },
+    config: { online: { success_url: base + '/plan?pago=ok', failure_url: base + '/plan?pago=cancelado', pending_url: base + '/plan?pago=ok', auto_return: 'approved' } },
+    items: [{ title: 'Gastos Pro · ' + ETIQUETA_PERIODO[periodo], quantity: 1, unit_price: monto }]
   };
-  if (email) body.payer = { email };
-  const r = await pedirJson(apiBase(env, 'MP_API_BASE', 'https://api.mercadopago.com') + '/checkout/preferences', {
+  const r = await pedirJson(apiBase(env, 'MP_API_BASE', 'https://api.mercadopago.com') + '/v1/orders', {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + env.MP_ACCESS_TOKEN, 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer ' + env.MP_ACCESS_TOKEN, 'Content-Type': 'application/json', 'X-Idempotency-Key': crypto.randomUUID() },
     body: JSON.stringify(body)
   });
-  const url = r.json && (r.json.init_point || r.json.sandbox_init_point);
+  const url = r.json && r.json.checkout_url;
   if (!r.ok || typeof url !== 'string') {
     console.error('mercadopago checkout falló:', r.status);
+    return { ok: false, error: 'No se pudo iniciar el pago con Mercado Pago' };
+  }
+  // Si la cuenta de Mercado Pago cobra en otra moneda que la del precio, no se manda al cliente a pagar un monto equivocado.
+  const mon = String(r.json.currency || '').toUpperCase();
+  if (mon && mon !== oferta.moneda) {
+    console.error('mercadopago: la cuenta cobra en', mon, 'y el precio es en', oferta.moneda);
     return { ok: false, error: 'No se pudo iniciar el pago con Mercado Pago' };
   }
   return { ok: true, url };
 }
 
-// Aviso de Mercado Pago: POST con ?data.id=<id>&type=payment. x-signature = "ts=<ms>,v1=<hex>" sobre el manifiesto
-// "id:<data.id en minúscula>;request-id:<x-request-id>;ts:<ts>;". Con la firma buena se consulta el pago a la API.
+// Aviso de Mercado Pago: POST con ?data.id=<id>&type=order (Orders) o type=payment (API vieja de preferencias).
+// x-signature = "ts=<ms>,v1=<hex>" sobre el manifiesto "id:<data.id en minúscula>;request-id:<x-request-id>;ts:<ts>;".
+// Con la firma buena se consulta la orden (o el pago) a la API: el estado se lee de ahí, no del aviso.
 async function mpWebhook(env, req, texto, url) {
   const cab = req.headers.get('x-signature') || '';
   const reqId = req.headers.get('x-request-id') || '';
@@ -141,11 +155,28 @@ async function mpWebhook(env, req, texto, url) {
   const esperada = await hmacHex(env.MP_WEBHOOK_SECRET, 'id:' + dataId.toLowerCase() + ';request-id:' + reqId + ';ts:' + ts + ';');
   if (!iguales(v1, esperada)) return { ok: false, status: 400, error: 'Firma inválida' };
   // Los avisos de otros temas (merchant_order, etc.) se confirman sin hacer nada.
-  const tipo = url.searchParams.get('type') || url.searchParams.get('topic') || '';
+  let tipo = url.searchParams.get('type') || url.searchParams.get('topic') || '';
+  if (!tipo) { try { const b = JSON.parse(texto); tipo = String(b && b.type || ''); } catch { tipo = ''; } }
+  const base = apiBase(env, 'MP_API_BASE', 'https://api.mercadopago.com');
+  const auth = { Authorization: 'Bearer ' + env.MP_ACCESS_TOKEN };
+  if (tipo === 'order') {
+    const r = await pedirJson(base + '/v1/orders/' + encodeURIComponent(dataId), { headers: auth });
+    if (!r.ok || !r.json) return { ok: false, status: 502, error: 'No se pudo confirmar el pago' }; // MP reintenta
+    const o = r.json;
+    if (o.status !== 'processed') return { ok: true, evento: { ignorar: true } };
+    const ref = leerRef(o.external_reference);
+    if (!ref) return { ok: true, evento: { ignorar: true } };
+    const pagado = Number(o.total_paid_amount);
+    return {
+      ok: true,
+      evento: {
+        tenant: ref.tenant, periodo: ref.periodo, proveedor: 'mercadopago', idExterno: 'mercadopago:order:' + String(o.id || dataId),
+        monto: Number.isFinite(pagado) ? pagado : null, moneda: o.currency || o.currency_id || null
+      }
+    };
+  }
   if (tipo && tipo !== 'payment') return { ok: true, evento: { ignorar: true } };
-  const r = await pedirJson(apiBase(env, 'MP_API_BASE', 'https://api.mercadopago.com') + '/v1/payments/' + encodeURIComponent(dataId), {
-    headers: { Authorization: 'Bearer ' + env.MP_ACCESS_TOKEN }
-  });
+  const r = await pedirJson(base + '/v1/payments/' + encodeURIComponent(dataId), { headers: auth });
   if (!r.ok || !r.json) return { ok: false, status: 502, error: 'No se pudo confirmar el pago' }; // MP reintenta
   const p = r.json;
   if (p.status !== 'approved') return { ok: true, evento: { ignorar: true } };

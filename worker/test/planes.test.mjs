@@ -4,7 +4,7 @@
 // Necesita un `wrangler dev --local` levantado contra una base local con las migraciones 0001-0009, con:
 //   --var VIEW_KEY:y --var APP_KEY:x --var ACCESS_AUD:x --var DEV_MOSTRAR_LINK:1
 //   --var STRIPE_SECRET_KEY:sk_test_falsa --var STRIPE_WEBHOOK_SECRET:whsec_falsa
-//   --var MP_ACCESS_TOKEN:mp_falso --var MP_WEBHOOK_SECRET:mp_secreto_falso
+//   --var MP_ACCESS_TOKEN:mp_falso --var MP_WEBHOOK_SECRET:mp_secreto_falso --var MP_MONEDA:ARS
 //   --var STRIPE_API_BASE:http://127.0.0.1:<PUERTO_FALSO> --var MP_API_BASE:http://127.0.0.1:<PUERTO_FALSO>
 //   --var PLAN_MANUAL_INFO:'Transferí a la cuenta 123' --var CONTACT_EMAIL:contacto@ejemplo.com
 //   --var 'PLAN_PRECIOS:{"mes":{"USD":4.99,"ARS":6000,"UYU":199},"anio":{"USD":49,"ARS":60000}}'
@@ -29,7 +29,7 @@ const ILAN = 'vk=y';
 const hmac = (s, txt) => crypto.createHmac('sha256', s).update(txt).digest('hex');
 
 // ------------------------------------------------------------------ servidor falso de Stripe / Mercado Pago
-const visto = { stripe: [], mpPref: [], mpPagos: {} };
+const visto = { stripe: [], mpPref: [], mpPagos: {}, mpOrdenes: {}, mpMoneda: 'ARS' };
 const falso = http.createServer((req, res) => {
   let cuerpo = '';
   req.on('data', (c) => { cuerpo += c; });
@@ -39,9 +39,14 @@ const falso = http.createServer((req, res) => {
       visto.stripe.push({ auth: req.headers.authorization, form: new URLSearchParams(cuerpo) });
       return json({ id: 'cs_test_1', url: 'https://checkout.stripe.example/c/cs_test_1' });
     }
-    if (req.method === 'POST' && req.url === '/checkout/preferences') {
-      visto.mpPref.push({ auth: req.headers.authorization, body: JSON.parse(cuerpo) });
-      return json({ id: 'pref1', init_point: 'https://www.mercadopago.example/checkout/pref1' });
+    if (req.method === 'POST' && req.url === '/v1/orders') {
+      visto.mpPref.push({ auth: req.headers.authorization, idem: req.headers['x-idempotency-key'], body: JSON.parse(cuerpo) });
+      return json({ id: 'ORDTEST1', status: 'created', currency: visto.mpMoneda, checkout_url: 'https://www.mercadopago.example/checkout/ORDTEST1' }, 201);
+    }
+    const mo = req.url.match(/^\/v1\/orders\/([\w-]+)$/);
+    if (req.method === 'GET' && mo) {
+      const o = visto.mpOrdenes[mo[1]];
+      return o ? json(o) : json({ message: 'not found' }, 404);
     }
     const m = req.url.match(/^\/v1\/payments\/([\w-]+)$/);
     if (req.method === 'GET' && m) {
@@ -168,15 +173,27 @@ await t('checkout Stripe: el monto sale del servidor (ARS 6000 -> 600000 centavo
   assert.ok(tenantA && tenantA !== 'ilan');
 });
 
-await t('checkout Mercado Pago: preferencia con external_reference "<cuenta>|<periodo>", notification_url y monto del servidor', async () => {
+await t('checkout Mercado Pago (Orders): external_reference "<cuenta>_<periodo>", payer.email, retornos y monto del servidor', async () => {
   const r = await post('/api/pagos/checkout', { proveedor: 'mercadopago', periodo: 'anio' }, { Cookie: A });
   assert.equal(r.status, 200);
-  assert.equal((await r.json()).url, 'https://www.mercadopago.example/checkout/pref1');
+  assert.equal((await r.json()).url, 'https://www.mercadopago.example/checkout/ORDTEST1');
   const v = visto.mpPref.at(-1);
   assert.equal(v.auth, 'Bearer mp_falso');
-  assert.equal(v.body.items[0].unit_price, 60000); assert.equal(v.body.items[0].currency_id, 'ARS');
-  assert.equal(v.body.external_reference, tenantA + '|anio');
-  assert.equal(v.body.notification_url, B + '/api/pagos/webhook/mercadopago');
+  assert.match(v.idem, /^[0-9a-f-]{36}$/);
+  assert.equal(v.body.type, 'online'); assert.equal(v.body.processing_mode, 'manual');
+  assert.equal(v.body.total_amount, '60000.00'); assert.equal(v.body.items[0].unit_price, '60000.00');
+  assert.equal(v.body.payer.email, 'plan.a@ejemplo.com');
+  assert.equal(v.body.external_reference, tenantA + '_anio');
+  assert.match(v.body.external_reference, /^[A-Za-z0-9_-]{1,64}$/);
+  assert.equal(v.body.config.online.success_url, B + '/plan?pago=ok');
+  assert.equal(v.body.config.online.auto_return, 'approved');
+});
+
+await t('checkout Mercado Pago: si la cuenta de MP cobra en otra moneda no manda al cliente a pagar', async () => {
+  visto.mpMoneda = 'UYU';
+  const r = await post('/api/pagos/checkout', { proveedor: 'mercadopago', periodo: 'mes' }, { Cookie: A });
+  visto.mpMoneda = 'ARS';
+  assert.equal(r.status === 200 ? (await r.json()).ok : false, false);
 });
 
 await t('checkout: Mercado Pago no se ofrece si la moneda de la cuenta cae a USD (MP no cobra USD)', async () => {
@@ -235,9 +252,9 @@ await t('webhook Stripe: sin pagar, otro tipo de evento, período inválido o cu
 });
 
 // ------------------------------------------------------------------ webhook Mercado Pago
-const hookMp = (id, { tipo = 'payment', firmaOk = true, reqId = 'req-123', ts = String(Date.now()) } = {}) => {
+const hookMp = (id, { tipo = 'order', firmaOk = true, reqId = 'req-123', ts = String(Date.now()) } = {}) => {
   const v1 = firmaOk ? hmac(MP_SECRET, `id:${String(id).toLowerCase()};request-id:${reqId};ts:${ts};`) : 'f'.repeat(64);
-  return post(`/api/pagos/webhook/mercadopago?data.id=${id}&type=${tipo}`, { action: 'payment.updated', data: { id: String(id) } }, { 'x-signature': `ts=${ts},v1=${v1}`, 'x-request-id': reqId });
+  return post(`/api/pagos/webhook/mercadopago?data.id=${id}&type=${tipo}`, { action: tipo + '.updated', type: tipo, data: { id: String(id) } }, { 'x-signature': `ts=${ts},v1=${v1}`, 'x-request-id': reqId });
 };
 let hastaMp;
 await t('webhook Mercado Pago: firma mala 400; pago aprobado (confirmado por API) activa; reintento no suma', async () => {
@@ -245,25 +262,34 @@ await t('webhook Mercado Pago: firma mala 400; pago aprobado (confirmado por API
   const ref = await post('/api/pagos/checkout', { proveedor: 'mercadopago', periodo: 'mes' }, { Cookie: B2 });
   assert.equal(ref.status, 200);
   const externa = visto.mpPref.at(-1).body.external_reference;
-  visto.mpPagos['5001'] = { id: 5001, status: 'approved', external_reference: externa, transaction_amount: 6000, currency_id: 'ARS' };
-  assert.equal((await hookMp(5001, { firmaOk: false })).status, 400);
+  visto.mpOrdenes['ORD5001'] = { id: 'ORD5001', status: 'processed', status_detail: 'accredited', external_reference: externa, total_amount: '6000.00', total_paid_amount: '6000.00', currency: 'ARS' };
+  assert.equal((await hookMp('ORD5001', { firmaOk: false })).status, 400);
   assert.equal((await estadoPlan(B2)).E.plan, 'gratis');
-  const r = await hookMp(5001); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ok: true, aplicado: true });
+  const r = await hookMp('ORD5001'); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ok: true, aplicado: true });
   const { E } = await estadoPlan(B2); assert.equal(E.plan, 'pro'); hastaMp = E.hasta;
-  assert.deepEqual(await (await hookMp(5001)).json(), { ok: true, aplicado: false });
+  assert.deepEqual(await (await hookMp('ORD5001')).json(), { ok: true, aplicado: false });
   assert.equal((await estadoPlan(B2)).E.hasta, hastaMp);
+});
+
+await t('webhook Mercado Pago: el aviso viejo de pago (API de preferencias) sigue funcionando', async () => {
+  const B4 = await cuentaNueva('plan.mp3@ejemplo.com', CFG_ARS);
+  await post('/api/pagos/checkout', { proveedor: 'mercadopago', periodo: 'mes' }, { Cookie: B4 });
+  const externa = visto.mpPref.at(-1).body.external_reference.replace(/_mes$/, '|mes'); // referencia con el separador viejo
+  visto.mpPagos['6001'] = { id: 6001, status: 'approved', external_reference: externa, transaction_amount: 6000, currency_id: 'ARS' };
+  const r = await hookMp(6001, { tipo: 'payment' }); assert.deepEqual(await r.json(), { ok: true, aplicado: true });
+  assert.equal((await estadoPlan(B4)).E.plan, 'pro');
 });
 
 await t('webhook Mercado Pago: pago pendiente o de otro tema se ignora; pago inexistente = 502 (MP reintenta)', async () => {
   const B3 = await cuentaNueva('plan.mp2@ejemplo.com', CFG_ARS);
   await post('/api/pagos/checkout', { proveedor: 'mercadopago', periodo: 'mes' }, { Cookie: B3 });
   const externa = visto.mpPref.at(-1).body.external_reference;
-  visto.mpPagos['5002'] = { id: 5002, status: 'pending', external_reference: externa, transaction_amount: 6000, currency_id: 'ARS' };
-  visto.mpPagos['5003'] = { id: 5003, status: 'approved', external_reference: 'sin-separador', transaction_amount: 6000, currency_id: 'ARS' };
-  assert.equal((await (await hookMp(5002)).json()).ignorado, true);
-  assert.equal((await (await hookMp(5003)).json()).ignorado, true);
-  assert.equal((await (await hookMp(5002, { tipo: 'merchant_order' })).json()).ignorado, true);
-  assert.equal((await hookMp(9999)).status, 502);
+  visto.mpOrdenes['ORD5002'] = { id: 'ORD5002', status: 'action_required', external_reference: externa, total_amount: '6000.00', total_paid_amount: '0.00', currency: 'ARS' };
+  visto.mpOrdenes['ORD5003'] = { id: 'ORD5003', status: 'processed', external_reference: 'sinseparador', total_amount: '6000.00', total_paid_amount: '6000.00', currency: 'ARS' };
+  assert.equal((await (await hookMp('ORD5002')).json()).ignorado, true);
+  assert.equal((await (await hookMp('ORD5003')).json()).ignorado, true);
+  assert.equal((await (await hookMp('ORD5002', { tipo: 'merchant_order' })).json()).ignorado, true);
+  assert.equal((await hookMp('ORD9999')).status, 502);
   assert.equal((await estadoPlan(B3)).E.plan, 'gratis');
 });
 
