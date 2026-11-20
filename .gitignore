@@ -20,3 +20,6 @@ apps-script/.clasp.json
 
 # Secretos locales (APP_KEY, Access, OAuth, claves VAPID viejas)
 secretos-locales/
+
+# Salida de playwright-cli
+worker/.playwright-cli/
