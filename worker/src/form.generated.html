@@ -733,13 +733,15 @@
   /* Sin el módulo Argentina quedan 5 tarjetas: la última ocupa el ancho entero. */
   .home-grid > .home-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
   /* Barra de cuenta (Ajustes / Salir), discreta al pie de la home. */
-  .home-cuenta { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+  /* Grilla de 2 columnas iguales (hasta 5 accesos): ninguno se aprieta ni se parte; si queda uno suelto ocupa el ancho entero. */
+  .home-cuenta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
   .home-cuenta[hidden] { display: none; }
-  .home-cuenta a, .home-cuenta button { display: inline-flex; align-items: center; justify-content: center;
-    width: auto; min-height: 44px; min-width: 44px; margin: 0; padding: 0 16px; border-radius: 10px;
+  .home-cuenta > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .home-cuenta a, .home-cuenta button { display: flex; align-items: center; justify-content: center;
+    width: auto; min-height: 44px; margin: 0; padding: 0 12px; border-radius: 10px; white-space: nowrap;
     border: 1px solid #e5e5e5; background: #fff; color: #475467; font-size: 14px; font-weight: 600;
-    text-decoration: none; cursor: pointer; }
-  .home-cuenta a:active, .home-cuenta button:active { background: #f2f4f7; }
+    text-decoration: none; cursor: pointer; transition: transform 0.16s ease-out, background-color 0.16s ease-out; }
+  .home-cuenta a:active, .home-cuenta button:active { background: #f2f4f7; transform: scale(0.97); }
   .home-cuenta button:disabled { opacity: 0.6; }
   .home-cuenta-st { text-align: center; font-size: 13px; color: #b42318; margin-top: 8px; }
   .home-cuenta-st:empty { display: none; }
@@ -2701,10 +2703,8 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     var barra = document.getElementById('homeCuenta');
     if (barra && TENANT) {
       barra.hidden = false;
-      // La cuenta del dueño no paga y recibe los avisos por su PWA de siempre: sin esos dos links.
-      if (TENANT.dueno) {
-        ['avisosLink', 'planLink'].forEach(function(id) { quitar(document.getElementById(id)); });
-      }
+      // La cuenta del dueño no paga: sin el link de Plan (los avisos sí los activa desde acá).
+      if (TENANT.dueno) quitar(document.getElementById('planLink'));
       var salir = document.getElementById('logoutBtn');
       if (salir) salir.addEventListener('click', function() {
         var st = document.getElementById('homeCuentaSt');
