@@ -13,7 +13,7 @@ https://script.google.com/macros/s/AKfycbw_Nom1eonYjrZvHIAixp6YzEhKfYqGjl5qfUrdd
 La webapp exige una clave: **toda** llamada lleva `&k=<clave>` al final (o
 `?k=<clave>` si es el único parámetro). Sin eso devuelve
 `{"ok":false,"error":"No autorizado"}` y no escribe nada. La clave está en
-`pwa/.secrets-local.md` y hay que pegarla acá reemplazando `<clave>` antes de
+`secretos-locales/.secrets-local.md` y hay que pegarla acá reemplazando `<clave>` antes de
 usar estas instrucciones — no se commitea al repo.
 
 ## Cómo funciono

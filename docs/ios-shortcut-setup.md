@@ -61,7 +61,7 @@ Reemplazá `[var]` arrastrando las variables al campo URL.
 
 `[CLAVE]` no es una variable del atajo: va escrita a mano. Es la clave que
 exige la webapp desde que se cerró el acceso público — está en
-`pwa/.secrets-local.md` (no va a git). Sin ella la respuesta es
+`secretos-locales/.secrets-local.md` (no va a git). Sin ella la respuesta es
 `{"ok":false,"error":"No autorizado"}`.
 
 - Method: GET

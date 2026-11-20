@@ -113,7 +113,7 @@ export function cfgDeFila(T, fila) {
     modulos: base.modulos,
     onboarding_listo: esIlan && !fila ? true : !!(fila && fila.onboarding_listo),
     plan: planEfectivo(fila), planHasta: fila && fila.plan_hasta || null, // no sale en cfgPublica
-    dueno: esIlan // la cuenta del dueño: no paga y sus avisos van por la PWA propia
+    dueno: esIlan // la cuenta del dueño: no paga y además recibe los avisos de hábitos y los mails
   };
   if (guardada && typeof guardada === 'object') {
     if (listaDeStrings(guardada.medios)) cfg.medios = guardada.medios;

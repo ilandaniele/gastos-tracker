@@ -108,8 +108,8 @@ nacen con todos los módulos en `d1` (`fuenteDefecto()` en `src/rpc/util.js`); `
 - **Push y avisos por cuenta** (hecho, falta activar una clave): `src/push.js` + `src/pushsend.js`, migración 0008 (`push_subs`).
   La PWA de las cuentas nuevas es el propio `/app` (mismo origen que la cookie): `/manifest.webmanifest`, `/sw.js`, íconos y
   la página `/avisos` (link "🔔 Avisos" en el home). El push va SIN payload; el service worker pide el texto a
-  `POST /api/push/aviso` con la sesión. El cron compartido de `gastos-habitos` llama cada 15 min a `POST /api/push/tick`
-  (X-Sync-Key); ahí se mira la hora LOCAL de cada cuenta (`tenants.tz`): 07 h tareas y citas de hoy (solo si hay algo) y el
+  `POST /api/push/aviso` con la sesión. El cron de `gastos-app` (`scheduled()`) llama cada 15 min a `tickPush`
+  (`POST /api/push/tick` con X-Sync-Key lo dispara a mano); ahí se mira la hora LOCAL de cada cuenta (`tenants.tz`): 07 h tareas y citas de hoy (solo si hay algo) y el
   día 1 a las 09 h el aviso del reporte mensual, una vez por dispositivo y día (`push_subs.ultimo`). Máximo 5 dispositivos por
   cuenta; un dispositivo avisa a la última cuenta que lo activó; el endpoint solo se acepta si es https de FCM, Mozilla, Apple
   o Windows (anti SSRF). `ilan` sigue con su KV y su Worker de la PWA. Sin `VAPID_PRIVATE_JWK` el tick no hace nada ni gasta D1.

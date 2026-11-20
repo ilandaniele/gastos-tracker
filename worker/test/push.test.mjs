@@ -58,15 +58,15 @@ await t('estáticos públicos: manifest, service worker e íconos sin sesión', 
 
 // ---------------------------------------------------------------- página y clave pública
 let A, B2, C;
-await t('/avisos: sin sesión redirige a /login; con sesión 200 con CSP propia; ilan ve que usa la app de siempre', async () => {
+await t('/avisos: sin sesión redirige a /login; con sesión 200 con CSP propia; ilan ve además los avisos de hábitos', async () => {
   const sin = await f('/avisos'); assert.equal(sin.status, 302); assert.equal(sin.headers.get('location'), '/login');
   A = await cuentaNueva('push.a@ejemplo.com', BASE_BA);
   const r = await f('/avisos', { headers: { Cookie: A } }); assert.equal(r.status, 200);
   const csp = r.headers.get('content-security-policy');
   assert.match(csp, /worker-src 'self'/); assert.match(csp, /manifest-src 'self'/); assert.match(csp, /default-src 'none'/);
   assert.equal(r.headers.get('cache-control'), 'no-store');
-  const h = await r.text(); assert.match(h, /"propia":false/); assert.match(h, /"configurado":true/);
-  const il = await (await f('/avisos', { headers: { Cookie: ILAN } })).text(); assert.match(il, /"propia":true/);
+  const h = await r.text(); assert.match(h, /"configurado":true/); assert.doesNotMatch(h, /de hábitos/); assert.match(h, /id="probar"/);
+  const il = await (await f('/avisos', { headers: { Cookie: ILAN } })).text(); assert.match(il, /de hábitos/);
 });
 await t('/api/push/vapid: exige sesión y devuelve la clave pública', async () => {
   assert.equal((await f('/api/push/vapid')).status, 401);
@@ -98,8 +98,7 @@ await t('suscribir: hosts reales de FCM, Mozilla, Apple y Windows valen', async 
   }
   assert.equal((await (await post('/api/push/desuscribir', { endpoint: 'https://fcm.googleapis.com/fcm/send/abc' }, { Cookie: C })).json()).ok, true);
 });
-await t('suscribir: ilan no usa este camino (400); re-suscribir el mismo dispositivo no cuenta doble; tope de 5', async () => {
-  const il = await sub(ILAN, EP(1)); assert.equal(il.status, 400);
+await t('suscribir: re-suscribir el mismo dispositivo no cuenta doble; tope de 5', async () => {
   for (let i = 1; i <= 5; i++) assert.equal((await (await sub(A, EP(i))).json()).ok, true);
   assert.equal((await (await sub(A, EP(3))).json()).ok, true, 're-suscribir uno existente');
   const sexto = await sub(A, EP(6)); const j = await sexto.json();
@@ -155,16 +154,67 @@ await t('tick: la hora es LOCAL de cada cuenta (Tokio 07:00 = 22:00Z del día an
   assert.equal((await tick('2027-04-10T22:00:00Z')).enviados, 1);
   assert.match((await aviso(J)).cuerpo, /Hanko/);
 });
-await t('tick: ilan nunca entra (sus avisos siguen en el Worker de la PWA)', async () => {
-  const x = await tick('2027-05-01T10:00:00Z'); assert.ok(x.cuentas >= 3);
-  assert.equal((await aviso(ILAN)).titulo, undefined);
-});
 await t('tick: dispositivo desuscripto deja de recibir', async () => {
   await post('/api/push/desuscribir', { endpoint: EP(12) }, { Cookie: B2 });
   const x = await tick('2027-06-15T10:00:00Z'); assert.equal(x.enviados, 2, 'B2 pasó de 3 a 2 dispositivos: ' + JSON.stringify(x));
 });
 await t('tick: sin "ahora" usa el reloj real (responde ok)', async () => {
   const x = await tick(); assert.equal(x.ok, true);
+});
+
+// ---------------------------------------------------------------- dueño ('ilan'): hábitos, mails, probar, diag
+// Montevideo es UTC-3 todo el año: 09:00 locales = 12:00Z, 23:00 = 02:00Z del día siguiente.
+const diag = async (cookie = ILAN) => f('/api/push/diag', { headers: { Cookie: cookie } });
+await t('ilan: activa avisos como cualquier cuenta; /api/push/diag es solo del dueño', async () => {
+  assert.equal((await (await sub(ILAN, EP(90))).json()).ok, true);
+  assert.equal((await f('/api/push/diag')).status, 401);
+  assert.equal((await diag(A)).status, 404);
+  const d = await (await diag()).json();
+  assert.equal(d.ok, true); assert.equal(d.dispositivos.length, 1); assert.equal(d.vapid, true);
+});
+await t('ilan: 09:00 locales avisa "¿a qué hora te levantaste?" una sola vez por día', async () => {
+  const x = await tick('2027-07-10T12:00:00Z'); assert.equal(x.enviados, 1, JSON.stringify(x));
+  assert.match((await aviso(ILAN)).titulo, /levantaste/);
+  assert.equal((await tick('2027-07-10T12:15:00Z')).enviados, 0, 'mismo día: no repite');
+});
+await t('ilan: de 23 a 02 h locales insiste con el cierre del día, una vez por hora', async () => {
+  const x = await tick('2027-07-10T02:00:00Z'); assert.equal(x.enviados, 1, JSON.stringify(x));
+  const a = await aviso(ILAN); assert.match(a.titulo, /Cerrá el día/); assert.match(a.cuerpo, /Falta/);
+  assert.equal((await tick('2027-07-10T02:15:00Z')).enviados, 0, 'misma hora: no repite');
+  assert.equal((await tick('2027-07-10T03:00:00Z')).enviados, 1, 'la hora siguiente vuelve a avisar');
+  assert.equal((await tick('2027-07-10T06:00:00Z')).enviados, 0, '03:00 locales ya no insiste');
+});
+await t('ilan: a las 07:00 locales intenta el mail de tareas y no lo repite en la misma hora', async () => {
+  const x = await tick('2027-07-11T10:00:00Z');
+  assert.ok(x.mails && x.mails.tareas, JSON.stringify(x));
+  assert.equal((await tick('2027-07-11T10:15:00Z')).mails, undefined, 'ya marcado');
+});
+await t('ilan: el día 1 a las 09:00 locales sale el reporte (push y mail) y 15 min después el de la mañana', async () => {
+  const x = await tick('2027-08-01T12:00:00Z');
+  assert.ok(x.mails && x.mails.mensual, JSON.stringify(x));
+  const a = await aviso(ILAN); assert.match(a.titulo, /Reporte/); assert.match(a.cuerpo, /julio 2027/);
+  const y = await tick('2027-08-01T12:15:00Z'); assert.equal(y.enviados, 1, JSON.stringify(y));
+  assert.match((await aviso(ILAN)).titulo, /levantaste/);
+  assert.equal((await tick('2027-08-01T12:30:00Z')).mails, undefined, 'el mail del mes no se repite');
+});
+await t('probar: sin sesión 401, sin dispositivos 400, con dispositivo llega y no se puede repetir en un minuto', async () => {
+  assert.equal((await post('/api/push/probar', {})).status, 401);
+  const N = await cuentaNueva('push.n@ejemplo.com', BASE_BA);
+  assert.equal((await post('/api/push/probar', {}, { Cookie: N })).status, 400);
+  assert.equal((await post('/api/push/probar', {}, { Cookie: ILAN, Origin: 'https://evil.com' })).status, 403);
+  const r = await (await post('/api/push/probar', {}, { Cookie: ILAN })).json();
+  assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.enviados, 1);
+  assert.match((await aviso(ILAN)).titulo, /Prueba/);
+  assert.equal((await post('/api/push/probar', {}, { Cookie: ILAN })).status, 429);
+});
+await t('diag: lista el dispositivo y lo ya enviado', async () => {
+  const d = await (await diag()).json();
+  assert.equal(d.dispositivos.length, 1); assert.match(d.dispositivos[0].ultimo, /manana:2027-08-01/);
+  assert.ok(d.mailUltimo && d.mailUltimo.mensual === '2027-08', JSON.stringify(d.mailUltimo));
+});
+await t('ilan: desactivar el dispositivo corta los avisos', async () => {
+  assert.equal((await (await post('/api/push/desuscribir', { endpoint: EP(90) }, { Cookie: ILAN })).json()).ok, true);
+  assert.equal((await tick('2027-09-10T12:00:00Z')).enviados, 0);
 });
 
 console.log(out.join('\n'));

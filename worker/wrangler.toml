@@ -1,5 +1,4 @@
-# Worker nuevo (reemplazo futuro de Apps Script). Vive aparte de pwa/ ("gastos-habitos"):
-# esa app sigue andando igual hasta el corte.
+# Worker de la app: formulario, API, D1, avisos push y cron. Reemplaza a Apps Script y al Worker "gastos-habitos".
 name = "gastos-app"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
@@ -22,9 +21,11 @@ migrations_dir = "migrations"
 # ACCESS_EMAILS = "ilan.daniele@gmail.com"
 
 
-# Sync: el cron compartido de gastos-habitos (pwa/, cada 15 min) llama a POST /api/sync por service
-# binding con X-Sync-Key = APP_KEY. Con todos los módulos en D1 no hace nada (devuelve {omitido}).
-# El cron propio del Worker queda desactivado: el plan gratis limita a 5 por cuenta.
+# Cron único cada 15 min (el plan gratis limita a 5 por cuenta): scheduled() en src/index.js sincroniza
+# (con todos los módulos en D1 no hace nada) y manda los avisos push y mails (push.js, tickPush).
+[triggers]
+crons = ["*/15 * * * *"]
+
 [vars]
 # Access activo: app "gastos-app" en Zero Trust (política "Solo Ilan"). El Worker verifica el JWT.
 ACCESS_TEAM = "ilandaniele.cloudflareaccess.com"

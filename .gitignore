@@ -17,3 +17,6 @@ apps-script/.clasp.json
 
 # Caché de wrangler (trae el mail y el id de la cuenta de Cloudflare)
 .wrangler/
+
+# Secretos locales (APP_KEY, Access, OAuth, claves VAPID viejas)
+secretos-locales/

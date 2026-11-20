@@ -4,7 +4,7 @@ Antes cualquiera con el link entraba a tus datos. Ahora hay dos puertas.
 
 ## 1. Login delante de la app
 
-`https://gastos-habitos.ilandaniele.workers.dev` está protegida con Cloudflare
+`https://gastos-app.ilandaniele.workers.dev` está protegida con Cloudflare
 Access. Antes de ver nada pide identificarte, y la única cuenta permitida es
 **ilan.daniele@gmail.com**. La sesión dura **10 años**, así que en el celular lo
 hacés una vez y listo.
@@ -32,7 +32,7 @@ que le permite contestarle al servidor de notificaciones sin sesión de Google),
 pero ahora **exige una clave** que solo conoce la PWA. Entrar al link pelado
 muestra "🔒 No autorizado".
 
-La clave está en `pwa/.secrets-local.md` (no va a git).
+La clave está en `secretos-locales/.secrets-local.md` (no va a git).
 
 ### Qué se rompió con esto
 
@@ -70,7 +70,7 @@ sigue protegiendo los datos).
 
 | Qué | Valor |
 |-----|-------|
-| App | `gastos-habitos.ilandaniele.workers.dev` |
+| App | `gastos-app.ilandaniele.workers.dev` |
 | Dominio de login | `ilandaniele.cloudflareaccess.com` |
 | Aplicación de Access | Gastos |
 | Política | Solo `ilan.daniele@gmail.com` |

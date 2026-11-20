@@ -1,6 +1,6 @@
 // Avisos pendientes (hábitos y tareas) sobre D1. Port de habitPending / _habitPendingNoche /
 // _habitPendingManana / tasksPending de Apps Script (Code.gs), con las mismas respuestas:
-// las consumen el Worker de la PWA (gastos-habitos), su service worker y los atajos de iOS.
+// las consumen push.js, el service worker de la PWA y los atajos de iOS.
 import { getHabitDay, parseHM } from './rpc/habitos.js';
 import { leerTareas } from './rpc/tareas.js';
 import { hoy } from './rpc/util.js';

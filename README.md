@@ -4,16 +4,16 @@ Sistema de registro y análisis de gastos personales (Uruguay). Entrada de gasto
 el celular, dashboard en vivo, escaneo OCR de tickets y auto-clasificación por categoría.
 
 > **Estado actual (2026-11):** nació sobre una Google Sheet + Apps Script, pero los datos
-> viven ahora en **Cloudflare D1** y todo corre en dos Workers: `gastos-app` (`worker/`: datos,
-> formulario en `/app`, API en `/api/rpc/<función>`) y `gastos-habitos` (`pwa/`: PWA, web push
-> y el cron compartido). Apps Script y la Sheet quedan como referencia y respaldo; las
-> secciones de abajo que los describen son el sistema original. Ver
+> viven ahora en **Cloudflare D1** y todo corre en un solo Worker, `gastos-app` (`worker/`: datos,
+> formulario en `/app`, API en `/api/rpc/<función>`, PWA, avisos push y el cron de 15 minutos).
+> Apps Script y la Sheet quedan como referencia y respaldo; las secciones de abajo que los
+> describen son el sistema original. Ver
 > [`docs/AUDITORIA-migracion.md`](docs/AUDITORIA-migracion.md) (estado y checklist para
-> apagar Apps Script) y [`pwa/README.md`](pwa/README.md).
+> apagar Apps Script) y [`docs/pwa-instalacion.md`](docs/pwa-instalacion.md) (instalar la app y los avisos).
 
 ## Componentes
 
-Vigentes: Worker `gastos-app` (D1 + formulario + API), Worker `gastos-habitos` (PWA + push + cron).
+Vigente: Worker `gastos-app` (D1 + formulario + API + PWA + push + cron).
 Originales (hoy legacy):
 
 - **Google Sheet** "Registro de gastos" — base de datos, una pestaña por mes.
@@ -28,8 +28,7 @@ gastos-tracker/
 ├── README.md
 ├── .githooks/
 │   └── pre-commit         # corta el commit si se cuela otro proyecto
-├── worker/                # Worker gastos-app: D1, formulario /app, API /api/rpc
-├── pwa/                   # Worker gastos-habitos: PWA, web push, cron
+├── worker/                # Worker gastos-app: D1, formulario /app, API /api/rpc, PWA, push, cron
 ├── apps-script/
 │   ├── Code.gs            # (legacy) código del webhook (pegar en el editor Apps Script)
 │   └── appsscript.json    # manifest con los OAuth scopes

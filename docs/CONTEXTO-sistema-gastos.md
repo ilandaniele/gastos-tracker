@@ -15,23 +15,22 @@ respaldo.** Detalle de la migración en [`AUDITORIA-migracion.md`](AUDITORIA-mig
 | Pieza | Dónde | Qué hace |
 |---|---|---|
 | Worker `gastos-app` | `worker/` | Datos en D1 (`gastos-db`), formulario en `/app`, API de escritura `POST /api/rpc/<función>` (mismos nombres que las funciones `*Safe` de Apps Script), visor y `/api/habit-pending`, `/api/tasks-pending`. |
-| Worker `gastos-habitos` | `pwa/` | Shell de la PWA, suscripciones y envío de web push, y el cron compartido `*/15 * * * *`. No llama a Apps Script: le pregunta a `gastos-app` por service binding `GASTOS_APP`. |
+| Avisos push y cron | `worker/src/push.js` | Dentro de `gastos-app`: suscripciones en D1 (`push_subs`), envío de web push, mails del dueño y el único cron `*/15 * * * *` (`scheduled()`). El Worker viejo `gastos-habitos` y `pwa/` ya no existen. |
 | Apps Script + Sheet | `apps-script/Code.gs` | Legacy: referencia y respaldo. Sus triggers y el deployment web se pueden apagar (checklist en `AUDITORIA-migracion.md`, sección 11). |
 
 - **Los 7 módulos** (gastos, ahorros, ingresos, tareas, hábitos, país, compras) tienen fuente
   `d1` (`settings.fuente_<modulo>`). `POST /api/sync` devuelve `{omitido}` y no toca Apps Script.
 - **Entrada**: la PWA abre `https://gastos-app.ilandaniele.workers.dev/app`. El formulario no
-  se embebe en un iframe porque `/app` manda `frame-ancestors 'none'`; con `VIEW_KEY` en `pwa/`
-  el shell va a `/?key=<VIEW_KEY>&next=/app` para dejar la cookie de sesión.
+  se embebe en un iframe porque `/app` manda `frame-ancestors 'none'`; la sesión es la de Cloudflare Access
+  o la cookie de `VIEW_KEY`.
 - **Auth de `gastos-app`**: sesión de Cloudflare Access (cuando se active) o cookie con
   `VIEW_KEY`. Las dos rutas de avisos también aceptan `X-Sync-Key` = `APP_KEY` (solo GET).
   **Cloudflare Access sigue pendiente:** hay que crear la app de Access para
   `gastos-app.ilandaniele.workers.dev` y pasar su AUD tag (`ACCESS_TEAM`, `ACCESS_AUD`).
-- **Push (UTC; Montevideo = UTC-3)**: 2, 3, 4, 5 = 23 a 02 (cierre del día, hábitos);
-  10 = 07:00 (tareas del día, solo si hay pendientes); 12 = 09:00 (a qué hora te levantaste).
-- **Secretos.** `gastos-app`: `APP_KEY`, `VIEW_KEY`, `GEMINI_API_KEY`. `gastos-habitos`:
-  `ADMIN_KEY`, `APP_KEY`, `VAPID_PRIVATE_JWK`, `VAPID_PUBLIC_KEY`, opcional `VIEW_KEY`.
-  `APP_KEY` igual en los dos.
+- **Push (hora local de la cuenta; Montevideo = UTC-3)**: 07:00 tareas del día (solo si hay pendientes); para el dueño,
+  además 09:00 a qué hora te levantaste y 23 a 02 cierre del día (hábitos).
+- **Secretos.** `gastos-app`: `APP_KEY`, `VIEW_KEY`, `GEMINI_API_KEY`. y `VAPID_PRIVATE_JWK`
+  (la pública está en `worker/wrangler.toml`).
 - **Límites de D1 gratis**: 100.000 filas escritas por día, 5.000.000 leídas por día y hasta
   50 consultas por invocación de Worker. Por eso el sync (mientras hubo módulos en `sheet`) fue
   diferencial: huella por grupo en `sync_state` y solo se escribe lo que cambió.
@@ -64,7 +63,7 @@ una Google Sheet existente llamada **"Registro de gastos"**. Tiene 4 componentes
 
 **La webapp exige una clave**: entrar al link pelado devuelve "🔒 No autorizado".
 Hay que agregar `?k=<clave>` (o `&k=<clave>` si ya hay otros parámetros) a cada
-llamada. La clave está en `pwa/.secrets-local.md`, que no va a git — ver
+llamada. La clave está en `secretos-locales/.secrets-local.md`, que no va a git — ver
 [`acceso-privado.md`](acceso-privado.md).
 
 **Importante**: el Apps Script y la Sheet viven en la nube de Google. Desde una computadora
@@ -318,7 +317,7 @@ npx @google/clasp@3 create-deployment -i <DEPLOYMENT_ID> -d "qué cambió"
   `Cannot read properties of undefined (reading 'access_token')`: las
   credenciales de `~/.clasprc.json` están en formato v3 (`{tokens:{default:…}}`)
   y la v2 espera el formato viejo.
-- El `<DEPLOYMENT_ID>` de producción es el que está en `pwa/wrangler.toml`
+- El `<DEPLOYMENT_ID>` de producción es el que está en `worker/wrangler.toml`
   (`APPS_SCRIPT_URL`) — el mismo `AKfycb…` que va en la URL. `list-deployments`
   muestra cinco; los `api exec` son viejos y no se tocan.
 - Pasar `-i` **reusa** el deployment, así que la URL NO cambia. Sin `-i` se crea

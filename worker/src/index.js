@@ -13,7 +13,7 @@ import { hoy } from './rpc/util.js';
 import { ofertas, ofertaDe, preciosDe, proveedorActivo, activarPlan, paginaPlan, CSP_PLAN, PERIODOS, PROVEEDORES } from './planes.js';
 import { crearCheckout, leerWebhook } from './pagos.js';
 import { exportarCuenta, borrarCuenta, paginaCuenta, CSP_CUENTA } from './datos.js';
-import { suscribir, desuscribir, avisoDe, tickPush, pushConfigurado, MANIFEST_APP, SERVICE_WORKER_APP, CSP_AVISOS, paginaAvisos, iconoBytes } from './push.js';
+import { suscribir, desuscribir, avisoDe, tickPush, probarPush, diagPush, anotarTick, pushConfigurado, MANIFEST_APP, SERVICE_WORKER_APP, CSP_AVISOS, paginaAvisos, iconoBytes } from './push.js';
 
 // Único tenant que sigue atado al Sheet/Apps Script (sync, /api/fuente, informes por mail): el original.
 const ILAN = 'ilan';
@@ -475,9 +475,14 @@ async function sincronizar(env) {
 
 export default {
   async scheduled(event, env, ctx) {
+    // Cron cada 15 min: sincroniza (no-op con todo en D1) y manda los avisos push y mails que toquen.
     ctx.waitUntil(sincronizar(env).then(
       (c) => console.log('sync ok', JSON.stringify(c)),
       (e) => console.error('sync falló:', String(e && e.message || e))
+    ));
+    ctx.waitUntil(tickPush(env, new Date(event.scheduledTime || Date.now())).then(
+      async (r) => { console.log('tick push', JSON.stringify(r)); await anotarTick(env, r); },
+      (e) => console.error('tick push falló:', String(e && e.message || e))
     ));
   },
 
@@ -530,7 +535,7 @@ export default {
       catch (e) { return json({ ok: false, error: String(e && e.message || e) }, 500); }
     }
 
-    // Tick del cron compartido (gastos-habitos, cada 15 min): avisos push de las cuentas con suscripciones (push.js).
+    // Tick de los avisos push (lo corre el cron de scheduled(); este endpoint sirve para dispararlo a mano): push.js.
     if (url.pathname === '/api/push/tick') {
       if (req.method !== 'POST') return json({ ok: false, error: 'Usar POST' }, 405);
       if (!env.APP_KEY || !eq(req.headers.get('X-Sync-Key') || '', env.APP_KEY)) return json({ ok: false, error: 'No autorizado' }, 401);
@@ -680,11 +685,15 @@ export default {
     }
 
     // Suscripciones push de la cuenta (service worker y página /avisos, mismo origen que la sesión).
-    if (req.method === 'POST' && (url.pathname === '/api/push/suscribir' || url.pathname === '/api/push/desuscribir' || url.pathname === '/api/push/aviso')) {
+    if (req.method === 'POST' && (url.pathname === '/api/push/suscribir' || url.pathname === '/api/push/desuscribir' || url.pathname === '/api/push/aviso' || url.pathname === '/api/push/probar')) {
       const origin = req.headers.get('Origin');
       if (origin && origin !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
       try {
         if (url.pathname === '/api/push/aviso') return json({ ok: true, ...((await avisoDe(env, T)) || {}) });
+        if (url.pathname === '/api/push/probar') {
+          const { status, ...cuerpo } = await probarPush(env, T);
+          return json(cuerpo, status || 200);
+        }
         if (!(req.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) return json({ ok: false, error: 'Se espera JSON' }, 415);
         const txt = await req.text();
         if (txt.length > 4096) return json({ ok: false, error: 'Pedido demasiado grande' }, 413);
@@ -695,6 +704,12 @@ export default {
         const { status, ...cuerpo } = r;
         return json(cuerpo, status || 200);
       } catch (e) { console.error('push falló:', String(e && e.message || e)); return json({ ok: false, error: 'No se pudo guardar' }, 500); }
+    }
+
+    // Estado de los avisos del dueño (dispositivos, último tick del cron, últimos mails). Solo la cuenta 'ilan'.
+    if (req.method === 'GET' && url.pathname === '/api/push/diag') {
+      if (T !== ILAN) return json({ ok: false, error: 'No encontrado' }, 404);
+      return json(await diagPush(env));
     }
 
     // Datos de la cuenta: descargar todo (GET) y borrarla (POST, pide escribir el mail). La cuenta del dueño no se borra.
