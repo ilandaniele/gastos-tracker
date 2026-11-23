@@ -24,7 +24,7 @@
   .catchips button { width: auto; margin: 0; padding: 7px 11px; font-size: 13px; font-weight: 500; border-radius: 16px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; }
   .catchips button.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   /* Desplegable de categorías (selección múltiple): botón con las elegidas + panel en el flujo. */
-  .catdd { margin-bottom: 4px; }
+  .catdd { margin-bottom: 4px; touch-action: manipulation; /* sin zoom por doble toque al marcar varias seguidas */ }
   .catdd .catdd-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 46px; margin: 0; padding: 10px 14px;
     background: #fff; color: #1a1a1a; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 16px; font-weight: 500; text-align: left; }
   .catdd .catdd-btn:active { background: #f5f5f5; }
@@ -1128,6 +1128,11 @@
 
     /* Selector de ícono del gasto (alta y edición): reutiliza el desplegable de categorías. */
     .icopick .icp-cur { flex: 0 0 auto; font-size: 22px; line-height: 1; }
+    /* El botón del ícono es un recuadro chico (emoji + flecha); el texto queda solo para lectores de pantalla. */
+    .icopick .catdd-btn { display: inline-flex; width: auto; min-width: 72px; padding: 8px 14px; border-radius: 8px; }
+    .icopick .catdd-btn[aria-expanded="true"] { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+    .icopick .catdd-txt { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; flex: none; }
+    .icopick .catdd-panel { margin-top: 4px; border-top: 1px solid #0f766e; border-radius: 8px; }
     .icp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 2px; }
     .catdd .icp-op { width: auto; min-height: 44px; margin: 0; padding: 0; font-size: 22px; line-height: 1; background: #fff; color: #1a1a1a;
       border: 1px solid transparent; border-radius: 8px; }
@@ -2876,11 +2881,13 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
       aviso.textContent = lleno ? ('Máximo ' + CAT_MAX + ' categorías') : '';
     }
     function abierto() { return !panel.hidden; }
-    function abrir() {
+    // Con teclado (Enter/Espacio sobre el botón) el foco pasa a la primera opción; con el dedo no se toca el foco:
+    // en el celular, mover el foco al abrir hace saltar la pantalla y puede cerrar el panel al tocar.
+    function abrir(conTeclado) {
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
       var primero = sel.length ? checks[sel[0]] : checks[lista[0]];
-      if (primero) primero.focus();
+      if (conTeclado && primero) primero.focus();
     }
     function cerrar(devolverFoco) {
       if (!abierto()) return;
@@ -2888,14 +2895,16 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
       btn.setAttribute('aria-expanded', 'false');
       if (devolverFoco) btn.focus();
     }
-    btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    btn.addEventListener('click', function(ev) { if (abierto()) cerrar(false); else abrir(ev.detail === 0); });
     listo.addEventListener('click', function() { cerrar(true); });
+    var conTab = false; // el foco solo cierra el panel si salió con Tab
     box.addEventListener('keydown', function(ev) {
+      conTab = ev.key === 'Tab';
       if (ev.key === 'Escape' && abierto()) {
         // Que no lo agarre también el Escape global (cierra el modal de editar gasto).
         ev.preventDefault(); ev.stopPropagation(); cerrar(true); return;
       }
-      if (ev.key === 'ArrowDown' && ev.target === btn && !abierto()) { ev.preventDefault(); abrir(); return; }
+      if (ev.key === 'ArrowDown' && ev.target === btn && !abierto()) { ev.preventDefault(); abrir(true); return; }
       if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && ev.target.type === 'checkbox') {
         var cbs = Array.prototype.filter.call(grilla.querySelectorAll('input'), function(x) { return !x.disabled; });
         var i = cbs.indexOf(ev.target);
@@ -2907,10 +2916,11 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
     });
     // Clic/toque afuera: cierra sin mover el foco. Foco que sale con Tab: también.
     document.addEventListener('pointerdown', function(ev) {
+      conTab = false;
       if (abierto() && !box.contains(ev.target)) cerrar(false);
     });
     box.addEventListener('focusout', function(ev) {
-      if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false);
+      if (conTab && ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false);
     });
     pintar();
     return {
@@ -3033,11 +3043,13 @@ button.gx:active, .gx.editable:active, .gx.grupo:active { background: #202826; }
       if (devolverFoco) btn.focus();
     }
     btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    var conTab = false; // el foco solo cierra el panel si salió con Tab
     box.addEventListener('keydown', function(ev) {
+      conTab = ev.key === 'Tab';
       if (ev.key === 'Escape' && abierto()) { ev.preventDefault(); ev.stopPropagation(); cerrar(true); }
     });
-    document.addEventListener('pointerdown', function(ev) { if (abierto() && !box.contains(ev.target)) cerrar(false); });
-    box.addEventListener('focusout', function(ev) { if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false); });
+    document.addEventListener('pointerdown', function(ev) { conTab = false; if (abierto() && !box.contains(ev.target)) cerrar(false); });
+    box.addEventListener('focusout', function(ev) { if (conTab && ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false); });
     // Las tablas de íconos (CAT_ICO, ITEM_ICO) se arman más abajo en este mismo script: se pinta al terminar de cargar.
     setTimeout(pintar, 0);
     return {

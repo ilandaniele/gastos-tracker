@@ -235,11 +235,13 @@
       aviso.textContent = lleno ? ('Máximo ' + CAT_MAX + ' categorías') : '';
     }
     function abierto() { return !panel.hidden; }
-    function abrir() {
+    // Con teclado (Enter/Espacio sobre el botón) el foco pasa a la primera opción; con el dedo no se toca el foco:
+    // en el celular, mover el foco al abrir hace saltar la pantalla y puede cerrar el panel al tocar.
+    function abrir(conTeclado) {
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
       var primero = sel.length ? checks[sel[0]] : checks[lista[0]];
-      if (primero) primero.focus();
+      if (conTeclado && primero) primero.focus();
     }
     function cerrar(devolverFoco) {
       if (!abierto()) return;
@@ -247,14 +249,16 @@
       btn.setAttribute('aria-expanded', 'false');
       if (devolverFoco) btn.focus();
     }
-    btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    btn.addEventListener('click', function(ev) { if (abierto()) cerrar(false); else abrir(ev.detail === 0); });
     listo.addEventListener('click', function() { cerrar(true); });
+    var conTab = false; // el foco solo cierra el panel si salió con Tab
     box.addEventListener('keydown', function(ev) {
+      conTab = ev.key === 'Tab';
       if (ev.key === 'Escape' && abierto()) {
         // Que no lo agarre también el Escape global (cierra el modal de editar gasto).
         ev.preventDefault(); ev.stopPropagation(); cerrar(true); return;
       }
-      if (ev.key === 'ArrowDown' && ev.target === btn && !abierto()) { ev.preventDefault(); abrir(); return; }
+      if (ev.key === 'ArrowDown' && ev.target === btn && !abierto()) { ev.preventDefault(); abrir(true); return; }
       if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && ev.target.type === 'checkbox') {
         var cbs = Array.prototype.filter.call(grilla.querySelectorAll('input'), function(x) { return !x.disabled; });
         var i = cbs.indexOf(ev.target);
@@ -266,10 +270,11 @@
     });
     // Clic/toque afuera: cierra sin mover el foco. Foco que sale con Tab: también.
     document.addEventListener('pointerdown', function(ev) {
+      conTab = false;
       if (abierto() && !box.contains(ev.target)) cerrar(false);
     });
     box.addEventListener('focusout', function(ev) {
-      if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false);
+      if (conTab && ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false);
     });
     pintar();
     return {
@@ -392,11 +397,13 @@
       if (devolverFoco) btn.focus();
     }
     btn.addEventListener('click', function() { if (abierto()) cerrar(false); else abrir(); });
+    var conTab = false; // el foco solo cierra el panel si salió con Tab
     box.addEventListener('keydown', function(ev) {
+      conTab = ev.key === 'Tab';
       if (ev.key === 'Escape' && abierto()) { ev.preventDefault(); ev.stopPropagation(); cerrar(true); }
     });
-    document.addEventListener('pointerdown', function(ev) { if (abierto() && !box.contains(ev.target)) cerrar(false); });
-    box.addEventListener('focusout', function(ev) { if (ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false); });
+    document.addEventListener('pointerdown', function(ev) { conTab = false; if (abierto() && !box.contains(ev.target)) cerrar(false); });
+    box.addEventListener('focusout', function(ev) { if (conTab && ev.relatedTarget && !box.contains(ev.relatedTarget)) cerrar(false); });
     // Las tablas de íconos (CAT_ICO, ITEM_ICO) se arman más abajo en este mismo script: se pinta al terminar de cargar.
     setTimeout(pintar, 0);
     return {

@@ -616,11 +616,27 @@ async function scanTicket(env, T, [base64Image]) {
       temperature: 0.1
     }
   };
-  const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(50000)
-  });
-  const texto = await resp.text();
-  if (resp.status !== 200) return { ok: false, error: 'Gemini HTTP ' + resp.status + ': ' + texto.substring(0, 400) };
+  // Gemini devuelve 503 ("high demand") o 429 a ratos: se reintenta con espera corta y, la última vez, con el modelo lite.
+  // Tres intentos de 25 s como máximo, para quedar dentro del límite de 90 s del formulario.
+  const MODELOS = ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  let resp = null, texto = '';
+  for (let i = 0; i < MODELOS.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1500 * i));
+    try {
+      resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + MODELOS[i] + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000)
+      });
+      texto = await resp.text();
+    } catch (e) {
+      if (i === MODELOS.length - 1) return { ok: false, error: 'Gemini no respondió: ' + (e && e.message ? e.message : e) };
+      continue;
+    }
+    if (resp.status === 200 || ![429, 500, 502, 503, 504].includes(resp.status)) break;
+  }
+  if (resp.status !== 200) {
+    if ([429, 503].includes(resp.status)) return { ok: false, error: 'Gemini está saturado en este momento. Probá de nuevo en un minuto.' };
+    return { ok: false, error: 'Gemini HTTP ' + resp.status + ': ' + texto.substring(0, 400) };
+  }
   const data = JSON.parse(texto);
   const out = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
   if (!out) return { ok: false, error: 'Respuesta Gemini vacía: ' + texto.substring(0, 400) };
